@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -7,39 +7,95 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
-  NodeToolbar
+  useReactFlow,
+  ReactFlowProvider
 } from '@xyflow/react';
  
 import '@xyflow/react/dist/style.css';
  
 const initialNodes = [
-  { id: '1', position: { x: 100, y: 10 }, data: { label: '1' } },
-  { id: '2', position: { x: 100, y: 100 }, data: { label: '2' } },
+  {
+    id: '0',
+    type: 'input',
+    data: { label: 'Node' },
+    position: { x: 0, y: 50 },
+  },
 ];
-const initialEdges = [{ id: 'e1-2', source: '1', target: '2' }];
+
+let id = 1;
+const getId = () => `${id++}`;
+const nodeOrigin = [0.5, 0];
+const AddNodeOnEdgeDrop = () => {
+  const reactFlowWrapper = useRef(null);
  
-export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
- 
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const { screenToFlowPosition } = useReactFlow();
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges],
+    [],
+  );
+ 
+  const onConnectEnd = useCallback(
+    (event, connectionState) => {
+      // when a connection is dropped on the pane it's not valid
+      if (!connectionState.isValid) {
+        // we need to remove the wrapper bounds, in order to get the correct position
+        const id = getId();
+        const { clientX, clientY } =
+          'changedTouches' in event ? event.changedTouches[0] : event;
+        const newNode = {
+          id,
+          position: screenToFlowPosition({
+            x: clientX,
+            y: clientY,
+          }),
+          data: { label: `Node ${id}` },
+          origin: [0.5, 0.0],
+        };
+ 
+        setNodes((nds) => nds.concat(newNode));
+        setEdges((eds) =>
+          eds.concat({ id, source: connectionState.fromNode.id, target: id }),
+        );
+      }
+    },
+    [screenToFlowPosition],
   );
  
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
+    <div className="wrapper" ref={reactFlowWrapper}>
       <ReactFlow
+        style={{ backgroundColor: "#F79FB" }}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
+        fitView
+        fitViewOptions={{ padding: 2 }}
+        nodeOrigin={nodeOrigin}
       >
+      <Background />
+      </ReactFlow>
+    </div>
+  );
+};
+ 
+export default function App() {
+  
+  return (
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <ReactFlowProvider>
+        <AddNodeOnEdgeDrop />
+      </ReactFlowProvider> 
+      <ReactFlow>
         <Controls />
         <MiniMap />
         <Background color="#ddd" variant="dots" gap={12} size={1} />
       </ReactFlow>
     </div>
+
   );
 }
