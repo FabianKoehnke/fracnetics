@@ -14,15 +14,13 @@ import {
 import '@xyflow/react/dist/style.css';
 import gnpNode from "./gnpNode"
 
-const nodeTypes = {
-  'gnpNode': gnpNode,
-};
+const nodeTypes = {gnpNode};
 
 const initialNodes = [
   {
     id: "0",
     type: 'gnpNode',
-    data: { label: `N ${0}` },
+    data: {label: `N ${0}`},
     position: { x: 0, y: 50 },
   },
 ];
@@ -31,8 +29,8 @@ let id = 1;
 const getId = () => `${id++}`;
 const nodeOrigin = [0.5, 0];
 const AddNodeOnEdgeDrop = () => {
+  
   const reactFlowWrapper = useRef(null);
- 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { screenToFlowPosition } = useReactFlow();
@@ -70,7 +68,7 @@ const AddNodeOnEdgeDrop = () => {
   );
  
   return (
-    <div className="wrapper" ref={reactFlowWrapper}>
+    <div style={{ width: '100vw', height: '100vh' }} className="wrapper" ref={reactFlowWrapper}>
       <ReactFlow
         style={{ backgroundColor: "#F79FB" }}
         nodes={nodes}
@@ -85,6 +83,9 @@ const AddNodeOnEdgeDrop = () => {
         nodeOrigin={nodeOrigin}
       >
       <Background />
+      <Controls />
+        <MiniMap />
+        <Background color="#ddd" variant="dots" gap={12} size={1} />
       </ReactFlow>
     </div>
   );
@@ -93,15 +94,10 @@ const AddNodeOnEdgeDrop = () => {
 export default function App() {
   
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
+    <div>
       <ReactFlowProvider>
         <AddNodeOnEdgeDrop />
       </ReactFlowProvider> 
-      <ReactFlow>
-        <Controls />
-        <MiniMap />
-        <Background color="#ddd" variant="dots" gap={12} size={1} />
-      </ReactFlow>
     </div>
 
   );
