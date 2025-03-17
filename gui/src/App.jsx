@@ -8,16 +8,21 @@ import {
   useEdgesState,
   addEdge,
   useReactFlow,
-  ReactFlowProvider
+  ReactFlowProvider,
 } from '@xyflow/react';
  
 import '@xyflow/react/dist/style.css';
- 
+import gnpNode from "./gnpNode"
+
+const nodeTypes = {
+  'gnpNode': gnpNode,
+};
+
 const initialNodes = [
   {
-    id: '0',
-    type: 'input',
-    data: { label: 'Node' },
+    id: "0",
+    type: 'gnpNode',
+    data: { label: `N ${0}` },
     position: { x: 0, y: 50 },
   },
 ];
@@ -46,17 +51,18 @@ const AddNodeOnEdgeDrop = () => {
           'changedTouches' in event ? event.changedTouches[0] : event;
         const newNode = {
           id,
+          type: 'gnpNode',
           position: screenToFlowPosition({
             x: clientX,
             y: clientY,
           }),
-          data: { label: `Node ${id}` },
+          data: { label: `N ${id}` },
           origin: [0.5, 0.0],
         };
  
         setNodes((nds) => nds.concat(newNode));
         setEdges((eds) =>
-          eds.concat({ id, source: connectionState.fromNode.id, target: id }),
+          eds.concat({ id, source: connectionState.fromNode.id, target: id , animated: true}),
         );
       }
     },
@@ -68,6 +74,7 @@ const AddNodeOnEdgeDrop = () => {
       <ReactFlow
         style={{ backgroundColor: "#F79FB" }}
         nodes={nodes}
+        nodeTypes={nodeTypes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
