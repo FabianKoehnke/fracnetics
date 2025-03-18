@@ -86,3 +86,35 @@ body {
   flex-grow: 1;
   height: 100%;
 }
+
+.gnp-node-inner {
+  position: relative;
+  margin: auto;
+  border-radius: 50%; 
+  padding: 16px 20px;
+  padding: 1px;
+  display: flex; 
+  align-items: center;
+  height: 50px;
+  min-width: 50px;
+  font-family: 'Fira Mono', Monospace;  
+  letter-spacing: -0.2px;
+  box-shadow: 1px 0 15px rgba(42, 138, 246, 0.3);
+  overflow: hidden;  
+  flex-grow: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.gnp-node-outer {
+  border-radius: 50%; 
+  padding: 1px;
+  display: center; 
+  align-items: center;
+  height: 50px;
+  min-width: 50px;
+  font-family: 'Fira Mono', Monospace;  
+  letter-spacing: -0.2px;
+  box-shadow: 1px 0 15px rgba(201, 211, 222, 0.3);
+  overflow: hidden;  
+}

@@ -22,6 +22,7 @@ const initialNodes = [
     type: 'gnpNode',
     data: {label: `N ${0}`},
     position: { x: 0, y: 50 },
+    style: {backgroundColor:"black"}
   },
 ];
 
@@ -84,7 +85,7 @@ const AddNodeOnEdgeDrop = () => {
       >
       <Background />
       <Controls />
-        <MiniMap />
+        
         <Background color="#ddd" variant="dots" gap={12} size={1} />
       </ReactFlow>
     </div>
