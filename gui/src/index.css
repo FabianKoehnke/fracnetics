@@ -89,6 +89,7 @@ body {
 
 .gnp-node-inner {
   position: relative;
+  color:#13161c;
   margin: auto;
   border-radius: 50%; 
   padding: 16px 20px;
@@ -98,6 +99,7 @@ body {
   height: 50px;
   min-width: 50px;
   font-family: 'Fira Mono', Monospace;  
+  font-weight: bold;
   letter-spacing: -0.2px;
   box-shadow: 1px 0 15px rgba(42, 138, 246, 0.3);
   overflow: hidden;  
@@ -117,4 +119,34 @@ body {
   letter-spacing: -0.2px;
   box-shadow: 1px 0 15px rgba(201, 211, 222, 0.3);
   overflow: hidden;  
+}
+
+.startNode {  
+  background: conic-gradient(
+    from -160deg at 50% 50%,
+    #e9a02a 0deg,
+    #ba9d53 120deg,
+    #e44e08 240deg,
+    #e2ae13 360deg
+  );
+}
+
+.judgmentNode {  
+  background: conic-gradient(
+    from -160deg at 50% 50%,
+    #70e92a 0deg,
+    #53ba66 120deg,
+    #0a9123 240deg,
+    #81e213 360deg
+  );
+}
+
+.processingNode {  
+  background: conic-gradient(
+    from -160deg at 50% 50%,
+    #2a6ae9 0deg,
+    #4654cf 120deg,
+    #3937a6 240deg,
+    #176cd4 360deg
+  );
 }
