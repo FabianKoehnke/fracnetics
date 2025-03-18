@@ -11,17 +11,14 @@ function gnpNode({ id, data }) {
         nodes.map((node) => {
           if (node.id === id) {
             let newLabel = data.label;
-            let newColor = data.color;
+            let newStyle = data.style;
 
-            if (gnpType === 's') {
-              newLabel = `SN:${id}`;
-              newColor = 'green';
-            } else if (gnpType === 'j') {
+            if (gnpType === 'j') {
               newLabel = `JN:${id}`;
-              newColor = 'blue'; 
+              newStyle = 'judgmentNode'; 
             } else if (gnpType === 'p') {
               newLabel = `PN:${id}`;
-              newColor = 'orange'; 
+              newStyle = 'processingNode'; 
             }
 
             return {
@@ -29,7 +26,7 @@ function gnpNode({ id, data }) {
               data: {
                 ...node.data,
                 label: newLabel,
-                color: newColor,
+                style: newStyle,
               },
             };
           }
@@ -41,7 +38,7 @@ function gnpNode({ id, data }) {
   );
 
   return (
-    <div className="gnp-node-outer" style={{backgroundColor: data?.color}} >
+    <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
       <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
         {data?.label}
       </div>
@@ -55,8 +52,7 @@ function gnpNode({ id, data }) {
         position={Position.Top}
         onConnect={(params) => console.log('handle onConnect', params)}
       />
-      <NodeToolbar isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
-        <button onClick={() => changeNodeType('s')}>Start Node</button>
+      <NodeToolbar isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
         <button onClick={() => changeNodeType('j')}>Judgment Node</button>
         <button onClick={() => changeNodeType('p')}>Processing Node</button>
       </NodeToolbar>      

@@ -12,17 +12,19 @@ import {
 } from '@xyflow/react';
  
 import '@xyflow/react/dist/style.css';
+import './index.css'
 import gnpNode from "./gnpNode"
+
 
 const nodeTypes = {gnpNode};
 
 const initialNodes = [
   {
-    id: "0",
-    type: 'gnpNode',
-    data: {label: `N ${0}`},
-    position: { x: 0, y: 50 },
-    style: {backgroundColor:"black"}
+    id: "0",    
+    type: "gnpNode",
+    data: {label: `SN ${0}`},
+    position: { x: 0, y: 0 },
+    className: 'startNode'
   },
 ];
 
@@ -57,6 +59,7 @@ const AddNodeOnEdgeDrop = () => {
           }),
           data: { label: `N ${id}` },
           origin: [0.5, 0.0],
+          style:{background:"white"}
         };
  
         setNodes((nds) => nds.concat(newNode));
