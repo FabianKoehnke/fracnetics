@@ -1,5 +1,6 @@
 import React, { memo, useCallback } from 'react';
 import { Handle, Position, NodeToolbar, useReactFlow } from '@xyflow/react';
+import "./index.css"
 
 function gnpNode({ id, data }) {
   const { setNodes } = useReactFlow();
@@ -40,7 +41,10 @@ function gnpNode({ id, data }) {
   );
 
   return (
-    <div style={{ backgroundColor: data?.color}}> 
+    <div className="gnp-node-outer" style={{backgroundColor: data?.color}} >
+      <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+        {data?.label}
+      </div>
       <Handle
         type="source"
         position={Position.Bottom}
@@ -55,8 +59,7 @@ function gnpNode({ id, data }) {
         <button onClick={() => changeNodeType('s')}>Start Node</button>
         <button onClick={() => changeNodeType('j')}>Judgment Node</button>
         <button onClick={() => changeNodeType('p')}>Processing Node</button>
-      </NodeToolbar>
-      <div>{data?.label}</div>
+      </NodeToolbar>      
     </div>
   );
 }
