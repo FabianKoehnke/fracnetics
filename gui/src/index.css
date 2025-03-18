@@ -139,6 +139,7 @@ body {
     #0a9123 240deg,
     #81e213 360deg
   );
+  border-radius: 0%; 
 }
 
 .processingNode {  
