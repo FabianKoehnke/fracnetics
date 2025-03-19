@@ -8,6 +8,14 @@ function gnpNode({ id, data }) {
   const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
   const [inputValue, setInputValue] = useState(data.storedValues ? data.storedValues.join(',') : '');
 
+  useEffect(() => {
+    if (data.storedValues) {
+      setInputValue(data.storedValues.join(','));
+    } else {
+      setInputValue('');
+    }
+  }, [data.storedValues]);
+
   const changeNodeType = useCallback(
     (gnpType) => {
       setNodes((nodes) =>
@@ -51,7 +59,9 @@ function gnpNode({ id, data }) {
         if (node.id === id) {
           let values = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
           if (values.length == outgoingEdgesCount) {
-            values = values.slice(0, outgoingEdgesCount);
+            values = values;
+          } else {
+            values = ""
           }
           return {
             ...node,
@@ -107,6 +117,7 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <input
+            size="10"
             type="text"
             value={inputValue}
             onChange={handleInputChange}
@@ -134,6 +145,7 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <input
+            size="27"
             type="text"
             value={inputValue}
             onChange={handleInputChange}
