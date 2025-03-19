@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useState, useEffect } from 'react';
 import { Handle, Position, NodeToolbar, useReactFlow, useConnection } from '@xyflow/react';
 import "./index.css"
 
@@ -7,6 +7,7 @@ function gnpNode({ id, data }) {
   const isTarget = connection.inProgress && connection.fromNode.id !== id;
 
   const { setNodes } = useReactFlow();
+  const [inputValue, setInputValue] = useState(data.storedValue || '');
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -39,6 +40,28 @@ function gnpNode({ id, data }) {
     },
     [id, setNodes, data]
   );
+
+  const handleInputChange = (event) => {
+    const newValue = event.target.value;
+    setInputValue(newValue);
+  };
+
+  useEffect(() => {
+    setNodes((nodes) =>
+      nodes.map((node) => {
+        if (node.id === id) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              storedValue: inputValue,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [inputValue, id, setNodes]);
 
   if (data.label.slice(0,1) == "N") {
     return (
@@ -80,7 +103,12 @@ function gnpNode({ id, data }) {
           onConnect={(params) => console.log('handle onConnect', params)}
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
-        
+          <input
+            type="number"
+            value={inputValue}
+            onChange={handleInputChange}
+            placeholder="Enter value"
+          />
         </NodeToolbar>      
       </div>
     );
