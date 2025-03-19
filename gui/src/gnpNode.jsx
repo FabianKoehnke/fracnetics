@@ -1,13 +1,12 @@
 import React, { memo, useCallback, useState, useEffect } from 'react';
-import { Handle, Position, NodeToolbar, useReactFlow, useConnection } from '@xyflow/react';
+import { Handle, Position, NodeToolbar, useReactFlow, useEdges } from '@xyflow/react';
 import "./index.css"
 
 function gnpNode({ id, data }) {
-  const connection = useConnection();
-  const isTarget = connection.inProgress && connection.fromNode.id !== id;
-
-  const { setNodes } = useReactFlow();
-  const [inputValue, setInputValue] = useState(data.storedValue || '');
+  const { setNodes, getEdges } = useReactFlow();
+  const edges = getEdges();
+  const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
+  const [inputValue, setInputValue] = useState(data.storedValues ? data.storedValues.join(',') : '');
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -50,18 +49,22 @@ function gnpNode({ id, data }) {
     setNodes((nodes) =>
       nodes.map((node) => {
         if (node.id === id) {
+          let values = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
+          if (values.length == outgoingEdgesCount) {
+            values = values.slice(0, outgoingEdgesCount);
+          }
           return {
             ...node,
             data: {
               ...node.data,
-              storedValue: inputValue,
+              storedValues: values,
             },
           };
         }
         return node;
       })
     );
-  }, [inputValue, id, setNodes]);
+  }, [inputValue, id, setNodes, outgoingEdgesCount]);
 
   if (data.label.slice(0,1) == "N") {
     return (
@@ -104,7 +107,7 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <input
-            type="number"
+            type="text"
             value={inputValue}
             onChange={handleInputChange}
             placeholder="Enter value"
@@ -130,7 +133,12 @@ function gnpNode({ id, data }) {
           onConnect={(params) => console.log('handle onConnect', params)}
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
-          
+          <input
+            type="text"
+            value={inputValue}
+            onChange={handleInputChange}
+            placeholder="Enter comma-separated values"
+          />
         </NodeToolbar>      
       </div>
     );
