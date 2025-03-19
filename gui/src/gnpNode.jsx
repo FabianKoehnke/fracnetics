@@ -40,7 +40,7 @@ function gnpNode({ id, data }) {
     [id, setNodes, data]
   );
 
-  if (data.label.slice(0,2) != "SN") {
+  if (data.label.slice(0,1) == "N") {
     return (
       <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
         <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
@@ -49,21 +49,21 @@ function gnpNode({ id, data }) {
         <Handle
           type='source'
           position={Position.Bottom}
-          onConnect={(params) => console.log('handle onConnect', params)}
+          onConnect={(params) => console.log('handle onConnect', params)}          
         />
         <Handle
           type='target'
           position={Position.Top}
           onConnect={(params) => console.log('handle onConnect', params)}
         />
-        <NodeToolbar isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <button onClick={() => changeNodeType('j')}>Judgment Node</button>
           <button onClick={() => changeNodeType('p')}>Processing Node</button>
         </NodeToolbar>      
       </div>
     );
 
-  } else if (data.label.slice(0,2) == "SN") {
+  } else if (data.label.slice(0,2) == "PN") {
     return (
       <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
         <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
@@ -72,9 +72,53 @@ function gnpNode({ id, data }) {
         <Handle
           type='source'
           position={Position.Bottom}
+          onConnect={(params) => console.log('handle onConnect', params)}          
+        />
+        <Handle
+          type='target'
+          position={Position.Top}
           onConnect={(params) => console.log('handle onConnect', params)}
         />
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+        
+        </NodeToolbar>      
       </div>
+    );
+
+  } else if (data.label.slice(0,2) == "JN") {
+    return (
+      <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
+        <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+          {data?.label}
+        </div>      
+        <Handle
+          type='source'
+          position={Position.Bottom}
+          onConnect={(params) => console.log('handle onConnect', params)}          
+        />
+        <Handle
+          type='target'
+          position={Position.Top}
+          onConnect={(params) => console.log('handle onConnect', params)}
+        />
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+          
+        </NodeToolbar>      
+      </div>
+    );
+
+  } else if (data.label.slice(0,2) == "SN") {
+      return (
+        <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
+          <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+            {data?.label}
+          </div>      
+          <Handle
+            type='source'
+            position={Position.Bottom}
+            onConnect={(params) => console.log('handle onConnect', params)}
+          />
+        </div>
     );
   }
   
