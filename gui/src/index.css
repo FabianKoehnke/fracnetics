@@ -97,7 +97,7 @@ body {
   display: flex; 
   align-items: center;
   height: 50px;
-  min-width: 50px;
+  width: 50px;
   font-family: 'Fira Mono', Monospace;  
   font-weight: bold;
   letter-spacing: -0.2px;
@@ -114,7 +114,7 @@ body {
   display: center; 
   align-items: center;
   height: 50px;
-  min-width: 50px;
+  width: 50px;
   font-family: 'Fira Mono', Monospace;  
   letter-spacing: -0.2px;
   box-shadow: 1px 0 15px rgba(201, 211, 222, 0.3);
@@ -131,15 +131,17 @@ body {
   );
 }
 
-.judgmentNode {  
+.judgmentNode {   
+  width: 44.3px;
+  height: 44.3px; 
   background: conic-gradient(
     from -160deg at 50% 50%,
     #70e92a 0deg,
     #53ba66 120deg,
     #0a9123 240deg,
-    #81e213 360deg
+    #81e213 360deg    
   );
-  border-radius: 0%; 
+  border-radius: 10%; 
 }
 
 .processingNode {  

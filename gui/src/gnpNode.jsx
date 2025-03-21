@@ -6,15 +6,15 @@ function gnpNode({ id, data }) {
   const { setNodes, getEdges } = useReactFlow();
   const edges = getEdges();
   const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
-  const [inputValue, setInputValue] = useState(data.storedValues ? data.storedValues.join(',') : '');
+  const [inputValue, setInputValue] = useState(data.nodeValues ? data.nodeValues.join(',') : '');
 
   useEffect(() => {
-    if (data.storedValues) {
-      setInputValue(data.storedValues.join(','));
+    if (data.nodeValues) {
+      setInputValue(data.nodeValues.join(','));
     } else {
       setInputValue('');
     }
-  }, [data.storedValues]);
+  }, [data.nodeValues]);
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -58,16 +58,26 @@ function gnpNode({ id, data }) {
       nodes.map((node) => {
         if (node.id === id) {
           let values = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
-          if (values.length == outgoingEdgesCount) {
-            values = values;
-          } else {
-            values = ""
+          
+          if (data.label.slice(0,2) == "PN") {
+            if (values.length <= 1) {
+              values = values;
+            } else {
+              values = ""
+            }
+          } else if (data.label.slice(0,2) == "JN") {
+            if (values.length == outgoingEdgesCount+1) {
+              values = values;
+            } else {
+              values = ""
+            }
           }
+
           return {
             ...node,
             data: {
               ...node.data,
-              storedValues: values,
+              nodeValues: values,
             },
           };
         }
@@ -117,11 +127,11 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <input
-            size="10"
+            size="11"
             type="text"
             value={inputValue}
             onChange={handleInputChange}
-            placeholder="Enter value"
+            placeholder="Enter y-value"
           />
         </NodeToolbar>      
       </div>
@@ -129,8 +139,14 @@ function gnpNode({ id, data }) {
 
   } else if (data.label.slice(0,2) == "JN") {
     return (
-      <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
-        <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+      <div 
+        className={`gnp-node-outer ${data.style}`} 
+        style={{backgroundColor: data?.color}} 
+        >
+        <div 
+          className={`gnp-node-inner ${data.style}`} 
+          style={{backgroundColor: data?.color}} 
+          >
           {data?.label}
         </div>      
         <Handle
@@ -145,11 +161,11 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
           <input
-            size="27"
+            size="31"
             type="text"
             value={inputValue}
             onChange={handleInputChange}
-            placeholder="Enter comma-separated values"
+            placeholder="Enter comma-separated boundaries"
           />
         </NodeToolbar>      
       </div>
