@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import './index.css';
 import gnpNode from './gnpNode';
 import FloatingEdge from './FloatingEdge';
+import { handleGraphData } from './graphDataHandler'; 
 
 const nodeTypes = { gnpNode };
 
@@ -129,6 +130,10 @@ const AddNodeOnEdgeDrop = () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [getSelectedNodes, setNodes, setEdges, setReactFlowNodes, setReactFlowEdges]);
+  
+  useEffect(() => {
+    handleGraphData(nodes, edges);
+  }, [nodes, edges]);
 
   return (
     <div
