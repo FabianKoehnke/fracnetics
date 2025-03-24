@@ -7,14 +7,17 @@ function gnpNode({ id, data }) {
   const edges = getEdges();
   const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
   const [inputValue, setInputValue] = useState(data.nodeValues ? data.nodeValues.join(',') : '');
+  const [inputFunction, setfunctionInput] = useState(data.nodeFunctions ? data.nodeFunctions : ''); 
 
   useEffect(() => {
     if (data.nodeValues) {
-      setInputValue(data.nodeValues.join(','));
+      setInputValue(data.nodeValues.join(','));     
+      setfunctionInput(data.nodeFunctions);            
     } else {
       setInputValue('');
+      setfunctionInput('');
     }
-  }, [data.nodeValues]);
+  }, [data.nodeValues, data.nodeFunctions]);
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -48,28 +51,34 @@ function gnpNode({ id, data }) {
     [id, setNodes, data]
   );
 
-  const handleInputChange = (event) => {
+  const handleInputValues = (event) => {
     const newValue = event.target.value;
     setInputValue(newValue);
+  };
+
+  const handleInputFunction = (event) => {
+    const newValue = event.target.value;
+    setfunctionInput(newValue);
   };
 
   useEffect(() => {
     setNodes((nodes) =>
       nodes.map((node) => {
         if (node.id === id) {
-          let values = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
-          
-          if (data.label.slice(0,2) == "PN") {
-            if (values.length <= 1) {
-              values = values;
+          let inputValues = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
+          let inputFunctions = inputFunction;
+
+          if (data.label.slice(0, 2) === "PN") {
+            if (inputValues.length <= 1) {
+              inputValues = inputValues;
             } else {
-              values = ""
+              inputValues = "";
             }
-          } else if (data.label.slice(0,2) == "JN") {
-            if (values.length == outgoingEdgesCount+1) {
-              values = values;
+          } else if (data.label.slice(0, 2) === "JN") {
+            if (inputValues.length === outgoingEdgesCount + 1) {
+              inputValues = inputValues;
             } else {
-              values = ""
+              inputValues = "";
             }
           }
 
@@ -77,115 +86,121 @@ function gnpNode({ id, data }) {
             ...node,
             data: {
               ...node.data,
-              nodeValues: values,
+              nodeValues: inputValues,
+              nodeFunctions: inputFunctions,
             },
           };
         }
         return node;
       })
     );
-  }, [inputValue, id, setNodes, outgoingEdgesCount]);
+  }, [inputValue, inputFunction, id, setNodes, outgoingEdgesCount]); // inputFunction hinzugefügt
 
-  if (data.label.slice(0,1) == "N") {
+  if (data.label.slice(0, 1) === "N") {
     return (
-      <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
-        <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+      <div className={`gnp-node-outer ${data.style}`} style={{ backgroundColor: data?.color }}>
+        <div className="gnp-node-inner" style={{ backgroundColor: data?.color }}>
           {data?.label}
-        </div>      
+        </div>
         <Handle
           type='source'
           position={Position.Bottom}
-          onConnect={(params) => console.log('handle onConnect', params)}          
+          onConnect={(params) => console.log('handle onConnect', params)}
         />
         <Handle
           type='target'
           position={Position.Top}
           onConnect={(params) => console.log('handle onConnect', params)}
         />
-        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
           <button onClick={() => changeNodeType('j')}>Judgment Node</button>
           <button onClick={() => changeNodeType('p')}>Processing Node</button>
-        </NodeToolbar>      
+        </NodeToolbar>
       </div>
     );
-
-  } else if (data.label.slice(0,2) == "PN") {
+  } else if (data.label.slice(0, 2) === "PN") {
     return (
-      <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
-        <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
+      <div className={`gnp-node-outer ${data.style}`} style={{ backgroundColor: data?.color }}>
+        <div className="gnp-node-inner" style={{ backgroundColor: data?.color }}>
           {data?.label}
-        </div>      
+        </div>
         <Handle
           type='source'
           position={Position.Bottom}
-          onConnect={(params) => console.log('handle onConnect', params)}          
+          onConnect={(params) => console.log('handle onConnect', params)}
         />
         <Handle
           type='target'
           position={Position.Top}
           onConnect={(params) => console.log('handle onConnect', params)}
         />
-        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
           <input
             size="11"
             type="text"
             value={inputValue}
-            onChange={handleInputChange}
+            onChange={handleInputValues}
             placeholder="Enter y-value"
           />
-        </NodeToolbar>      
+        </NodeToolbar>
       </div>
     );
-
-  } else if (data.label.slice(0,2) == "JN") {
+  } else if (data.label.slice(0, 2) === "JN") {
     return (
-      <div 
-        className={`gnp-node-outer ${data.style}`} 
-        style={{backgroundColor: data?.color}} 
+      <div
+        className={`gnp-node-outer ${data.style}`}
+        style={{ backgroundColor: data?.color }}
+      >
+        <div
+          className={`gnp-node-inner ${data.style}`}
+          style={{ backgroundColor: data?.color }}
         >
-        <div 
-          className={`gnp-node-inner ${data.style}`} 
-          style={{backgroundColor: data?.color}} 
-          >
           {data?.label}
-        </div>      
+        </div>
         <Handle
           type='source'
           position={Position.Bottom}
-          onConnect={(params) => console.log('handle onConnect', params)}          
+          onConnect={(params) => console.log('handle onConnect', params)}
         />
         <Handle
           type='target'
           position={Position.Top}
           onConnect={(params) => console.log('handle onConnect', params)}
         />
-        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>       
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
           <input
             size="31"
             type="text"
             value={inputValue}
-            onChange={handleInputChange}
+            onChange={handleInputValues}
             placeholder="Enter comma-separated boundaries"
           />
-        </NodeToolbar>      
+        </NodeToolbar>
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={Position.Left}>
+          <input
+            size="10"
+            type="text"
+            value={inputFunction}
+            onChange={handleInputFunction}
+            placeholder="Enter function"
+          />
+        </NodeToolbar>
       </div>
     );
-
-  } else if (data.label.slice(0,2) == "SN") {
-      return (
-        <div className={`gnp-node-outer ${data.style}`} style={{backgroundColor: data?.color}} >
-          <div className="gnp-node-inner" style={{backgroundColor: data?.color}} >
-            {data?.label}
-          </div>      
-          <Handle
-            type='source'
-            position={Position.Bottom}
-            onConnect={(params) => console.log('handle onConnect', params)}
-          />
+  } else if (data.label.slice(0, 2) === "SN") {
+    return (
+      <div className={`gnp-node-outer ${data.style}`} style={{ backgroundColor: data?.color }}>
+        <div className="gnp-node-inner" style={{ backgroundColor: data?.color }}>
+          {data?.label}
         </div>
+        <Handle
+          type='source'
+          position={Position.Bottom}
+          onConnect={(params) => console.log('handle onConnect', params)}
+        />
+      </div>
     );
   }
-  
 }
 
 export default memo(gnpNode);
