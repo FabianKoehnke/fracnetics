@@ -7,17 +7,17 @@ function gnpNode({ id, data }) {
   const edges = getEdges();
   const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
   const [inputValue, setInputValue] = useState(data.nodeValues ? data.nodeValues.join(',') : '');
-  const [inputFunction, setfunctionInput] = useState(data.nodeFunctions ? data.nodeFunctions : ''); 
+  const [inputFunction, setfunctionInput] = useState(data.nodeFunction ? data.nodeFunction : ''); 
 
   useEffect(() => {
     if (data.nodeValues) {
       setInputValue(data.nodeValues.join(','));     
-      setfunctionInput(data.nodeFunctions);            
+      setfunctionInput(data.nodeFunction);            
     } else {
       setInputValue('');
       setfunctionInput('');
     }
-  }, [data.nodeValues, data.nodeFunctions]);
+  }, [data.nodeValues, data.nodeFunction]);
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -87,7 +87,7 @@ function gnpNode({ id, data }) {
             data: {
               ...node.data,
               nodeValues: inputValues,
-              nodeFunctions: inputFunctions,
+              nodeFunction: inputFunctions,
             },
           };
         }
