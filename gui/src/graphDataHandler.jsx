@@ -20,6 +20,16 @@ export function handleGraphData(nodes, edges) {
         return judgmentNodeFunctions;
     }
 
+    function findNodes(nodeType = ""){
+        let nNodes = 0;
+        for(let i=0; i<nodes.length; i++){
+            if(nodes[i].data.label.slice(0,2) === nodeType){
+                nNodes++;
+            }
+        }
+        return nNodes;
+    }
+
     function findMinAndMaxOfBoundaries(judgmentNodeFunctions){
         const minValues = Array(judgmentNodeFunctions.length);
         const maxValues = Array(judgmentNodeFunctions.length);
@@ -42,15 +52,46 @@ export function handleGraphData(nodes, edges) {
         return [minValues, maxValues]
     }
 
+    function getRandomFloat(min, max) {
+        return Math.random() * (max - min) + min; // Hint Math.random: 0 (included) and 1 (not included)
+      }
+
+    function binarySearch(arr, target) {
+        let left = 0;
+        let right = arr.length - 1;
+
+        if(target < arr[0]){
+            return 0;
+        } else if (target > arr[arr.length-1]){
+            return arr.length-2;
+        }
+        
+        while (left <= right) {
+            const mid = Math.floor((left + right) / 2);
+        
+            if (arr[mid] <= target && arr[mid+1] > target) {
+            return mid; 
+            }
+        
+            if (arr[mid] < target) {
+            left = mid + 1; 
+            } else {
+            right = mid - 1; 
+            }
+        }          
+        return -1;
+        }
+
     function runTransitionPath(n){    
         
         const judgmentNodeFunctions = findJudgmentnodeFunctions();   
         const [minValues, maxValues] = findMinAndMaxOfBoundaries(judgmentNodeFunctions);  
         
         // initialize data set 
-        let dataframe = new Array(n)
+        const dataTarget = new Array(n) 
+        const dataFeatures = new Array(n)
         for(let i=0; i<n; i++){
-            dataframe[i] = new Array(judgmentNodeFunctions.length).fill(0)
+            dataFeatures[i] = new Array(judgmentNodeFunctions.length).fill(0)
         }
         
         // initialize edges in node object 
@@ -66,27 +107,44 @@ export function handleGraphData(nodes, edges) {
         // run transition path
         let currentNodeID = nodes[0].id
         try{
-            let i = 0;
-            while(i < n) {
-                if(nodes[currentNodeID].data.label.slice(0,2) == "PN"){
-                    currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
-                    
-                } else if(nodes[currentNodeID].data.label.slice(0,2) == "JN") {
-                        // draw a random value given pattern
-    
-                } else if(nodes[currentNodeID].data.label.slice(0,2) == "SN") {
-                    currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
+            let nProcessings = findNodes("PN");
+            if(nProcessings>0){
+                let i = 0;
+                let nodeFunction = undefined;
+                let idx = undefined;
+                let randomFloat = undefined;
+                let idxBoundaries = [];
+                while(i < n) {
+                    if(nodes[currentNodeID].data.label.slice(0,2) == "PN"){
+                        dataTarget[i] = parseFloat(nodes[currentNodeID].data.nodeValues[0]); 
+                        currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
+                        i++;
+                    } else if(nodes[currentNodeID].data.label.slice(0,2) == "JN") {                        
+                        nodeFunction = nodes[currentNodeID].data.nodeFunction;
+                        idx = judgmentNodeFunctions.indexOf(nodeFunction);
+                        randomFloat = getRandomFloat(minValues[idx],maxValues[idx]);
+                        idxBoundaries = binarySearch(
+                            nodes[currentNodeID].data.nodeValues.map(element => parseFloat(element)), 
+                            randomFloat
+                            );
+                        currentNodeID = nodes[currentNodeID].data.edges[idxBoundaries].target; // set new node
+                        dataFeatures[idx,i] = randomFloat
+        
+                    } else if(nodes[currentNodeID].data.label.slice(0,2) == "SN") {
+                        currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
+                    }
                 }
-                i++;
             }
 
-        } catch {
-            console.log('Error in transition path');
+        } catch(err) {
+            console.log(`error in transition path: ${err.message}`);
         }
+
+        return [dataTarget, dataFeatures];
     }
 
-    let n = 100; // number of datapoints (reached processing nodes)        
-    runTransitionPath(n);
+    let n = 100; // number of datapoints (reached processing nodes)       
+    let data = runTransitionPath(n);
     console.log('Aktuelle Knoten:', nodes);
     console.log('Aktuelle Kanten:', edges);
     
