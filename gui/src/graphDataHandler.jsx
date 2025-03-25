@@ -111,24 +111,39 @@ export function handleGraphData(nodes, edges) {
             if(nProcessings>0){
                 let i = 0;
                 let nodeFunction = undefined;
+                let nodeValues = undefined;
                 let idx = undefined;
                 let randomFloat = undefined;
                 let idxBoundaries = [];
                 while(i < n) {
+                    const usedJudgmentNodeFunctions = [];
                     if(nodes[currentNodeID].data.label.slice(0,2) == "PN"){
                         dataTarget[i] = parseFloat(nodes[currentNodeID].data.nodeValues[0]); 
+                        // set values for unused judgment nodes
+                        for(let j=0; j<judgmentNodeFunctions.length;j++){
+                            if(!usedJudgmentNodeFunctions.includes(judgmentNodeFunctions[j])){
+                                nodeFunction = judgmentNodeFunctions[j];
+                                usedJudgmentNodeFunctions.push(nodeFunction);
+                                idx = judgmentNodeFunctions.indexOf(nodeFunction);
+                                randomFloat = getRandomFloat(minValues[idx],maxValues[idx]); // TODO change min and max to given boundary
+                                dataFeatures[i][idx] = randomFloat;
+                            }
+                        }
                         currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
+                        usedJudgmentNodeFunctions.length = 0; 
                         i++;
                     } else if(nodes[currentNodeID].data.label.slice(0,2) == "JN") {                        
                         nodeFunction = nodes[currentNodeID].data.nodeFunction;
+                        nodeValues = nodes[currentNodeID].data.nodeValues;
+                        usedJudgmentNodeFunctions.push(nodeFunction);
                         idx = judgmentNodeFunctions.indexOf(nodeFunction);
-                        randomFloat = getRandomFloat(minValues[idx],maxValues[idx]);
+                        randomFloat = getRandomFloat(nodeValues[0],nodeValues[nodeValues.length-1]); // TODO change min and max to given boundary
                         idxBoundaries = binarySearch(
-                            nodes[currentNodeID].data.nodeValues.map(element => parseFloat(element)), 
+                            nodeValues.map(element => parseFloat(element)), 
                             randomFloat
                             );
                         currentNodeID = nodes[currentNodeID].data.edges[idxBoundaries].target; // set new node
-                        dataFeatures[idx,i] = randomFloat
+                        dataFeatures[i][idx] = randomFloat;
         
                     } else if(nodes[currentNodeID].data.label.slice(0,2) == "SN") {
                         currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
