@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -13,10 +13,10 @@ import {
 } from '@xyflow/react';
 
 import '@xyflow/react/dist/style.css';
-import './index.css';
 import gnpNode from './gnpNode';
 import FloatingEdge from './FloatingEdge';
-import { handleGraphData } from './graphDataHandler'; 
+import { handleGraphData } from './graphDataHandler';
+import './index.css';
 
 const nodeTypes = { gnpNode };
 
@@ -130,19 +130,18 @@ const AddNodeOnEdgeDrop = () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [getSelectedNodes, setNodes, setEdges, setReactFlowNodes, setReactFlowEdges]);
-  
+
   useEffect(() => {
     handleGraphData(nodes, edges);
   }, [nodes, edges]);
 
   return (
     <div
-      style={{ width: '100vw', height: '100vh' }}
+      style={{ width: '100%', height: '100%' }}
       className="wrapper"
       ref={reactFlowWrapper}
     >
       <ReactFlow
-        style={{ backgroundColor: '#F79FB' }}
         nodes={nodes}
         nodeTypes={nodeTypes}
         edges={edges}
@@ -156,20 +155,100 @@ const AddNodeOnEdgeDrop = () => {
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
       >
-        <Background />
-        <Controls />
-        <Background color="#ddd" variant="dots" gap={12} size={1} />
+        <Controls className='controler'/>
+        <Background color="#ddd" variant="" />
       </ReactFlow>
+    </div>
+  );
+};
+
+const DraggableWindow = () => {
+  const [position, setPosition] = useState({ x: 100, y: 100 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [size, setSize] = useState({ width: 300, height: 200 });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeHandleSize = 10;
+
+  const handleMouseDown = (e) => {
+    if (e.target.classList.contains('resize-handle')) {
+      setIsResizing(true);
+      setOffset({
+        x: e.clientX - (position.x + size.width),
+        y: e.clientY - (position.y + size.height),
+      });
+    } else {
+      setIsDragging(true);
+      setOffset({
+        x: e.clientX - position.x,
+        y: e.clientY - position.y,
+      });
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isDragging) {
+      setPosition({
+        x: e.clientX - offset.x,
+        y: e.clientY - offset.y,
+      });
+    } else if (isResizing) {
+      setSize({
+        width: Math.max(100, e.clientX - position.x - offset.x),
+        height: Math.max(100, e.clientY - position.y - offset.y),
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        borderRadius: '20px',
+        left: position.x,
+        top: position.y,
+        width: size.width,
+        height: size.height,
+        border: '1px solid black',
+        backgroundColor: '#090909',
+        padding: '10px',
+        zIndex: 1000,
+      }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      Draggable Window
+      <div
+        className="resize-handle"
+        style={{
+          position: 'absolute',
+          borderRadius: '3px',
+          right: 0,
+          bottom: 0,
+          width: resizeHandleSize,
+          height: resizeHandleSize,
+          backgroundColor: 'white',
+          cursor: 'se-resize',
+        }}
+      />
     </div>
   );
 };
 
 export default function App() {
   return (
-    <div>
-      <ReactFlowProvider>
-        <AddNodeOnEdgeDrop />
-      </ReactFlowProvider>
+    <div style={{ display: 'flex', width: '100vw', height: '100vh' }}>
+        <ReactFlowProvider>
+          <AddNodeOnEdgeDrop />
+        </ReactFlowProvider>
+      
+        <DraggableWindow />
     </div>
   );
 }

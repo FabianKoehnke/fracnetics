@@ -135,8 +135,9 @@ function gnpNode({ id, data }) {
           onConnect={(params) => console.log('handle onConnect', params)}
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
-          <input
-            size="11"
+          <input 
+            className='inputValues'
+            size="14"
             type="text"
             value={inputValue}
             onChange={handleInputValues}
@@ -169,7 +170,8 @@ function gnpNode({ id, data }) {
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
           <input
-            size="31"
+            className='inputValues'
+            size="35"
             type="text"
             value={inputValue}
             onChange={handleInputValues}
@@ -178,7 +180,8 @@ function gnpNode({ id, data }) {
         </NodeToolbar>
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={Position.Left}>
           <input
-            size="10"
+            className='inputValues'
+            size="14"
             type="text"
             value={inputFunction}
             onChange={handleInputFunction}

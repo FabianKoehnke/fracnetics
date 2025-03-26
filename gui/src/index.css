@@ -26,7 +26,7 @@ a:hover {
 
 body {
   margin: 0;
-  background-color: #13161c; 
+  background-color: #000000; 
   display: flex;
   place-items: center;
   min-width: 320px;
@@ -89,7 +89,7 @@ body {
 
 .gnp-node-inner {
   position: relative;
-  color:#13161c;
+  color:#000000;
   margin: auto;
   border-radius: 50%; 
   padding: 16px 20px;
@@ -154,9 +154,33 @@ body {
   );
 }
 
+.inputValues {
+  padding: 3px;
+  font-size: 16px;
+  text-align: center;
+  border-radius: 10px;
+  margin: 0 5px;
+  background-color: #090909;
+  border-color: white;
+  color: white;
+}
+
 .toolbar button {
+  font-size: 16px;
   padding: 5px 10px;
   margin: 0 5px;
-  background-color: #343232;
+  background-color: #090909;
   border-color: #ebefec;
+}
+
+.react-flow__controls button {
+  background-color: #000000; /* !important erhöht die Spezifität */
+  color: white;
+  border-color: white;
+  border-width: 0px;
+}
+
+.react-flow__controls button:hover {
+  background-color: white !important; /* Ändert die Hintergrundfarbe beim Hover */
+  color: #000000 !important; /* Ändert die Textfarbe beim Hover */
 }
