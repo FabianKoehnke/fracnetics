@@ -108,7 +108,8 @@ export function handleGraphData(nodes, edges) {
         let currentNodeID = nodes[0].id
         try{
             let nProcessings = findNodes("PN");
-            if(nProcessings>0){
+            let nUndefinedNodes = findNodes("N ")
+            if(nProcessings>0 && nUndefinedNodes <0){
                 let i = 0;
                 let nodeFunction = undefined;
                 let nodeValues = undefined;
