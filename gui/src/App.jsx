@@ -153,7 +153,7 @@ const AddNodeOnEdgeDrop = () => {
         fitViewOptions={{ padding: 2 }}
         nodeOrigin={nodeOrigin}
         edgeTypes={edgeTypes}
-        defaultEdgeOptions={defaultEdgeOptions}
+        defaultEdgeOptions={defaultEdgeOptions}        
       >
         <Controls className='controler'/>
         <Background color="#ddd" variant="" />
@@ -210,6 +210,8 @@ const DraggableWindow = () => {
       style={{
         position: 'absolute',
         borderRadius: '20px',
+        fontWeight:'normal',
+        fontFamily: 'Source Code Pro, monospace',
         left: position.x,
         top: position.y,
         width: size.width,
@@ -229,6 +231,8 @@ const DraggableWindow = () => {
         style={{
           position: 'absolute',
           borderRadius: '3px',
+          fontWeight:'normal',
+          fontFamily: 'Source Code Pro, monospace',
           right: 0,
           bottom: 0,
           width: resizeHandleSize,
