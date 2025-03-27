@@ -192,3 +192,15 @@ body {
   background-color: white !important; /* Ändert die Hintergrundfarbe beim Hover */
   color: #000000 !important; /* Ändert die Textfarbe beim Hover */
 }
+
+.logo-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 10px;
+}
+
+.logo-container img {
+  width: 55px;  /* Größe anpassen */
+  height: auto;
+}
