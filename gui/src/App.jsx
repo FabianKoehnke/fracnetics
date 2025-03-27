@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import gnpNode from './gnpNode';
 import FloatingEdge from './FloatingEdge';
 import { handleGraphData } from './graphDataHandler';
+import DraggableWindow from './DraggableWindow';
 import './index.css';
 
 const nodeTypes = { gnpNode };
@@ -158,89 +159,6 @@ const AddNodeOnEdgeDrop = () => {
         <Controls className='controler'/>
         <Background color="#ddd" variant="" />
       </ReactFlow>
-    </div>
-  );
-};
-
-const DraggableWindow = () => {
-  const [position, setPosition] = useState({ x: 100, y: 100 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [size, setSize] = useState({ width: 300, height: 200 });
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeHandleSize = 10;
-
-  const handleMouseDown = (e) => {
-    if (e.target.classList.contains('resize-handle')) {
-      setIsResizing(true);
-      setOffset({
-        x: e.clientX - (position.x + size.width),
-        y: e.clientY - (position.y + size.height),
-      });
-    } else {
-      setIsDragging(true);
-      setOffset({
-        x: e.clientX - position.x,
-        y: e.clientY - position.y,
-      });
-    }
-  };
-
-  const handleMouseMove = (e) => {
-    if (isDragging) {
-      setPosition({
-        x: e.clientX - offset.x,
-        y: e.clientY - offset.y,
-      });
-    } else if (isResizing) {
-      setSize({
-        width: Math.max(100, e.clientX - position.x - offset.x),
-        height: Math.max(100, e.clientY - position.y - offset.y),
-      });
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    setIsResizing(false);
-  };
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        borderRadius: '20px',
-        fontWeight:'normal',
-        fontFamily: 'Source Code Pro, monospace',
-        left: position.x,
-        top: position.y,
-        width: size.width,
-        height: size.height,
-        border: '1px solid black',
-        backgroundColor: '#090909',
-        padding: '10px',
-        zIndex: 1000,
-      }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-    >
-      Draggable Window
-      <div
-        className="resize-handle"
-        style={{
-          position: 'absolute',
-          borderRadius: '3px',
-          fontWeight:'normal',
-          fontFamily: 'Source Code Pro, monospace',
-          right: 0,
-          bottom: 0,
-          width: resizeHandleSize,
-          height: resizeHandleSize,
-          backgroundColor: 'white',
-          cursor: 'se-resize',
-        }}
-      />
     </div>
   );
 };
