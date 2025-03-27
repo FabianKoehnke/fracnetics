@@ -1,7 +1,7 @@
 @import url('./xy-theme.css');
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Source Code Pro', monospace;
   line-height: 1.5;
   font-weight: 400;
 
@@ -87,6 +87,10 @@ body {
   height: 100%;
 }
 
+.wrapper .react-flow__attribution{
+  display: none;
+}
+
 .gnp-node-inner {
   position: relative;
   color:#000000;
@@ -98,8 +102,8 @@ body {
   align-items: center;
   height: 50px;
   width: 50px;
-  font-family: 'Fira Mono', Monospace;  
-  font-weight: bold;
+  font-family: 'Source Code Pro', monospace;  
+  font-weight: normal;
   letter-spacing: -0.2px;
   box-shadow: 1px 0 15px rgba(42, 138, 246, 0.3);
   overflow: hidden;  
@@ -115,7 +119,7 @@ body {
   align-items: center;
   height: 50px;
   width: 50px;
-  font-family: 'Fira Mono', Monospace;  
+  font-family: 'Source Code Pro', monospace; 
   letter-spacing: -0.2px;
   box-shadow: 1px 0 15px rgba(201, 211, 222, 0.3);
   overflow: hidden;  
@@ -156,6 +160,8 @@ body {
 
 .inputValues {
   padding: 3px;
+  font-family: 'Source Code Pro', monospace;
+  font-weight: normal;
   font-size: 16px;
   text-align: center;
   border-radius: 10px;
@@ -167,6 +173,8 @@ body {
 
 .toolbar button {
   font-size: 16px;
+  font-weight: normal;
+  font-family: 'Source Code Pro', monospace;
   padding: 5px 10px;
   margin: 0 5px;
   background-color: #090909;
