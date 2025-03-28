@@ -88,10 +88,10 @@ export function handleGraphData(nodes, edges) {
         const [minValues, maxValues] = findMinAndMaxOfBoundaries(judgmentNodeFunctions);  
         
         // initialize data set 
-        const dataTarget = new Array(n) 
-        const dataFeatures = new Array(n)
+        const dataTarget = new Array(n);
+        const dataFeatures = new Array(n);
         for(let i=0; i<n; i++){
-            dataFeatures[i] = new Array(judgmentNodeFunctions.length).fill(0)
+            dataFeatures[i] = new Array(judgmentNodeFunctions.length).fill(0);
         }
         
         // initialize edges in node object 
@@ -105,11 +105,11 @@ export function handleGraphData(nodes, edges) {
         }   
 
         // run transition path
-        let currentNodeID = nodes[0].id
+        let currentNodeID = nodes[0].id;
         try{
             let nProcessings = findNodes("PN");
             let nUndefinedNodes = findNodes("N ")
-            if(nProcessings>0 && nUndefinedNodes <0){
+            if(nProcessings > 0 && nUndefinedNodes === 0){
                 let i = 0;
                 let nodeFunction = undefined;
                 let nodeValues = undefined;
@@ -156,6 +156,7 @@ export function handleGraphData(nodes, edges) {
             }
 
         } catch(err) {
+            dataTarget.fill(undefined)
             console.log(`error in transition path: ${err.message}`);
         }
 
@@ -164,6 +165,9 @@ export function handleGraphData(nodes, edges) {
 
     let n = 100; // number of datapoints (reached processing nodes)       
     let data = runTransitionPath(n);
+    if(data[0][0] === undefined || isNaN(data[0][0])){ // TODO Prof for values in PN 
+        data = null;
+    }
     console.log('Aktuelle Knoten:', nodes);
     console.log('Aktuelle Kanten:', edges);
     return data;
