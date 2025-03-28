@@ -41,6 +41,8 @@ const AddNodeOnEdgeDrop = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { screenToFlowPosition, getSelectedNodes, setNodes: setReactFlowNodes, setEdges: setReactFlowEdges } = useReactFlow();
 
+  const [dataFrame, setDataFrame] = useState(null); // Zustand für den dataFrame
+
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
@@ -65,8 +67,7 @@ const AddNodeOnEdgeDrop = () => {
       );
       if (
         !connectionState.isValid &&
-        (outgoingEdges.length < 1 ||
-          connectionState?.fromNode?.data.label.slice(0, 2) === 'JN')
+        (outgoingEdges.length < 1 || connectionState?.fromNode?.data.label.slice(0, 2) === 'JN')
       ) {
         const id = getId();
         const { clientX, clientY } =
@@ -103,7 +104,6 @@ const AddNodeOnEdgeDrop = () => {
         const selectedNodes = getSelectedNodes();
         if (selectedNodes.length > 0) {
           const nodeIdsToDelete = selectedNodes.map((node) => node.id);
-
           setNodes((nds) => nds.filter((node) => !nodeIdsToDelete.includes(node.id)));
           setEdges((eds) =>
             eds.filter(
@@ -112,7 +112,6 @@ const AddNodeOnEdgeDrop = () => {
                 !nodeIdsToDelete.includes(edge.target)
             )
           );
-
           setReactFlowNodes((nds) => nds.filter((node) => !nodeIdsToDelete.includes(node.id)));
           setReactFlowEdges((eds) =>
             eds.filter(
@@ -132,16 +131,14 @@ const AddNodeOnEdgeDrop = () => {
     };
   }, [getSelectedNodes, setNodes, setEdges, setReactFlowNodes, setReactFlowEdges]);
 
+  // Hier aktualisieren wir den dataFrame, wenn sich nodes oder edges ändern
   useEffect(() => {
-    handleGraphData(nodes, edges);
+    const newDataFrame = handleGraphData(nodes, edges);
+    setDataFrame(newDataFrame); // Speichern des neuen dataFrames
   }, [nodes, edges]);
 
   return (
-    <div
-      style={{ width: '100%', height: '100%' }}
-      className="wrapper"
-      ref={reactFlowWrapper}
-    >
+    <div style={{ width: '100%', height: '100%' }} className="wrapper" ref={reactFlowWrapper}>
       <ReactFlow
         nodes={nodes}
         nodeTypes={nodeTypes}
@@ -154,11 +151,14 @@ const AddNodeOnEdgeDrop = () => {
         fitViewOptions={{ padding: 2 }}
         nodeOrigin={nodeOrigin}
         edgeTypes={edgeTypes}
-        defaultEdgeOptions={defaultEdgeOptions}        
+        defaultEdgeOptions={defaultEdgeOptions}
       >
-        <Controls className='controler'/>
+        <Controls className='controler' />
         <Background color="#ddd" variant="" />
       </ReactFlow>
+
+      {/* Hier übergeben wir den dataFrame als Prop an die DraggableWindow-Komponente */}
+      <DraggableWindow dataFrame={dataFrame} />
     </div>
   );
 };
@@ -166,11 +166,9 @@ const AddNodeOnEdgeDrop = () => {
 export default function App() {
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh' }}>
-        <ReactFlowProvider>
-          <AddNodeOnEdgeDrop />
-        </ReactFlowProvider>
-      
-        <DraggableWindow />
+      <ReactFlowProvider>
+        <AddNodeOnEdgeDrop />
+      </ReactFlowProvider>
     </div>
   );
 }
