@@ -56,30 +56,53 @@ const DraggableWindow = ({ dataFrame }) => {
     };
   }, [isDragging, isResizing, offset]);
 
+  function cumReturns(returns){
+    let currentRet = 100;
+    let profit = 0;
+    const cumReturns = [];
+
+    for(let i=0; i<returns.length;i++){
+      profit = currentRet * returns[i];
+      currentRet = currentRet + profit;
+      cumReturns.push([i, currentRet]);
+    }
+    return cumReturns;
+  }
+
   useEffect(() => {
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    const generateX = (i, n) => Array.from({ length: n }, (_, index) => i + index);
     const updateChart = () => {
       if (chartInstance.current && dataFrame) {
+        const cumrets = cumReturns(dataFrame[0]);
+        const minValue = Math.round(Math.min(...cumrets.map(row => row[1])));
+        const maxValue = Math.round(Math.max(...cumrets.map(row => row[1])));
         const option = {
           animation: true,
           tooltip: {},
           xAxis: {
-            type: 'value',
-            data: generateX(0,dataFrame[0].length) || [1,2,3,4,5,6,7],
+            type: 'category',
             splitLine: { show: false },
           },
           yAxis: {
             type: 'value',
             splitLine: { show: false },
+            min: minValue,
+            max: maxValue
           },
           series: [
             {
-              data: dataFrame[0] || [820, 932, 901, 934, 1290, 1330, 1320],
+              data: cumrets || [820, 932, 901, 934, 1290, 1330, 1320],
               type: 'line',
+              lineStyle: {
+                width: 2, 
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: '#f0f5f5' }, 
+                    { offset: 1, color: '#979c9c' }  
+                ])
+            }
             },
           ],
         };
