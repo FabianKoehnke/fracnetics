@@ -42,8 +42,17 @@ const AddNodes = () => {
     const [dataFrame, setDataFrame] = useState(null);
   
     const onConnect = useCallback(
-      (params) => setEdges((eds) => addEdge(params, eds)),
-      [setEdges]
+      (params) => {
+        const sourceNode = nodes.find(node => node.id === params.source);
+        const outgoingEdges = edges.filter(edge => edge.source === params.source);
+
+        if (outgoingEdges.length < 1 || connectionState?.fromNode?.data.label.slice(0, 2) === 'JN') {
+          return;
+        }
+
+        setEdges((eds) => addEdge(params, eds));
+      },
+      [nodes, edges, setEdges]
     );
   
     const edgeTypes = {

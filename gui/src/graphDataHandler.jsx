@@ -127,7 +127,7 @@ export function handleGraphData(nodes, edges) {
                                     nodeFunction = judgmentNodeFunctions[j];
                                     usedJudgmentNodeFunctions.push(nodeFunction);
                                     idx = judgmentNodeFunctions.indexOf(nodeFunction);
-                                    randomFloat = getRandomFloat(minValues[idx],maxValues[idx]); // TODO change min and max to given boundary
+                                    randomFloat = getRandomFloat(minValues[idx],maxValues[idx]);
                                     dataFeatures[i][idx] = randomFloat;
                                 }
                             }
@@ -141,7 +141,7 @@ export function handleGraphData(nodes, edges) {
                         nodeValues = nodes[currentNodeID].data.nodeValues;
                         usedJudgmentNodeFunctions.push(nodeFunction);
                         idx = judgmentNodeFunctions.indexOf(nodeFunction);
-                        randomFloat = getRandomFloat(parseFloat(nodeValues[0]),parseFloat(nodeValues[nodeValues.length-1])); // TODO change min and max to given boundary
+                        randomFloat = getRandomFloat(parseFloat(nodeValues[0]),parseFloat(nodeValues[nodeValues.length-1]));
                         idxBoundaries = binarySearch(
                             nodeValues.map(element => parseFloat(element)), 
                             randomFloat
