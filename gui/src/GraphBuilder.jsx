@@ -46,7 +46,7 @@ const AddNodes = () => {
         const sourceNode = nodes.find(node => node.id === params.source);
         const outgoingEdges = edges.filter(edge => edge.source === params.source);
 
-        if (outgoingEdges.length < 1 || connectionState?.fromNode?.data.label.slice(0, 2) === 'JN') {
+        if (sourceNode.data.label.slice(0, 2) !== 'JN' && outgoingEdges.length >= 1) {
           return;
         }
 
