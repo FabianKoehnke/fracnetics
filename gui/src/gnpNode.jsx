@@ -7,17 +7,20 @@ function gnpNode({ id, data }) {
   const edges = getEdges();
   const outgoingEdgesCount = edges.filter(edge => edge.source === id).length;
   const [inputValue, setInputValue] = useState(data.nodeValues ? data.nodeValues.join(',') : '');
-  const [inputFunction, setfunctionInput] = useState(data.nodeFunction ? data.nodeFunction : ''); 
+  const [inputFunction, setfunctionInput] = useState(data.nodeFunction ? data.nodeFunction : '');
+  const [inputDistribution, setDistribution] = useState(data.distribution ? data.distribution : '');
 
   useEffect(() => {
     if (data.nodeValues) {
-      setInputValue(data.nodeValues.join(','));     
-      setfunctionInput(data.nodeFunction);            
+      setInputValue(data.nodeValues.join(','));
+      setfunctionInput(data.nodeFunction);
+      setDistribution(data.distribution);
     } else {
       setInputValue('');
       setfunctionInput('');
+      setDistribution('');
     }
-  }, [data.nodeValues, data.nodeFunction]);
+  }, [data.nodeValues, data.nodeFunction, data.distribution]);
 
   const changeNodeType = useCallback(
     (gnpType) => {
@@ -29,10 +32,10 @@ function gnpNode({ id, data }) {
 
             if (gnpType === 'j') {
               newLabel = `JN:${id}`;
-              newStyle = 'judgmentNode'; 
+              newStyle = 'judgmentNode';
             } else if (gnpType === 'p') {
               newLabel = `PN:${id}`;
-              newStyle = 'processingNode'; 
+              newStyle = 'processingNode';
             }
 
             return {
@@ -61,12 +64,17 @@ function gnpNode({ id, data }) {
     setfunctionInput(newValue);
   };
 
+  const handleDistributionChange = (distribution) => {
+    setDistribution(distribution);
+  };
+
   useEffect(() => {
     setNodes((nodes) =>
       nodes.map((node) => {
         if (node.id === id) {
           let inputValues = inputValue.split(',').map(v => v.trim()).filter(v => v !== '');
           let inputFunctions = inputFunction;
+          let inputDistributions = inputDistribution;
 
           if (data.label.slice(0, 2) === "PN") {
             if (inputValues.length <= 1) {
@@ -88,13 +96,14 @@ function gnpNode({ id, data }) {
               ...node.data,
               nodeValues: inputValues,
               nodeFunction: inputFunctions,
+              distribution: inputDistributions,
             },
           };
         }
         return node;
       })
     );
-  }, [inputValue, inputFunction, id, setNodes, outgoingEdgesCount]); // inputFunction hinzugefügt
+  }, [inputValue, inputFunction, inputDistribution, id, setNodes, outgoingEdgesCount]);
 
   if (data.label.slice(0, 1) === "N") {
     return (
@@ -135,7 +144,7 @@ function gnpNode({ id, data }) {
           onConnect={(params) => console.log('handle onConnect', params)}
         />
         <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={data.toolbarPosition}>
-          <input 
+          <input
             className='inputValues'
             size="14"
             type="text"
@@ -143,6 +152,15 @@ function gnpNode({ id, data }) {
             onChange={handleInputValues}
             placeholder="Enter y-value"
           />
+        </NodeToolbar>
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={Position.Right}>
+          <div className="dropdown">
+            <button>{inputDistribution || "Distribution"}</button>
+            <div className="dropdown-content">
+              <button onClick={() => handleDistributionChange("Uniform")}>Uniform</button>
+              <button onClick={() => handleDistributionChange("Normal")}>Normal</button>
+            </div>
+          </div>
         </NodeToolbar>
       </div>
     );
@@ -187,6 +205,15 @@ function gnpNode({ id, data }) {
             onChange={handleInputFunction}
             placeholder="Enter function"
           />
+        </NodeToolbar>
+        <NodeToolbar className="toolbar" isVisible={data.forceToolbarVisible || undefined} position={Position.Right}>
+          <div className="dropdown">
+            <button>{inputDistribution || "Distribution"}</button>
+            <div className="dropdown-content">
+              <button onClick={() => handleDistributionChange("Uniform")}>Uniform</button>
+              <button onClick={() => handleDistributionChange("Normal")}>Normal</button>
+            </div>
+          </div>
         </NodeToolbar>
       </div>
     );

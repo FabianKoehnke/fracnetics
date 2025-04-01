@@ -4,6 +4,8 @@
  * @param {*} nodes 
  * @param {*} edges 
  */
+import randomNormal from 'random-normal';
+
 export function handleGraphData(nodes, edges) {
     
     function findJudgmentnodeFunctions(){
@@ -55,7 +57,7 @@ export function handleGraphData(nodes, edges) {
     function getRandomFloat(min, max) {
         return Math.random() * (max - min) + min; // Hint Math.random: 0 (included) and 1 (not included)
       }
-
+    
     function binarySearch(arr, target) {
         let left = 0;
         let right = arr.length - 1;
@@ -116,10 +118,18 @@ export function handleGraphData(nodes, edges) {
                 let idx = undefined;
                 let randomFloat = undefined;
                 let idxBoundaries = [];
+                let distribution = undefined;
                 while(i < n) {
                     const usedJudgmentNodeFunctions = [];
-                    if(nodes[currentNodeID].data.label.slice(0,2) == "PN"){
-                        dataTarget[i] = parseFloat(nodes[currentNodeID].data.nodeValues[0]); 
+                    if(nodes[currentNodeID].data.label.slice(0,2) == "PN"){ // node is a processing node
+                        distribution = nodes[currentNodeID].data.distribution;
+                        if(distribution == "Uniform"){
+                            dataTarget[i] = parseFloat(nodes[currentNodeID].data.nodeValues[0]); 
+                        } else if(distribution == "Normal"){
+                            let mean = nodes[currentNodeID].data.nodeValues[0];
+                            dataTarget[i] = parseFloat(randomNormal({mean: mean, dev: 0.01}));
+                        }
+                        
                         // set values for unused judgment nodes
                         if(judgmentNodeFunctions.length>0){
                             for(let j=0; j<judgmentNodeFunctions.length;j++){
@@ -128,6 +138,12 @@ export function handleGraphData(nodes, edges) {
                                     usedJudgmentNodeFunctions.push(nodeFunction);
                                     idx = judgmentNodeFunctions.indexOf(nodeFunction);
                                     randomFloat = getRandomFloat(minValues[idx],maxValues[idx]);
+                                    if(distribution == "Uniform"){
+                                        randomFloat = getRandomFloat(parseFloat(minValues[idx]),parseFloat(maxValues[idx]));
+                                    } else if(distribution == "Normal"){
+                                        let mean = parseFloat(minValues[idx]) + ((parseFloat(maxValues[idx]) - parseFloat(minValues[idx])) / 2);
+                                        randomFloat = randomNormal({mean: mean, dev: 1});
+                                    }
                                     dataFeatures[i][idx] = randomFloat;
                                 }
                             }
@@ -136,12 +152,19 @@ export function handleGraphData(nodes, edges) {
                         
                         currentNodeID = nodes[currentNodeID].data.edges[0].target; // set new node
                         i++;
-                    } else if(nodes[currentNodeID].data.label.slice(0,2) == "JN") {                        
+                    } else if(nodes[currentNodeID].data.label.slice(0,2) == "JN") { // node is a judgment node                  
                         nodeFunction = nodes[currentNodeID].data.nodeFunction;
                         nodeValues = nodes[currentNodeID].data.nodeValues;
+                        distribution = nodes[currentNodeID].data.distribution;
                         usedJudgmentNodeFunctions.push(nodeFunction);
                         idx = judgmentNodeFunctions.indexOf(nodeFunction);
-                        randomFloat = getRandomFloat(parseFloat(nodeValues[0]),parseFloat(nodeValues[nodeValues.length-1]));
+                        if(distribution == "Uniform"){
+                            randomFloat = getRandomFloat(parseFloat(nodeValues[0]),parseFloat(nodeValues[nodeValues.length-1]));
+                        } else if(distribution == "Normal"){
+                            let mean = parseFloat(nodeValues[0]) + ((parseFloat(nodeValues[nodeValues.length-1]) - parseFloat(nodeValues[0])) / 2);
+                            randomFloat = randomNormal({mean: mean, dev: 1});
+                        }
+                        
                         idxBoundaries = binarySearch(
                             nodeValues.map(element => parseFloat(element)), 
                             randomFloat

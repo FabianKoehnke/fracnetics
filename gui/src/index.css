@@ -181,6 +181,43 @@ body {
   border-color: #ebefec;
 }
 
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: black;
+  border-radius: 10px;
+  min-width: 110px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+.dropdown-content a {
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: normal;
+  font-family: 'Source Code Pro', monospace;
+  padding: 5px 10px;
+  color: white;
+  text-align: center;
+  padding: 5px 10px;
+  text-decoration: none;
+  display: block;
+}
+
+/* Change color of dropdown links on hover */
+.dropdown-content a:hover {
+  background-color: white;
+  color: #000000;
+}
+
+/* Show the dropdown menu on hover */
+.dropdown:hover .dropdown-content {display: block;}
+
 .react-flow__controls button {
   background-color: #000000; /* !important erhöht die Spezifität */
   color: white;
