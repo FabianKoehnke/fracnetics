@@ -175,7 +175,7 @@ export function handleGraphData(nodes, edges) {
                         if(distribution == "Uniform"){
                             dataTarget[i] = parseFloat(nodes[currentNodeID].data.nodeValues[0]); 
                         } else if(distribution == "Normal"){
-                            let mean = nodes[currentNodeID].data.nodeValues[0];
+                            let mean = parseFloat(nodes[currentNodeID].data.nodeValues[0]);
                             dataTarget[i] = parseFloat(randomNormal({mean: mean, dev: 0.01}));
                         }
                         
@@ -237,7 +237,7 @@ export function handleGraphData(nodes, edges) {
 
     let n = 1000; // number of datapoints (reached processing nodes)       
     let data = runTransitionPath(n);
-    if(data[0][0] === undefined || isNaN(data[0][0])){ // TODO Prof for values in PN 
+    if(data[0][0] === undefined || isNaN(data[0][0])){
         data = null;
     }
     console.log('Aktuelle Knoten:', nodes);
