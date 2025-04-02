@@ -1,14 +1,24 @@
-/**
- * This method handle the data of the current graph
- * 
- * @param {*} nodes 
- * @param {*} edges 
- */
 import randomNormal from 'random-normal';
 
 export function handleGraphData(nodes, edges) {
+    /**
+     * This method handle the data of the current graph.
+     * 
+     * If the connection of nodes and edges are valid,
+     * then the transition path is executed and returned.
+     * 
+     * @param {Object} nodes 
+     * @param {Object} edges 
+     * 
+     * @returns {Number[][]} Data of transition path
+     */
     
     function findJudgmentnodeFunctions(){
+        /**
+         * This method finds all distinct judgment node functions.
+         * 
+         * @returns {Array} distinced judgment node functions
+         */
         const judgmentNodeFunctions = [];
         for(let i=0; i<nodes.length; i++){
             if (nodes[i].data.label.slice(0,2) == "JN") {
@@ -23,9 +33,20 @@ export function handleGraphData(nodes, edges) {
     }
 
     function findNodes(nodeType = ""){
+        /**
+         * This methods counts the number of nodes in the network
+         * of given node type.
+         * 
+         * @param {String} nodeType
+         * - "PN": processing node
+         * - "JN": judgment node
+         * - "N": undefined node
+         * 
+         * @returns {Number} counted nodes
+         */
         let nNodes = 0;
         for(let i=0; i<nodes.length; i++){
-            if(nodes[i].data.label.slice(0,2) === nodeType){
+            if(nodes[i].data.label.slice(0,nodeType.length) === nodeType){
                 nNodes++;
             }
         }
@@ -33,6 +54,17 @@ export function handleGraphData(nodes, edges) {
     }
 
     function findMinAndMaxOfBoundaries(judgmentNodeFunctions){
+        /**
+         * This method finds the min. and max. values of all distinct
+         * judgment node functions. 
+         * This is necessary for drawing feature values of not visited
+         * judgment node functions during the transition path between two 
+         * processing nodes. Otherwise there would not a completly filled 
+         * dataset. 
+         * 
+         * @param {Array} judgmentNodeFunctions - disticet judgment node functions
+         * @returns {Array, Array} [minValues, maxValues]
+         */
         const minValues = Array(judgmentNodeFunctions.length);
         const maxValues = Array(judgmentNodeFunctions.length);
         for(let i=0; i<nodes.length; i++){
@@ -54,11 +86,22 @@ export function handleGraphData(nodes, edges) {
         return [minValues, maxValues]
     }
 
-    function getRandomFloat(min, max) {
+    function getRandomFloat(min, max) {        
         return Math.random() * (max - min) + min; // Hint Math.random: 0 (included) and 1 (not included)
       }
     
     function binarySearch(arr, target) {
+        /**
+         * This methods finds the index of an array given
+         * a value via binary search.
+         * It is used for the judgment of a judgment node 
+         * given there interval boundaries and a feature value.
+         * 
+         * @param {Array} arr - GNP: interval boundaries
+         * @param {Number} target
+         * 
+         * @returns {Number} index of given array
+         */
         let left = 0;
         let right = arr.length - 1;
 
@@ -84,7 +127,13 @@ export function handleGraphData(nodes, edges) {
         return -1;
         }
 
-    function runTransitionPath(n){    
+    function runTransitionPath(n){
+        /**
+         * This method runs through the transition path.
+         * 
+         * @param {Number} n - number of visit processing nodes (data rows)
+         * @returns {Array, Array} [dataTarget, dataFeatures]
+         */
         
         const judgmentNodeFunctions = findJudgmentnodeFunctions();   
         const [minValues, maxValues] = findMinAndMaxOfBoundaries(judgmentNodeFunctions);  
@@ -110,7 +159,7 @@ export function handleGraphData(nodes, edges) {
         let currentNodeID = nodes[0].id;
         try{
             let nProcessings = findNodes("PN");
-            let nUndefinedNodes = findNodes("N ")
+            let nUndefinedNodes = findNodes("N")
             if(nProcessings > 0 && nUndefinedNodes === 0){
                 let i = 0;
                 let nodeFunction = undefined;
