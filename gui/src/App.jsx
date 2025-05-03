@@ -11,13 +11,9 @@ export default function App() {
     <div style={{ display: 'flex', width: '100vw', height: '100vh' }}>
       {/* Sidebar */}
       <div
+        className='sidebar'
         style={{
-          width: sidebarOpen ? '250px' : '40px',
-          background: '#090909',
-          color: 'white',
-          transition: 'width 0.3s ease',
-          padding: '10px',
-          display: 'flex',
+          width: sidebarOpen ? '250px' : '40px',          
           flexDirection: 'column',
           alignItems: 'center',
         }}
