@@ -1,4 +1,5 @@
 data/*
 .vscode/*
-test.*
+test.py
+testII.py
 !.gitignore
