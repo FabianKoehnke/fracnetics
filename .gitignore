@@ -1,7 +1,10 @@
+# folder
 data/*
 .vscode/*
-.DS_Store
 __pycache__/
+*.dSYM/
+# files
+.DS_Store
 test.py
 testII.py
 !.gitignore
