@@ -8,7 +8,7 @@ int main(){
     data = main.readCSV("data/BTCUSD-1m-2025-01.csv");
     std::cout << "done reading csv file \n";
 
-    double sum;
+    double sum=0.0;
     for (int k = 0; k < 10000; ++k){
 
         for (int i = 0; i < data.size(); ++i){
