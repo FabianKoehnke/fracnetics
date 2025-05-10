@@ -41,28 +41,45 @@ class Node {
                 if (type == "S") { // node is a start node 
                     // TODO: init edges
                     std::cout << "Start Node\n"<< std::endl;
+                    edges = setEdges(type);
                 } else if (type == "P") { // node is a judgment node
                     std::cout << "Processing Node" << std::endl;
+                    edges = setEdges(type);
                 } else if (type == "J") { // node is a processing node
                     std::cout << "Judgment Node" << std::endl;
+                    edges = setEdges(type);
                 }
-                edges = setEdges();
 
             }
 
-        std::vector<int> setEdges(){
+        /**
+         * @fn setEdges
+         *
+         * @brief set edges of the node given the number of nodes of the network (nn).
+         * @note The number of outgoing edges are:
+         *  - between [1,nn-1] for Judgment Nodes and 
+         *  - 1 for Processing and Start Nodes
+         *
+         * @return edges (vector<int>)
+         *
+         */
+        std::vector<int> setEdges(std::string type){
             std::mt19937 generator(seed); 
             std::uniform_int_distribution<int> distribution(0, this->nn-1);
             int randomInt = distribution(generator);
 
-            std::cout << "random number:" << randomInt << std::endl;
-
-            std::vector<int> edges(this->nn);
-            for(int i=0; i<this->nn; i++){
-                edges[i]=i;
+            if (type == "J") {
+                std::vector<int> edges(this->nn);
+                for(int i=0; i<this->nn; i++){
+                    edges[i]=i;
+                }
+                std::shuffle(edges.begin(), edges.end(), generator);
+                return std::vector<int>(edges.begin(), edges.begin()+randomInt);
+            } else if(type == "S" || type == "P"){
+                return std::vector<int>{randomInt};
+            } else {
+                return std::vector<int>{};
             }
-            std::shuffle(edges.begin(), edges.end(), generator);
-            return std::vector<int>(edges.begin(), edges.begin()+randomInt);
         }
 };
 #endif
