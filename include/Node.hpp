@@ -35,19 +35,20 @@ class Node {
             seed(_seed),
             id(_id),
             nn(_nn),
-            type(_type)
+            type(_type),
+            edges(nn)
                 
             {   
                 if (type == "S") { // node is a start node 
                     // TODO: init edges
                     std::cout << "Start Node\n"<< std::endl;
-                    edges = setEdges(type);
+                    setEdges(type);
                 } else if (type == "P") { // node is a judgment node
                     std::cout << "Processing Node" << std::endl;
-                    edges = setEdges(type);
+                    setEdges(type);
                 } else if (type == "J") { // node is a processing node
                     std::cout << "Judgment Node" << std::endl;
-                    edges = setEdges(type);
+                    setEdges(type);
                 }
 
             }
@@ -63,22 +64,21 @@ class Node {
          * @return edges (vector<int>)
          *
          */
-        std::vector<int> setEdges(std::string type){
+        void setEdges(std::string type){
             std::mt19937 generator(seed); 
             std::uniform_int_distribution<int> distribution(0, this->nn-1);
             int randomInt = distribution(generator);
 
             if (type == "J") {
-                std::vector<int> edges(this->nn);
                 for(int i=0; i<this->nn; i++){
                     edges[i]=i;
                 }
                 std::shuffle(edges.begin(), edges.end(), generator);
-                return std::vector<int>(edges.begin(), edges.begin()+randomInt);
+                edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
             } else if(type == "S" || type == "P"){
-                return std::vector<int>{randomInt};
+                edges = std::vector<int>{randomInt};
             } else {
-                return std::vector<int>{};
+                edges = std::vector<int>{};
             }
         }
 };
