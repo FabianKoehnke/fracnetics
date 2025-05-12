@@ -84,5 +84,61 @@ class Node {
                 edges = std::vector<int>{};
             }
         }
+
+        /**
+         *
+         * @fn judge 
+         *
+         * @brief judgement of a judgment node given edges, boundaries and feature value.
+         * @note using binary search for finding intervall.
+         * 
+         * @param v (double): feature value 
+         *
+         * @return index of edge (<int>)
+         *
+         */
+        int judge(double v){
+            
+            if(v <= boundaries[0]){
+                return 0;
+            } else if(v >= boundaries.back()){
+                return edges.size()-1;
+            } else {// do binary search
+                int minIndex = 0;
+                int maxIndex = edges.size()-1;
+                while(minIndex <= maxIndex){
+                    int midIndex = minIndex + (maxIndex - minIndex) / 2;
+                    if(v >= boundaries[midIndex] && v < boundaries[midIndex+1]){
+                       return midIndex;
+                    } else if(v < boundaries[midIndex]){
+                        maxIndex = midIndex-1;
+                    } else{
+                        minIndex = midIndex+1;
+                    }
+                }
+            }// end binary search  
+            return -1; 
+        }
+
+        /** 
+         *
+         * @fn setEdgesValues 
+         *
+         * @brief set the intervall boundaries for each outgoing edge of a node.
+         *
+         * @param minf (minFeatureValue)
+         * @param maxf (maxFeatureValue)
+         *
+         */
+        void setEdgesValues(double minf, double maxf){
+           double span = (maxf - minf) / edges.size();
+           double sum = minf;
+           for(int i = 0; i<edges.size()+1; i++){
+               boundaries.push_back(sum);
+               sum += span;
+           }
+
+        }
+
 };
 #endif
