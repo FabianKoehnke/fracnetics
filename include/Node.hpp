@@ -30,7 +30,7 @@ class Node {
             const unsigned int _seed, 
             unsigned int _id, 
             unsigned int _nn, 
-            std::string& _type
+            std::string _type
             ):
             seed(_seed),
             id(_id),
@@ -122,7 +122,7 @@ class Node {
 
         /** 
          *
-         * @fn setEdgesValues 
+         * @fn setEdgesBoundaries
          *
          * @brief set the intervall boundaries for each outgoing edge of a node.
          *
@@ -130,7 +130,7 @@ class Node {
          * @param maxf (maxFeatureValue)
          *
          */
-        void setEdgesValues(double minf, double maxf){
+        void setEdgesBoundaries(double minf, double maxf){
            double span = (maxf - minf) / edges.size();
            double sum = minf;
            for(int i = 0; i<edges.size()+1; i++){
