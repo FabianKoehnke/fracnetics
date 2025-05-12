@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 #include <random>
-#include <iostream>
 
 /**
  * @class Node 
@@ -25,6 +24,7 @@ class Node {
         unsigned int nn;
         std::string type;
         std::vector<int> edges;
+        std::vector<double> boundaries;
         
         Node(
             const unsigned int _seed, 
@@ -35,19 +35,14 @@ class Node {
             seed(_seed),
             id(_id),
             nn(_nn),
-            type(_type),
-            edges(nn)
+            type(_type)
                 
             {   
                 if (type == "S") { // node is a start node 
-                    // TODO: init edges
-                    std::cout << "Start Node\n"<< std::endl;
                     setEdges(type);
                 } else if (type == "P") { // node is a judgment node
-                    std::cout << "Processing Node" << std::endl;
                     setEdges(type);
                 } else if (type == "J") { // node is a processing node
-                    std::cout << "Judgment Node" << std::endl;
                     setEdges(type);
                 }
 
@@ -56,28 +51,36 @@ class Node {
         /**
          * @fn setEdges
          *
-         * @brief set edges of the node given the number of nodes of the network (nn).
+         * @brief set edges (member) of the node given the number of nodes of the network (nn).
          * @note The number of outgoing edges are:
          *  - between [1,nn-1] for Judgment Nodes and 
          *  - 1 for Processing and Start Nodes
          *
-         * @return edges (vector<int>)
-         *
          */
         void setEdges(std::string type){
             std::mt19937 generator(seed); 
-            std::uniform_int_distribution<int> distribution(0, this->nn-1);
-            int randomInt = distribution(generator);
 
             if (type == "J") {
                 for(int i=0; i<this->nn; i++){
-                    edges[i]=i;
-                }
+                    if(i != this->id){//prevents self-loop
+                        edges.push_back(i);    
+                    }
+                } 
+                std::uniform_int_distribution<int> distribution(2, this->nn-1);
+                int randomInt = distribution(generator);// sets a random number of outgoing edges
                 std::shuffle(edges.begin(), edges.end(), generator);
                 edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
             } else if(type == "S" || type == "P"){
-                edges = std::vector<int>{randomInt};
-            } else {
+                bool noSelfLoop = false;
+                while(noSelfLoop == false){// prevents self-loop
+                    std::uniform_int_distribution<int> distribution(0, this->nn-1);
+                    int randomInt = distribution(generator);// set a random successor
+                    if(randomInt != this->id){
+                        edges = std::vector<int>{randomInt};
+                        noSelfLoop = true;
+                        }
+                    }
+                } else {
                 edges = std::vector<int>{};
             }
         }
