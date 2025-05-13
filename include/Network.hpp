@@ -1,7 +1,6 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 
-#include<string>
 #include "Node.hpp"
 
 /**
@@ -9,11 +8,15 @@
  *
  * @brief This class defines the GNP graph.
  *
+ * @param seed (const unsigned int): sets the seed
+ * @param jn (unsigned int): number of initial judgment nodes
+ * @param pn (unsigned int): number of initial processing nodes
+ *
  */
 
 class Network {
     public:
-        unsigned int seed;
+        const unsigned int seed;
         unsigned int nn;
         unsigned int jn;
         unsigned int pn;
