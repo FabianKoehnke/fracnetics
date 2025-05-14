@@ -5,9 +5,11 @@
 #include <fstream>
 #include <vector>
 #include <sstream>
-#include <span>
 
-// TODO write docstring 
+/**
+ * @class Data 
+ * @brief Read and transform csv data 
+*/
 class Data {
     public:
         
@@ -15,6 +17,13 @@ class Data {
         std::vector<std::vector<float*>> X;
         std::vector<float*> y;
         
+        /**
+         * @fn readCSV
+         * @brief read csv data and stores them in member dt.
+         * 
+         * @param filename (string&)
+         * @param header (bool): skip first row if true (defaut)
+         */
         void readCSV(const std::string& filename, bool header=true) {
             std::ifstream file(filename);
             std::string line;
@@ -41,6 +50,11 @@ class Data {
             file.close();
         }
 
+        /**
+         * @fn printRows
+         * @brief print rows of member dt.
+         * @param nrows (int)
+         */
         void printRows(int nrows){
             for(int i=0; i<nrows; i++){
                 for(float val : dt[i]){
@@ -50,6 +64,11 @@ class Data {
             }
         }
 
+        /**
+         * @fn xySplit 
+         * @brief splits dt (data) in X (features) and y (target) and stores them as member 
+         * @note X and y are pointers to dt 
+         */
         void xySplit(){
             X.resize(dt.size());// set number of rows in X
             for(int i=0; i<dt.size(); i++){
