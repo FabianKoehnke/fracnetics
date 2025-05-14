@@ -1,0 +1,13 @@
+#ifndef PRINTHELPER_HPP
+#define PRINTHELPER_HPP
+
+#include <sys/resource.h>
+#include <iostream>
+
+inline void printMemoryUsage(){
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);  // Informationen für den aktuellen Prozess holen
+    std::cout << "Memory used: " << usage.ru_maxrss << " KB" << std::endl;
+}
+
+#endif
