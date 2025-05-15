@@ -7,7 +7,10 @@
  * @class Population 
  * @brief Defines the whole population.
  *
+ * @param seed (unsigned int): set seed 
  * @param ni (unsigned int): number of individuals
+ * @param jn (unsigned int): number of judgment nodes 
+ * @param pn (unsigned int): number of processing nodes 
  *
  */
 class Population {
