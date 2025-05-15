@@ -18,6 +18,8 @@ class Data {
         std::vector<float*> y;
         std::vector<int> yIndices;
         std::vector<int> XIndices;
+        std::vector<float> minX;
+        std::vector<float> maxX;
         
         /**
          * @fn readCSV
@@ -97,6 +99,27 @@ class Data {
             N = iX.second-iX.first;
             for(int i=0; i<N; i++){
                 XIndices.push_back(iX.first+i);
+            }
+        }
+
+        /**
+         * @fn minMaxFeatures
+         * @brief finds min and max of the features (X).
+         * @note stored in std::vector<float> minX and maxX
+         */
+        void minMaxFeatures(){
+            for(int i=0; i<XIndices.size(); i++){ // for each feature
+                float min = dt[0][XIndices[i]]; 
+                float max = dt[0][XIndices[i]]; 
+                for(int k=1; k<dt.size(); k++){ // for each row in dt 
+                    if(dt[k][XIndices[i]]<min){ // find min from dt with values from XIndices
+                        min=dt[k][XIndices[i]];
+                    } else if(dt[k][XIndices[i]]>max){
+                        max=dt[k][XIndices[i]];
+                    }
+                }
+                minX.push_back(min);
+                maxX.push_back(max);
             }
         }
 };
