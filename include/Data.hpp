@@ -16,6 +16,8 @@ class Data {
         std::vector<std::vector<float>> dt;
         std::vector<std::vector<float*>> X;
         std::vector<float*> y;
+        std::vector<int> yIndices;
+        std::vector<int> XIndices;
         
         /**
          * @fn readCSV
@@ -77,6 +79,24 @@ class Data {
                 for(int k=0; k<dt[i].size()-1; k++){
                     X[i][k] = &dt[i][k];
                 }
+            }
+        }
+        
+        /**
+         * @fn columnSelector
+         * @brief specify the X and y columns for selection of dt.
+         * @note e.g. iy = (1,3) selects columsn 1 and 2.
+         * @param iy (pair) : y column selector 
+         * @param iX (pair) : X column selector 
+         */
+        void columnSelector(std::pair<int,int>iy, std::pair<int,int>iX){
+            int N = iy.second-iy.first;
+            for(int i=0; i<N; i++){
+                yIndices.push_back(iy.first+i);
+            }
+            N = iX.second-iX.first;
+            for(int i=0; i<N; i++){
+                XIndices.push_back(iX.first+i);
             }
         }
 };
