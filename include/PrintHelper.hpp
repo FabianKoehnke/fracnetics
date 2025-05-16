@@ -10,4 +10,7 @@ inline void printMemoryUsage(){
     std::cout << "Memory used: " << usage.ru_maxrss << " KB" << std::endl;
 }
 
+inline void printLine(){
+    std::cout << "---------------------------------" << std::endl;
+}
 #endif
