@@ -55,6 +55,12 @@ class Population {
             }
         }
 
+        void callFitness(std::vector<std::vector<float>> dt, std::vector<int>& yIndices, std::vector<int>& XIndices){
+            for (auto& network : individuals){
+                network.fitAccuracy(dt, yIndices, XIndices);
+            }
+        }
+
 };
 
 #endif 
