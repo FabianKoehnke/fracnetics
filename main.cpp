@@ -16,17 +16,17 @@ int main(){
     std::cout << "data rows: " << data.dt.size() << std::endl;
     std::cout << "data columns: " << data.dt[0].size() << std::endl;
     printLine();
-    data.columnSelector(std::pair<int, int> (5,6), std::pair<int, int> (1,5)); // set the indices of X and y
+    data.columnSelector(std::pair<int, int> (5,6), std::pair<int, int> (1,5)); // set the indices of y and X
     data.minMaxFeatures(); // calculate the min and max values of X (for node boundaries)
     /**
      * Initializing the population
      */
     Population population(
-            123, // seed
+            223, // seed
             1, // number of networks
-            2, // number of judgment nodes (jn)
+            1, // number of judgment nodes (jn)
             4, // number of jn functions 
-            1, // number of processing nodes (pn)
+            3, // number of processing nodes (pn)
             3 // number of pn functions
             ); 
     population.setAllNodeBoundaries(data.minX,data.maxX);
@@ -38,12 +38,11 @@ int main(){
         std::cout << "type: " << net.startNode.type << " id: " << net.startNode.id << std::endl;
         std::cout << "edges: " << net.startNode.edges[0] << std::endl;
         for(const auto& n : net.innerNodes){
-            std::cout << "type: " << n.type << " id: " << n.id << std::endl;
+            std::cout << "type: " << n.type << " id: " << n.id << " ";
             std::cout << "edges " << "(" << n.edges.size() << "): ";
             for(auto& ed : n.edges){
                 std::cout << ed << " ";
             }
-            std::cout << std::endl;
 
             std::cout << "boundaries" << "(" << n.boundaries.size() << "): ";
             for(auto& b: n.boundaries){
@@ -53,7 +52,8 @@ int main(){
  
         }
     }
- 
+    printLine(); 
+    population.callFitness(data.dt, data.yIndices, data.XIndices);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "done in:" << duration.count() << "sek. \n"; 
