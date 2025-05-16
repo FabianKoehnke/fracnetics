@@ -14,6 +14,7 @@
  * @param id (unsigned int): node id 
  * @param nn (unsigned int): number of nodes of the network (edge initialization)
  * @param type (string): node type ("S"- Start Node, "P" - Processing Node or "J" Judgment Node)
+ * @param f (unsigned int): node function to select feature ("J") or give output ("P")
  *
  */
 
@@ -23,6 +24,7 @@ class Node {
         unsigned int id;
         unsigned int nn;
         std::string type;
+        unsigned int f;
         std::vector<int> edges;
         std::vector<double> boundaries;
         
@@ -30,12 +32,14 @@ class Node {
             const unsigned int _seed, 
             unsigned int _id, 
             unsigned int _nn, 
-            std::string _type
+            std::string _type,
+            unsigned int _f
             ):
             seed(_seed),
             id(_id),
             nn(_nn),
-            type(_type)
+            type(_type),
+            f(_f)
                 
             {   
                 if (type == "S") { // node is a start node 
@@ -130,7 +134,7 @@ class Node {
          * @param maxf (maxFeatureValue)
          *
          */
-        void setEdgesBoundaries(double minf, double maxf){
+        void setEdgesBoundaries(float minf, float maxf){
            double span = (maxf - minf) / edges.size();
            double sum = minf;
            for(int i = 0; i<edges.size()+1; i++){
