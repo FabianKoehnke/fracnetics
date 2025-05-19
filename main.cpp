@@ -5,6 +5,11 @@
 
 int main(){
     /**
+     * Parameter
+     */
+    int dMax = 10;
+    int penalty = 2;
+    /**
      * Rading Data
      */
     auto start = std::chrono::high_resolution_clock::now();
@@ -53,7 +58,7 @@ int main(){
         }
     }
     printLine(); 
-    population.callFitness(data.dt, data.yIndices, data.XIndices);
+    population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "done in:" << duration.count() << "sek. \n"; 

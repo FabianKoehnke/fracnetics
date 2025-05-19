@@ -55,9 +55,20 @@ class Population {
             }
         }
 
-        void callFitness(std::vector<std::vector<float>> dt, std::vector<int>& yIndices, std::vector<int>& XIndices){
+        void callFitness(
+                std::vector<std::vector<float>> dt,
+                std::vector<int>& yIndices,
+                std::vector<int>& XIndices,
+                int dMax,
+                int penalty
+                ){
             for (auto& network : individuals){
-                network.fitAccuracy(dt, yIndices, XIndices);
+                network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
+            }
+        }
+
+        void tournamentSelection(){
+            for(int i=0; individuals.size(); i++){
             }
         }
 
