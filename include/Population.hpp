@@ -59,8 +59,8 @@ class Population {
                 std::vector<std::vector<float>> dt,
                 std::vector<int>& yIndices,
                 std::vector<int>& XIndices,
-                int dMax,
-                int penalty
+                int& dMax,
+                int& penalty
                 ){
             for (auto& network : individuals){
                 network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
