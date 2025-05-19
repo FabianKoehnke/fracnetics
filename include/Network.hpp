@@ -66,8 +66,8 @@ class Network {
                 std::vector<std::vector<float>>& dt, 
                 std::vector<int>& yIndices, 
                 std::vector<int>& XIndices,
-                int dMax,
-                int penalty
+                int& dMax,
+                int& penalty
                 ){
             int currentNodeID = startNode.edges[0];
             int dec;
