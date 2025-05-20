@@ -1,5 +1,6 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
+#include <random>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 
 #include "Node.hpp"
@@ -9,7 +10,7 @@
  *
  * @brief This class defines the GNP graph.
  *
- * @param seed (const unsigned int): sets the seed
+ * @param generator (std::shared_ptr<std::mt19937>): passes the generator for random values
  * @param jn (unsigned int): number of initial judgment nodes
  * @param jnf (unsigned int): number of judgment node functions 
  * @param pn (unsigned int): number of initial processing nodes
@@ -19,7 +20,7 @@
 
 class Network {
     private:
-        std::shared_ptr<std::mt19937> generator;
+        std::shared_ptr<std::mt19937_64> generator;
     public:
         unsigned int nn;
         unsigned int jn;
@@ -31,7 +32,7 @@ class Network {
         float fitness = 0;
 
         Network(
-                std::shared_ptr<std::mt19937> _generator,
+                std::shared_ptr<std::mt19937_64> _generator,
                 unsigned int _jn,
                 unsigned int _jnf,
                 unsigned int _pn,
