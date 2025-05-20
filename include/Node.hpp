@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <random>
+#include <iostream>
 
 /**
  * @class Node 
@@ -19,8 +20,9 @@
  */
 
 class Node {
+    private:
+        std::shared_ptr<std::mt19937> generator; 
     public:
-        const unsigned int seed;
         unsigned int id;
         unsigned int nn;
         std::string type;
@@ -29,19 +31,20 @@ class Node {
         std::vector<double> boundaries;
         
         Node(
-            const unsigned int _seed, 
+            std::shared_ptr<std::mt19937> _generator,
             unsigned int _id, 
             unsigned int _nn, 
             std::string _type,
             unsigned int _f
             ):
-            seed(_seed),
+            generator(_generator),
             id(_id),
             nn(_nn),
             type(_type),
             f(_f)
                 
             {   
+
                 if (type == "S") { // node is a start node 
                     setEdges(type);
                 } else if (type == "P") { // node is a judgment node
@@ -62,7 +65,6 @@ class Node {
          *
          */
         void setEdges(std::string type){
-            std::mt19937 generator(seed); 
 
             if (type == "J") {
                 for(int i=0; i<this->nn; i++){
@@ -71,14 +73,14 @@ class Node {
                     }
                 } 
                 std::uniform_int_distribution<int> distribution(2, this->nn-1);
-                int randomInt = distribution(generator);// sets a random number of outgoing edges
-                std::shuffle(edges.begin(), edges.end(), generator);
+                int randomInt = distribution(*generator);// sets a random number of outgoing edges
+                std::shuffle(edges.begin(), edges.end(), *generator);
                 edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
             } else if(type == "S" || type == "P"){
                 bool noSelfLoop = false;
                 while(noSelfLoop == false){// prevents self-loop
                     std::uniform_int_distribution<int> distribution(0, this->nn-1);
-                    int randomInt = distribution(generator);// set a random successor
+                    int randomInt = distribution(*generator);// set a random successor
                     if(randomInt != this->id){
                         edges = std::vector<int>{randomInt};
                         noSelfLoop = true;

@@ -18,8 +18,9 @@
  */
 
 class Network {
+    private:
+        std::shared_ptr<std::mt19937> generator;
     public:
-        const unsigned int seed;
         unsigned int nn;
         unsigned int jn;
         unsigned int jnf;
@@ -30,25 +31,25 @@ class Network {
         float fitness = 0;
 
         Network(
-                unsigned int _seed,
+                std::shared_ptr<std::mt19937> _generator,
                 unsigned int _jn,
                 unsigned int _jnf,
                 unsigned int _pn,
                 unsigned int _pnf
                 ):
-            seed(_seed),
+            generator(_generator),
             jn(_jn),
             jnf(_jnf),
             pn(_pn),
             pnf(_pnf),
-            startNode(seed,0,_jn+_pn,"S",-1) // init start node
+            startNode(generator,0,_jn+_pn,"S",-1) // init start node
     {
         nn = pn+jn;
         for(int i=0; i<jn; i++){ // init judgment nodes 
-            innerNodes.push_back(Node(seed+i,i,nn,"J",i%jnf));
+            innerNodes.push_back(Node(generator,i,nn,"J",i%jnf));
         }
         for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
-            innerNodes.push_back(Node(seed+i,i,nn,"P",i%pnf));
+            innerNodes.push_back(Node(generator,i,nn,"P",i%pnf));
         }
         
     }

@@ -7,6 +7,7 @@ int main(){
     /**
      * Parameter
      */
+    auto generator = std::make_shared<std::mt19937>(42);
     int dMax = 10;
     int penalty = 2;
     /**
@@ -27,9 +28,9 @@ int main(){
      * Initializing the population
      */
     Population population(
-            223, // seed
-            1, // number of networks
-            1, // number of judgment nodes (jn)
+            generator, // seed
+            10, // number of networks
+            3, // number of judgment nodes (jn)
             4, // number of jn functions 
             3, // number of processing nodes (pn)
             3 // number of pn functions
