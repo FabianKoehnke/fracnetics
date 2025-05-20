@@ -10,7 +10,7 @@
  * @class Population 
  * @brief Defines the whole population.
  *
- * @param seed (unsigned int): set seed 
+ * @param generator (std::shared_ptr<std::mt19937>): passes the generator for random values
  * @param ni (unsigned int): number of individuals
  * @param jn (unsigned int): number of judgment nodes 
  * @param jnf (unsigned int): number of judgment node functions 
@@ -20,7 +20,7 @@
  */
 class Population {
     private:
-        std::shared_ptr<std::mt19937> generator;
+        std::shared_ptr<std::mt19937_64> generator;
     public:
         const unsigned int ni;
         unsigned int jn;
@@ -32,7 +32,7 @@ class Population {
         std::vector<int> indicesElite;
 
         Population(
-                std::shared_ptr<std::mt19937> _generator,
+                std::shared_ptr<std::mt19937_64> _generator,
                 const unsigned int _ni,
                 unsigned int _jn,
                 unsigned int _jnf,
@@ -98,8 +98,6 @@ class Population {
                        indexBestIndTournament = k;
                    } 
                 }
-                //DEBUG_VAR(bestFitTournament)
-                //DEBUG_VAR(indexBestIndTournament)
                 selection.push_back(individuals[indexBestIndTournament]);
             }
             setElite(E, individuals, selection);
@@ -123,7 +121,15 @@ class Population {
                 individuals.erase(individuals.begin()+eliteIndex);
                 counter += 1;
             }
+        }
 
+        void callEdgeMutation(float probInnerNodes, float probStartNode){
+            for(auto& net : individuals){
+                for(auto& node : net.innerNodes){
+                    node.edgeMutation(probInnerNodes);
+                }
+                net.startNode.edgeMutation(probStartNode);
+            }
         }
 
 };

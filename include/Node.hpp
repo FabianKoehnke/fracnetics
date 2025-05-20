@@ -1,5 +1,6 @@
 #ifndef NODE_HPP
 #define NODE_HPP
+#define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 
 #include <vector>
 #include <string>
@@ -11,7 +12,7 @@
  *
  * @brief This class defines the node of the GNP graph.
  *
- * @param seed (const unsigned int): set random values (edge initialization)
+ * @param generator (std::shared_ptr<std::mt19937>): passes the generator for random values
  * @param id (unsigned int): node id 
  * @param nn (unsigned int): number of nodes of the network (edge initialization)
  * @param type (string): node type ("S"- Start Node, "P" - Processing Node or "J" Judgment Node)
@@ -21,7 +22,7 @@
 
 class Node {
     private:
-        std::shared_ptr<std::mt19937> generator; 
+        std::shared_ptr<std::mt19937_64> generator; 
     public:
         unsigned int id;
         unsigned int nn;
@@ -31,7 +32,7 @@ class Node {
         std::vector<double> boundaries;
         
         Node(
-            std::shared_ptr<std::mt19937> _generator,
+            std::shared_ptr<std::mt19937_64> _generator,
             unsigned int _id, 
             unsigned int _nn, 
             std::string _type,
@@ -44,7 +45,6 @@ class Node {
             f(_f)
                 
             {   
-
                 if (type == "S") { // node is a start node 
                     setEdges(type);
                 } else if (type == "P") { // node is a judgment node
@@ -52,7 +52,6 @@ class Node {
                 } else if (type == "J") { // node is a processing node
                     setEdges(type);
                 }
-
             }
 
         /**
@@ -143,6 +142,27 @@ class Node {
                boundaries.push_back(sum);
                sum += span;
            }
+
+        }
+
+        void edgeMutation(float propability){
+            std::bernoulli_distribution distributionBernoulli(propability);
+            std::uniform_int_distribution<int> distributionUniform(0, this->nn-1);
+            for(auto& edge : edges){
+                bool result = distributionBernoulli(*generator);
+                
+                if(result){
+                    bool noSelf = false;
+                    while(noSelf == false){ // prevent self-loop and same edge
+                        int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
+                        if(randomInt != this->id && randomInt != edge){
+                            edge = randomInt;
+                            noSelf = true;
+                        }
+
+                    }
+                }
+            }
 
         }
 
