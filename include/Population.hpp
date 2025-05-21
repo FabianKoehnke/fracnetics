@@ -4,6 +4,7 @@
 
 #include <random>
 #include <unordered_set>
+#include <utility>
 #include "Network.hpp"
 
 /**
@@ -135,7 +136,37 @@ class Population {
              }
         }
 
+        void crossOver(float propability){
+            std::bernoulli_distribution distributionBernoulli(propability);
+            std::vector<unsigned int> inds;
+            for(int i=0; i<individuals.size(); i++){
+                inds.push_back(i);
             }
+            std::shuffle(inds.begin(), inds.end(), *generator);
+            for(int i=0; i<inds.size()/2; i+=2){
+                auto& parent1 = individuals[i];
+                auto& parent2 = individuals[i+1];
+                int maxNodeNumbers = std::min(parent1.nn, parent2.nn);
+                DEBUG_VAR(maxNodeNumbers)
+
+                for(int k=0; k<maxNodeNumbers-1; k++){
+                    bool result = distributionBernoulli(*generator);
+                    if(result){
+                        DEBUG_VAR(parent1.innerNodes.size())
+                        DEBUG_VAR(parent2.innerNodes.size())
+                        std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
+                        // just check "false edges" if parent is smaller one and unequal to other parent (expensive).
+                        if(parent1.nn < maxNodeNumbers && parent1.nn != parent2.nn){
+                            parent1.changeFalseEdges();
+                        } else if (parent2.nn < maxNodeNumbers && parent2.nn != parent1.nn) {
+                            parent2.changeFalseEdges(); 
+                        }
+                    }
+ 
+                }
+
+            }
+
         }
 
 };

@@ -121,6 +121,25 @@ class Network {
             fitness = correct / dt.size();
         }
 
+        void changeFalseEdges(){
+            for(auto& node : innerNodes){
+                for(auto& edge : node.edges){
+                    if(edge > node.nn-1){ // edge as no successor node -> set new one
+                        bool noSelfLoop = false;
+                        while(noSelfLoop == false){ // prevents self-loop
+                            std::uniform_int_distribution<int> distribution(0, node.nn-1);
+                            int randomInt = distribution(*generator);
+                            if(randomInt != node.id){
+                                edge = randomInt;
+                                noSelfLoop = true;
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+
 };
 
 #endif
