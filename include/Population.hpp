@@ -118,7 +118,7 @@ class Population {
                         eliteIndex = i;
                     }
                 }
-                indicesElite.push_back(eliteIndex+counter);
+                indicesElite.push_back(selection.size()); // because auf push_back of elite the index is the old size
                 selection.push_back(individuals[eliteIndex]);
                 individuals.erase(individuals.begin()+eliteIndex);
                 counter += 1;
@@ -127,7 +127,7 @@ class Population {
 
         void callEdgeMutation(float probInnerNodes, float probStartNode){
             for(int i=0; i<individuals.size(); i++){
-                if(std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()){// preventing elite
+                if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
                         node.edgeMutation(probInnerNodes);
                     }
@@ -136,7 +136,7 @@ class Population {
              }
         }
 
-        void crossOver(float propability){
+        void crossover(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
             std::vector<unsigned int> inds;
             for(int i=0; i<individuals.size(); i++){
@@ -152,10 +152,8 @@ class Population {
                 for(int k=0; k<maxNodeNumbers-1; k++){
                     bool result = distributionBernoulli(*generator);
                     if(result){
-                        DEBUG_VAR(parent1.innerNodes.size())
-                        DEBUG_VAR(parent2.innerNodes.size())
                         std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
-                        // just check "false edges" if parent is smaller one and unequal to other parent (expensive).
+                        // just check for "false edges" if parent is smaller one and unequal to other parent (expensive).
                         if(parent1.nn < maxNodeNumbers && parent1.nn != parent2.nn){
                             parent1.changeFalseEdges();
                         } else if (parent2.nn < maxNodeNumbers && parent2.nn != parent1.nn) {
