@@ -46,11 +46,27 @@ class Network {
             startNode(generator,0,_jn+_pn,"S",-1) // init start node
     {
         nn = pn+jn;
+        std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
         for(int i=0; i<jn; i++){ // init judgment nodes 
-            innerNodes.push_back(Node(generator,i,nn,"J",i%jnf));
+            int randomInt = distributionJNF(*generator);
+            innerNodes.push_back(Node(
+                        generator, 
+                        i, // node id 
+                        nn, // number of nodes 
+                        "J", // node type 
+                        randomInt // node function
+                        ));
         }
+        std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
         for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
-            innerNodes.push_back(Node(generator,i,nn,"P",i%pnf));
+            int randomInt = distributionPNF(*generator);
+            innerNodes.push_back(Node(
+                        generator, 
+                        i, // node id 
+                        nn, // number of nodes 
+                        "P", // node type 
+                        randomInt // node function
+                        ));
         }
         
     }
@@ -75,7 +91,7 @@ class Network {
             int dec;
             float correct = 0;
             for(int i=0; i<dt.size(); i++){
-                int  dSum = 0; //to prevent dead-looks 
+                int  dSum = 0; // to prevent dead-looks 
                 if (innerNodes[currentNodeID].type == "P"){
                     dec = innerNodes[currentNodeID].f;
                     if(dec == dt[i][yIndices[0]]){
@@ -90,6 +106,11 @@ class Network {
                         if (dSum >= dMax){
                             break;
                         }
+                    }
+                
+                    dec = innerNodes[currentNodeID].f;
+                    if(dec == dt[i][yIndices[0]]){
+                        correct += 1;
                     }
                 }
                 if (dSum >= dMax){
