@@ -69,6 +69,7 @@ class Population {
                 int& dMax,
                 int& penalty
                 ){
+            bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
                 network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
 
@@ -105,8 +106,8 @@ class Population {
         }
 
         void setElite(int E, std::vector<Network> individuals, std::vector<Network>& selection){
-            int counter = 0;
-            int eliteIndex = 0;
+            unsigned int counter = 0;
+            unsigned int eliteIndex = 0;
             indicesElite.clear();
             while(counter<E){
                 float eliteFit = individuals[0].fitness;
@@ -116,7 +117,7 @@ class Population {
                         eliteIndex = i;
                     }
                 }
-                indicesElite.push_back(eliteIndex);
+                indicesElite.push_back(eliteIndex+counter);
                 selection.push_back(individuals[eliteIndex]);
                 individuals.erase(individuals.begin()+eliteIndex);
                 counter += 1;
@@ -124,11 +125,16 @@ class Population {
         }
 
         void callEdgeMutation(float probInnerNodes, float probStartNode){
-            for(auto& net : individuals){
-                for(auto& node : net.innerNodes){
-                    node.edgeMutation(probInnerNodes);
-                }
-                net.startNode.edgeMutation(probStartNode);
+            for(int i=0; i<individuals.size(); i++){
+                if(std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()){// preventing elite
+                    for(auto& node : individuals[i].innerNodes){
+                        node.edgeMutation(probInnerNodes);
+                    }
+                    individuals[i].startNode.edgeMutation(probStartNode);
+                 }
+             }
+        }
+
             }
         }
 
