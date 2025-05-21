@@ -29,7 +29,7 @@ class Network {
         unsigned int pnf;
         std::vector<Node> innerNodes;
         Node startNode;
-        float fitness = 0;
+        float fitness = std::numeric_limits<float>::lowest();
 
         Network(
                 std::shared_ptr<std::mt19937_64> _generator,
