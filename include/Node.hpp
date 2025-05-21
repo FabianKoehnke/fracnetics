@@ -71,7 +71,7 @@ class Node {
                         edges.push_back(i);    
                     }
                 } 
-                std::uniform_int_distribution<int> distribution(2, this->nn-1);
+                std::uniform_int_distribution<int> distribution(1, this->nn-1);
                 int randomInt = distribution(*generator);// sets a random number of outgoing edges
                 std::shuffle(edges.begin(), edges.end(), *generator);
                 edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
