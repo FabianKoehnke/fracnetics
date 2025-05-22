@@ -143,13 +143,17 @@ class Population {
                 inds.push_back(i);
             }
             std::shuffle(inds.begin(), inds.end(), *generator);
-            for(int i=0; i<inds.size()/2; i+=2){
-                auto& parent1 = individuals[i];
-                auto& parent2 = individuals[i+1];
+            for(int i=0; i<inds.size()-1; i+=2){ // for each individual
+                if(std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end() ||
+                    std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end()
+                    ){ // preventing crossover for elite
+                    continue;
+                }
+                auto& parent1 = individuals[inds[i]];
+                auto& parent2 = individuals[inds[i+1]];
                 int maxNodeNumbers = std::min(parent1.nn, parent2.nn);
-                DEBUG_VAR(maxNodeNumbers)
 
-                for(int k=0; k<maxNodeNumbers-1; k++){
+                for(int k=0; k<maxNodeNumbers-1; k++){ // for each node
                     bool result = distributionBernoulli(*generator);
                     if(result){
                         std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
