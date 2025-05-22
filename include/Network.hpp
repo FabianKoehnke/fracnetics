@@ -22,7 +22,6 @@ class Network {
     private:
         std::shared_ptr<std::mt19937_64> generator;
     public:
-        unsigned int nn;
         unsigned int jn;
         unsigned int jnf;
         unsigned int pn;
@@ -43,19 +42,20 @@ class Network {
             jnf(_jnf),
             pn(_pn),
             pnf(_pnf),
-            startNode(generator,0,_jn+_pn,"S",-1) // init start node
+            startNode(generator,0,"S",-1) // init start node
+            
     {
-        nn = pn+jn;
+        startNode.setEdges("S", jn+pn);
         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
         for(int i=0; i<jn; i++){ // init judgment nodes 
             int randomInt = distributionJNF(*generator);
             innerNodes.push_back(Node(
                         generator, 
                         i, // node id 
-                        nn, // number of nodes 
                         "J", // node type 
                         randomInt // node function
                         ));
+            innerNodes.back().setEdges("J", pn+jn);
         }
         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
         for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
@@ -63,10 +63,10 @@ class Network {
             innerNodes.push_back(Node(
                         generator, 
                         i, // node id 
-                        nn, // number of nodes 
                         "P", // node type 
                         randomInt // node function
                         ));
+            innerNodes.back().setEdges("P", jn+pn);
         }
         
     }

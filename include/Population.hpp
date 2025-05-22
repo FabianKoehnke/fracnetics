@@ -129,9 +129,9 @@ class Population {
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
-                        node.edgeMutation(probInnerNodes);
+                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
                     }
-                    individuals[i].startNode.edgeMutation(probStartNode);
+                    individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size());
                  }
              }
         }
@@ -151,16 +151,16 @@ class Population {
                 }
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
-                int maxNodeNumbers = std::min(parent1.nn, parent2.nn);
+                int maxNodeNumbers = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
 
                 for(int k=0; k<maxNodeNumbers-1; k++){ // for each node
                     bool result = distributionBernoulli(*generator);
                     if(result){
                         std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
-                        // just check for "false edges" if parent is smaller one and unequal to other parent (expensive).
-                        if(parent1.nn < maxNodeNumbers && parent1.nn != parent2.nn){
+                        // just check for "false edges" if parent is the smaller one (expensive)
+                        if(parent1.innerNodes.size() < parent2.innerNodes.size()){
                             parent1.changeFalseEdges();
-                        } else if (parent2.nn < maxNodeNumbers && parent2.nn != parent1.nn) {
+                        } else if (parent2.innerNodes.size() < parent1.innerNodes.size()) {
                             parent2.changeFalseEdges(); 
                         }
                     }

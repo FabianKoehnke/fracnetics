@@ -14,7 +14,6 @@
  *
  * @param generator (std::shared_ptr<std::mt19937>): passes the generator for random values
  * @param id (unsigned int): node id 
- * @param nn (unsigned int): number of nodes of the network (edge initialization)
  * @param type (string): node type ("S"- Start Node, "P" - Processing Node or "J" Judgment Node)
  * @param f (unsigned int): node function to select feature ("J") or give output ("P")
  *
@@ -25,7 +24,6 @@ class Node {
         std::shared_ptr<std::mt19937_64> generator; 
     public:
         unsigned int id;
-        unsigned int nn;
         std::string type;
         unsigned int f;
         std::vector<int> edges;
@@ -34,25 +32,15 @@ class Node {
         Node(
             std::shared_ptr<std::mt19937_64> _generator,
             unsigned int _id, 
-            unsigned int _nn, 
             std::string _type,
             unsigned int _f
             ):
             generator(_generator),
             id(_id),
-            nn(_nn),
             type(_type),
             f(_f)
                 
-            {   
-                if (type == "S") { // node is a start node 
-                    setEdges(type);
-                } else if (type == "P") { // node is a judgment node
-                    setEdges(type);
-                } else if (type == "J") { // node is a processing node
-                    setEdges(type);
-                }
-            }
+            {}
 
         /**
          * @fn setEdges
@@ -63,22 +51,22 @@ class Node {
          *  - 1 for Processing and Start Nodes
          *
          */
-        void setEdges(std::string type){
+        void setEdges(std::string type, int nn){
 
             if (type == "J") {
-                for(int i=0; i<this->nn; i++){
+                for(int i=0; i<nn; i++){
                     if(i != this->id){//prevents self-loop
                         edges.push_back(i);    
                     }
                 } 
-                std::uniform_int_distribution<int> distribution(1, this->nn-1);
+                std::uniform_int_distribution<int> distribution(1, nn-1);
                 int randomInt = distribution(*generator);// sets a random number of outgoing edges
                 std::shuffle(edges.begin(), edges.end(), *generator);
                 edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
             } else if(type == "S" || type == "P"){
                 bool noSelfLoop = false;
                 while(noSelfLoop == false){// prevents self-loop
-                    std::uniform_int_distribution<int> distribution(0, this->nn-1);
+                    std::uniform_int_distribution<int> distribution(0, nn-1);
                     int randomInt = distribution(*generator);// set a random successor
                     if(randomInt != this->id){
                         edges = std::vector<int>{randomInt};
@@ -145,9 +133,9 @@ class Node {
 
         }
 
-        void edgeMutation(float propability){
+        void edgeMutation(float propability, int nn){
             std::bernoulli_distribution distributionBernoulli(propability);
-            std::uniform_int_distribution<int> distributionUniform(0, this->nn-1);
+            std::uniform_int_distribution<int> distributionUniform(0, nn-1);
             for(auto& edge : edges){
                 bool result = distributionBernoulli(*generator);
                 
