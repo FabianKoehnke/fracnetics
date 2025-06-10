@@ -53,6 +53,12 @@ class Population {
         }
     }
 
+        /*
+         * @fn setAllNodeBoundaries
+         * @brief call setEdgesBoundaries for each node of each individual 
+         * @param minF (std::vector<float>&): min values of all features 
+         * @param maxF (std::vector<float>&): max values of all features 
+         */
         void setAllNodeBoundaries(std::vector<float>& minF, std::vector<float>& maxF){
             for(auto& network : individuals){
                for(auto& node : network.innerNodes){
@@ -63,6 +69,17 @@ class Population {
             }
         }
 
+        /* @fn callFitness
+         * @brief call the fitness for each individual
+         * @note stores the bestFit of the population in member bestFit
+         *
+         * @param dt (std::vector<std::vector<float>>& dt) : data table
+         * @param yIndices (std::vector<int>&) : indices to select y values 
+         * @param XIndices (std::vector<int>&) : indices to select X valaues (features)
+         * @param dMax (int) : maximal judgments (delay) until next decision 
+         * @param penalty (int) : devisor on fitness after exceeding maximal judgments
+         * 
+         */
         void callFitness(
                 std::vector<std::vector<float>> dt,
                 std::vector<int>& yIndices,
@@ -80,6 +97,12 @@ class Population {
             }
         }
 
+        /*
+         * @fn tournamentSelection
+         * @brief runs tournament selection and sets the new population
+         * @param N (int): tournament size
+         * @param E (int): size of elite
+         */
         void tournamentSelection(int N, int E){
             std::vector<Network> selection;
             std::unordered_set<int> tournament;
@@ -106,6 +129,13 @@ class Population {
             individuals = std::move(selection);
         }
 
+        /*
+         * @fn setElite
+         * @brief stores the elite in given selection 
+         * @param E (int): number of elite 
+         * @param individuals (std::vector<Network>)
+         * @param selection (std::vector<Network>&)
+         */
         void setElite(int E, std::vector<Network> individuals, std::vector<Network>& selection){
             unsigned int counter = 0;
             unsigned int eliteIndex = 0;
@@ -125,6 +155,12 @@ class Population {
             }
         }
 
+        /*
+         * @fn callEdgeMutation
+         * @brief call edgeMutation for each node in and each network (individual)
+         * @param probInnerNodes (float): probability of changing inner nodes (jn and pn)
+         * @param probStartNode (float): probability of changing the start node
+         */
         void callEdgeMutation(float probInnerNodes, float probStartNode){
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
@@ -136,6 +172,16 @@ class Population {
              }
         }
 
+        /*
+         * @fn crossover
+         * @brief exchange the nodes 
+         * @note rules because of callAddDelNodes:
+         *  - just change with node indices of {1,...,min(na,nb)}, where
+         *    na and nb are the node number of individual a nd b 
+         *  - change "dangling" edges (edges pointing to no node) randomly
+         *  
+         *  @param probability (float): probability of changing nodes
+         */
         void crossover(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
             std::vector<unsigned int> inds;
@@ -175,7 +221,7 @@ class Population {
          * @fn callAddDelNodes 
          * @brief call addDelNodes for each individual 
          * @param minf (std::vector<float>&): min values of all features 
-         * @param maxf (std::vector<float>&): min values of all features 
+         * @param maxf (std::vector<float>&): max values of all features 
          */
         void callAddDelNodes(std::vector<float>& minf, std::vector<float>& maxf){
             for(auto& ind : individuals){
