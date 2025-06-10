@@ -133,6 +133,12 @@ class Node {
 
         }
 
+        /*
+         * @fn edgeMutation
+         * @brief change the edges of a network (individual)
+         * @param propability (float): propability of changing an edge 
+         * @param nn (int): number of node of the network 
+         */
         void edgeMutation(float propability, int nn){
             std::bernoulli_distribution distributionBernoulli(propability);
             for(auto& edge : edges){
@@ -143,6 +149,12 @@ class Node {
             }
         }
 
+        /*
+         * @fn changeEdge
+         * @brief change the successor of an edge 
+         * @param nn (int): number of node of the network 
+         * @param edge (int&): successor of edge of
+         */
         void changeEdge(int nn, int& edge){
             std::uniform_int_distribution<int> distributionUniform(0, nn-1);
             bool noSelf = false;
