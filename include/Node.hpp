@@ -123,7 +123,7 @@ class Node {
          * @param maxf (maxFeatureValue)
          *
          */
-        void setEdgesBoundaries(float minf, float maxf){
+        void setEdgesBoundaries(float minf, float maxf){ 
            double span = (maxf - minf) / edges.size();
            double sum = minf;
            for(int i = 0; i<edges.size()+1; i++){
@@ -135,24 +135,25 @@ class Node {
 
         void edgeMutation(float propability, int nn){
             std::bernoulli_distribution distributionBernoulli(propability);
-            std::uniform_int_distribution<int> distributionUniform(0, nn-1);
             for(auto& edge : edges){
                 bool result = distributionBernoulli(*generator);
-                
-                if(result){
-                    bool noSelf = false;
-                    while(noSelf == false){ // prevent self-loop and same edge
-                        int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
-                        if(randomInt != this->id && randomInt != edge){
-                            edge = randomInt;
-                            noSelf = true;
-                        }
-
-                    }
+                if(result){ 
+                    changeEdge(nn, edge);
                 }
             }
-
         }
+
+        void changeEdge(int nn, int& edge){
+            std::uniform_int_distribution<int> distributionUniform(0, nn-1);
+            bool noSelf = false;
+            while(noSelf == false){ // prevent self-loop and same edge
+                int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
+                if(randomInt != this->id && randomInt != edge){
+                    edge = randomInt;
+                    noSelf = true;
+                }
+            }
+       }
 
 };
 #endif

@@ -123,17 +123,14 @@ class Network {
 
         void changeFalseEdges(){
             for(auto& node : innerNodes){
+                std::uniform_int_distribution<int> distribution(0, innerNodes.size()-1);
                 for(auto& edge : node.edges){
-                    if(edge > node.nn-1){ // edge as no successor node -> set new one
-                        bool noSelfLoop = false;
-                        while(noSelfLoop == false){ // prevents self-loop
-                            std::uniform_int_distribution<int> distribution(0, node.nn-1);
-                            int randomInt = distribution(*generator);
-                            if(randomInt != node.id){
-                                edge = randomInt;
-                                noSelfLoop = true;
-                            }
-                        }
+                    if(edge > innerNodes.size()-1){ // edge has no successor node -> set new one
+                        node.changeEdge(innerNodes.size(), edge);
+                    }
+                }
+            }
+        }
 
                     }
                 }
