@@ -171,6 +171,18 @@ class Population {
 
         }
 
+        /*
+         * @fn callAddDelNodes 
+         * @brief call addDelNodes for each individual 
+         * @param minf (std::vector<float>&): min values of all features 
+         * @param maxf (std::vector<float>&): min values of all features 
+         */
+        void callAddDelNodes(std::vector<float>& minf, std::vector<float>& maxf){
+            for(auto& ind : individuals){
+                ind.addDelNodes(minf, maxf);
+            }
+        }
+
 };
 
 #endif 
