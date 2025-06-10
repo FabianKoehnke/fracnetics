@@ -2,12 +2,24 @@
 #include "include/Population.hpp"
 #include "include/PrintHelper.hpp"
 #include <chrono>
+#include <random>
 
 int main(){
     /**
      * Parameter
      */
-    auto generator = std::make_shared<std::mt19937>(42);
+    auto generator = std::make_shared<std::mt19937_64>(52);
+    float probEdgeMutationStartNode = 0.05;
+    float probEdgeMutationInnerNodes = 0.05;
+    float probCrossOver = 0.1;
+    int generations = 500;
+    int nIndividuals = 201;
+    int tournamentSize = 2;
+    int nElite = 1;
+    int jn = 100;
+    int jnf = 4;
+    int pn = 100;
+    int pnf = 3;
     int dMax = 10;
     int penalty = 2;
     /**
@@ -24,42 +36,58 @@ int main(){
     printLine();
     data.columnSelector(std::pair<int, int> (5,6), std::pair<int, int> (1,5)); // set the indices of y and X
     data.minMaxFeatures(); // calculate the min and max values of X (for node boundaries)
+    printVec(data.minX, "minX");
+    printVec(data.maxX, "miny");
     /**
      * Initializing the population
      */
     Population population(
-            generator, // seed
-            10, // number of networks
-            3, // number of judgment nodes (jn)
-            4, // number of jn functions 
-            3, // number of processing nodes (pn)
-            3 // number of pn functions
+            generator, // generator
+            nIndividuals, // number of networks
+            jn, // number of judgment nodes (jn)
+            jnf, // number of jn functions 
+            pn, // number of processing nodes (pn)
+            pnf // number of pn functions
             ); 
     population.setAllNodeBoundaries(data.minX,data.maxX);
-    for(int i=0; i<population.individuals.size(); i++){
-        auto& net = population.individuals[i];
-        printLine(); 
-        std::cout << "Network: " << i << std::endl;
-        printLine(); 
-        std::cout << "type: " << net.startNode.type << " id: " << net.startNode.id << std::endl;
-        std::cout << "edges: " << net.startNode.edges[0] << std::endl;
-        for(const auto& n : net.innerNodes){
-            std::cout << "type: " << n.type << " id: " << n.id << " ";
-            std::cout << "edges " << "(" << n.edges.size() << "): ";
-            for(auto& ed : n.edges){
-                std::cout << ed << " ";
-            }
-
-            std::cout << "boundaries" << "(" << n.boundaries.size() << "): ";
-            for(auto& b: n.boundaries){
-                std::cout << b << " ";
-            }
-            std::cout << std::endl;
- 
-        }
-    }
     printLine(); 
-    population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty);
+    std::cout << "start EA" << std::endl;
+    std::vector<float> bestFitnessPerGeneration;
+    for(int g=0; g<generations; g++){
+        population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty);
+        population.tournamentSelection(tournamentSize,nElite);
+        population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
+        population.crossover(probCrossOver);
+        population.callAddDelNodes(data.minX, data.maxX);
+        //std::cout << "Best Fit: " << population.individuals[population.indicesElite[0]].fitness;
+        for(auto bestIndices : population.indicesElite){
+            std::cout << "indicesElite: " << bestIndices;
+        }
+        std::cout << std::endl;
+        for(int i=0; i<population.individuals.size(); i++){
+            auto& net = population.individuals[i];
+            printLine(); 
+            std::cout << "Generation: " << g << " Network: " << i << " Fit: " << net.fitness << std::endl;
+            printLine(); 
+            std::cout << "type: " << net.startNode.type << " id: " << net.startNode.id << " edges: " << net.startNode.edges[0] << std::endl;
+            for(const auto& n : net.innerNodes){
+                std::cout << "type: " << n.type << " id: " << n.id << " F: " << n.f << " ";
+                std::cout << "edges " << "(" << n.edges.size() << "): ";
+                for(auto& ed : n.edges){
+                    std::cout << ed << " ";
+                }
+
+                std::cout << "boundaries" << "(" << n.boundaries.size() << "): ";
+                for(auto& b: n.boundaries){
+                    std::cout << b << " ";
+                }
+                std::cout << std::endl;
+            }
+        }
+        bestFitnessPerGeneration.push_back(population.bestFit);
+    }
+    printVec(bestFitnessPerGeneration,"Best Fitness Values");
+    printVec(data.XIndices, "Xindices");
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "done in:" << duration.count() << "sek. \n"; 
