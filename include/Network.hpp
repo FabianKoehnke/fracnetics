@@ -3,7 +3,7 @@
 #include <random>
 #include <unordered_set>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
-
+#include "Cartpole.hpp"
 #include "Node.hpp"
 #include <iostream>
 /**
@@ -89,6 +89,7 @@ class Network {
                 int& dMax,
                 int& penalty
                 ){
+
             usedNodes.clear();
             int currentNodeID = startNode.edges[0];
             usedNodes.insert(currentNodeID);
@@ -125,6 +126,53 @@ class Network {
                 }
             }
             fitness = correct / dt.size();
+        }
+
+        void fitCartpole(
+            int& dMax,
+            int& penalty,
+            int maxSteps,
+            int maxConsecutiveP
+            ){
+
+            usedNodes.clear();
+            int currentNodeID = startNode.edges[0];
+            usedNodes.insert(currentNodeID);
+            int dec;
+            CartPole CartPole;
+            fitness = 0;
+            CartPole.reset();
+            int nConsecutiveP = 0;
+            for(int i=0; i<maxSteps; i++){
+                int  dSum = 0; // to prevent dead-looks 
+                if (innerNodes[currentNodeID].type == "P"){
+                    nConsecutiveP ++;
+                    dec = innerNodes[currentNodeID].f;
+                    fitness += CartPole.step(dec);
+                    currentNodeID = innerNodes[currentNodeID].edges[0];
+                    usedNodes.insert(currentNodeID);
+                } else if (innerNodes[currentNodeID].type == "J"){
+                    nConsecutiveP = 0;
+                    while(innerNodes[currentNodeID].type == "J"){
+                        float v = CartPole.observation[innerNodes[currentNodeID].f].get();
+                        currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
+                        usedNodes.insert(currentNodeID);
+                        dSum += 1;
+                        if (dSum >= dMax){
+                            break;
+                        }
+                    }
+                
+                    dec = innerNodes[currentNodeID].f;
+                }
+                if (dSum >= dMax || nConsecutiveP > maxConsecutiveP){
+                    break;
+                    fitness /= penalty;
+                }
+                if (CartPole.done == true){
+                    break;
+                }
+            }
         }
 
         void changeFalseEdges(){

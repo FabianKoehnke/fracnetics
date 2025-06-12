@@ -78,18 +78,27 @@ class Population {
          * @param XIndices (std::vector<int>&) : indices to select X valaues (features)
          * @param dMax (int) : maximal judgments (delay) until next decision 
          * @param penalty (int) : devisor on fitness after exceeding maximal judgments
-         * 
+         * @param type (std::string) : name of the fitness function:
+         *  - accuracy
+         *  - cartpole
+         * @param maxConsecutiveP (int) : maximal number of n consecutive processing nodes
          */
         void callFitness(
                 std::vector<std::vector<float>> dt,
                 std::vector<int>& yIndices,
                 std::vector<int>& XIndices,
                 int& dMax,
-                int& penalty
+                int& penalty,
+                std::string type,
+                int& maxConsecutiveP
                 ){
             bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
-                network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
+                if(type == "accuracy"){
+                    network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
+                }else if (type == "cartpole") {
+                    network.fitCartpole(dMax, penalty, 500, maxConsecutiveP);
+                }
 
                 if(network.fitness > bestFit){
                     bestFit = network.fitness;
