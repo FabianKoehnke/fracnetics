@@ -181,6 +181,16 @@ class Population {
              }
         }
 
+        void callBoundaryMutationUniform(float probability){
+            for(auto& ind : individuals){
+                for(auto& node : ind.innerNodes){
+                    if(node.type == "J"){
+                        node.boundaryMutationUniform(probability);
+                    }
+                }
+            }
+        }
+
         /*
          * @fn crossover
          * @brief exchange the nodes 
