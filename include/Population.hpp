@@ -31,6 +31,8 @@ class Population {
         std::vector<Network> individuals;
         float bestFit;
         std::vector<int> indicesElite;
+        float meanFitness = 0;
+        float minFitness = std::numeric_limits<float>::max();
 
         Population(
                 std::shared_ptr<std::mt19937_64> _generator,
@@ -116,6 +118,8 @@ class Population {
             std::vector<Network> selection;
             std::unordered_set<int> tournament;
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
+            meanFitness = 0;
+            minFitness = std::numeric_limits<float>::max();
 
             for(int i=0; i<individuals.size()-E; i++){
                 float bestFitTournament = std::numeric_limits<float>::lowest();
@@ -133,9 +137,14 @@ class Population {
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
+                meanFitness += individuals[indexBestIndTournament].fitness;
+                if (individuals[indexBestIndTournament].fitness < minFitness) {
+                    minFitness = individuals[indexBestIndTournament].fitness;
+                }
             }
             setElite(E, individuals, selection);
             individuals = std::move(selection);
+            meanFitness /= individuals.size();
         }
 
         /*
