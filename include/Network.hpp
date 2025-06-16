@@ -138,7 +138,7 @@ class Network {
             usedNodes.clear();
             int currentNodeID = startNode.edges[0];
             usedNodes.insert(currentNodeID);
-            int dec;
+            int dec = 0;
             CartPole CartPole;
             fitness = 0;
             CartPole.reset();
@@ -147,7 +147,11 @@ class Network {
                 int  dSum = 0; // to prevent dead-looks 
                 if (innerNodes[currentNodeID].type == "P"){
                     nConsecutiveP ++;
-                    dec = innerNodes[currentNodeID].f;
+
+                    if(innerNodes[currentNodeID].f != 2){ // dec == 2 is used as "decision before"
+                        dec = innerNodes[currentNodeID].f;
+                    }
+
                     fitness += CartPole.step(dec);
                     currentNodeID = innerNodes[currentNodeID].edges[0];
                     usedNodes.insert(currentNodeID);
