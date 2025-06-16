@@ -191,10 +191,12 @@ class Population {
         }
 
         void callBoundaryMutationUniform(float probability){
-            for(auto& ind : individuals){
-                for(auto& node : ind.innerNodes){
-                    if(node.type == "J"){
-                        node.boundaryMutationUniform(probability);
+            for(int i=0; i<individuals.size(); i++){
+                if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
+                    for(auto& node : individuals[i].innerNodes){
+                        if(node.type == "J"){
+                            node.boundaryMutationUniform(probability);
+                        }
                     }
                 }
             }
