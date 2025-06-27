@@ -5,6 +5,7 @@
 #include <random>
 #include <unordered_set>
 #include <utility>
+#include <cmath>
 #include "Network.hpp"
 
 /**
@@ -190,12 +191,73 @@ class Population {
              }
         }
 
-        void callBoundaryMutationUniform(float probability){
+        /*
+         * struct for parameters used by edges mutations
+         */
+        struct mutationBoundaryParam {
+            float probability;
+            float sigma;
+            float networkSize;
+            std::vector<float>& minF;
+            std::vector<float>& maxF;
+        };
+
+        /*
+         * @fn callBoundaryMutationUniform
+         * @brief call method for boundaryMutationUniform
+         * @param node (Node&): node object 
+         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
+         */
+        void callBoundaryMutationUniform(Node& node, const mutationBoundaryParam& param){
+            node.boundaryMutationUniform(param.probability);
+        }
+       
+        /*
+         * @fn callBoundaryMutationNormal 
+         * @brief call method for boundaryMutationNormal
+         * @param node (Node&): node object 
+         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
+         */
+        void callBoundaryMutationNormal(Node& node, const mutationBoundaryParam& param){
+            node.boundaryMutationNormal(param.probability, param.sigma);
+        }
+
+         /*
+         * @fn callBoundaryMutationEdgeSizeDependingSigma 
+         * @brief call method for boundaryMutationNormal with sigmas depending on network size
+         * @param node (Node&): node object 
+         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
+         */
+        void callBoundaryMutationNetworkSizeDependingSigma(Node& node, const mutationBoundaryParam& param){
+            float sigma = param.sigma * (1/log(param.networkSize));
+            node.boundaryMutationNormal(param.probability, sigma);
+        }
+
+        /*
+         * @fn callBoundaryMutationEdgeSizeDependingSigma 
+         * @brief call method for boundaryMutationNormal with sigmas depending on number of edges of judgment node 
+         * @param node (Node&): node object 
+         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
+         */
+        void callBoundaryMutationEdgeSizeDependingSigma(Node& node, const mutationBoundaryParam& param){
+            float sigma = param.sigma * (1/log(node.edges.size()));
+            node.boundaryMutationNormal(param.probability, sigma);
+        }
+
+         /*
+         * @fn applyBoundaryMutation 
+         * @brief apply the pased boundary mutation on each judgment node 
+         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
+         * @param boundaryMutation (std::function<void(Node&, const mutationBoundaryParam&): deferent call methods for boundary mutation
+         */
+        void applyBoundaryMutation(const mutationBoundaryParam& param, std::function<void(Node&, const mutationBoundaryParam&)> boundaryMutation){
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
                         if(node.type == "J"){
-                            node.boundaryMutationUniform(probability);
+                            mutationBoundaryParam localParam = param;
+                            localParam.networkSize = individuals[i].innerNodes.size();
+                            boundaryMutation(node, localParam);
                         }
                     }
                 }
