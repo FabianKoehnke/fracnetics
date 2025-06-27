@@ -184,5 +184,27 @@ class Node {
             }
         }
 
+
+        /*
+         * @fn boundaryMutationNormal
+         * @brief mutate the boundaries by shifting them between intervals by a random drawn number from the normal distribution.
+         * @param propability
+         * @param sigma
+         */
+        void boundaryMutationNormal(float propability, float sigma){
+            std::bernoulli_distribution distributionBernoulli(propability);
+            for(int i = 1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
+                bool result = distributionBernoulli(*generator);
+                if(result){
+                    float mu = boundaries[i];
+                    std::normal_distribution<float> distributionNormal(mu,sigma);
+                    float newBoundary = distributionNormal(*generator);
+                    if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){ // preventing overlapping boundaries
+                        boundaries[i] = newBoundary; 
+                    }
+                }
+            }
+        }
+
 };
 #endif
