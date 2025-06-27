@@ -167,6 +167,11 @@ class Node {
             }
         }
 
+         /*
+         * @fn boundaryMutationUniform 
+         * @brief mutate the boundaries by shifting them between intervals by a random drawn number from the uniform distribution.
+         * @param propability
+         */
         void boundaryMutationUniform(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
             for(int i = 1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
