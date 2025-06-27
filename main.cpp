@@ -9,20 +9,25 @@ int main(){
      * Parameter
      */
     auto generator = std::make_shared<std::mt19937_64>(52);
-    float probEdgeMutationStartNode = 0.02;
-    float probEdgeMutationInnerNodes = 0.02;
-    float probCrossOver = 0.01;
-    int generations = 1000;
-    int nIndividuals = 1001;
+    float probEdgeMutationStartNode = 0.03;
+    float probEdgeMutationInnerNodes = 0.03;
+    float probBoundaryMutation = 0.03;
+    float sigmaBoundaryMutationNormal = 0;
+    std::string boundaryMutationType = "uniform"; // uniform, networkSigma, normal, edgeSigma
+    float probCrossOver = 0.02;
+    int generations = 100;
+    int generationsNoImprovementLimit = 20;
+    int nIndividuals = 20001;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 1;
     int jnf = 4;
-    int pn = 2;
-    int pnf = 2;
+    int pn = 3;
+    int pnf = 3;
     int dMax = 10;
     int penalty = 2;
-    int maxConsecutiveP = 2;
+    int maxConsecutiveP = 10;
+    int addDel = 1;
     /**
      * Rading Data
      */
@@ -54,13 +59,51 @@ int main(){
     printLine(); 
     std::cout << "start EA" << std::endl;
     std::vector<float> bestFitnessPerGeneration;
+    int improvementCounter = 0;
     for(int g=0; g<generations; g++){
         population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty, "cartpole", maxConsecutiveP);
         population.tournamentSelection(tournamentSize,nElite);
         population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
+
+        std::function<void(Node&, const Population::mutationBoundaryParam&)> boundaryMutation;
+        if(boundaryMutationType == "normal"){
+            boundaryMutation = [&](Node& node, const Population::mutationBoundaryParam& param) {
+                    population.callBoundaryMutationNormal(node, param);
+            };
+         }else if(boundaryMutationType == "uniform"){
+            boundaryMutation = [&](Node& node, const Population::mutationBoundaryParam& param) {
+                    population.callBoundaryMutationUniform(node, param);
+            };
+        }else if(boundaryMutationType == "networkSigma"){
+            boundaryMutation = [&](Node& node, const Population::mutationBoundaryParam& param) {
+                    population.callBoundaryMutationNetworkSizeDependingSigma(node, param);
+            };
+        }else if (boundaryMutationType == "edgeSigma") {
+             boundaryMutation = [&](Node& node, const Population::mutationBoundaryParam& param) {
+                    population.callBoundaryMutationEdgeSizeDependingSigma(node, param);
+            };
+         }else if (boundaryMutationType == "edgeFractal") {
+             boundaryMutation = [&](Node& node, const Population::mutationBoundaryParam& param) {
+                    population.callBoundaryMutationFractal(node, param);
+            };
+        }
+ 
+        population.applyBoundaryMutation(
+                {probBoundaryMutation, sigmaBoundaryMutationNormal, 0, data.minX, data.maxX},
+                boundaryMutation
+        );
+        
         population.crossover(probCrossOver);
-        population.callAddDelNodes(data.minX, data.maxX);
-        std::cout << "Geneation: " << g << " BestFit: " << population.individuals[population.indicesElite[0]].fitness << std::endl;
+        if(addDel == 1){
+            population.callAddDelNodes(data.minX, data.maxX);
+        }
+        std::cout << 
+            "Geneation: " << g << 
+            " BestFit: " << population.individuals[population.indicesElite[0]].fitness << 
+            " MeanFitness: " << population.meanFitness << 
+            " MinFitness: " << population.minFitness <<
+            " NetworkSize Best Ind: " << population.individuals[population.indicesElite[0]].innerNodes.size() << std::endl;
+
         //std::cout << "Best Fit: " << population.individuals[population.indicesElite[0]].fitness;
         
         /*
@@ -90,7 +133,15 @@ int main(){
             }
         }
         */
-        bestFitnessPerGeneration.push_back(population.bestFit);
+       bestFitnessPerGeneration.push_back(population.bestFit);
+       if(g > 1 && bestFitnessPerGeneration[g-1] == bestFitnessPerGeneration[g]){
+           improvementCounter++;
+           if(improvementCounter == generationsNoImprovementLimit){
+               break;
+            }
+        } else {
+            improvementCounter = 0;
+        }
     }
     auto& net = population.individuals[population.individuals.size()-1];
     printLine(); 
