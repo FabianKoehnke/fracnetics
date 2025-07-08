@@ -174,10 +174,10 @@ class Node {
          */
         void boundaryMutationUniform(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i = 1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
+            for(int i=1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
                 bool result = distributionBernoulli(*generator);
                 if(result){
-                    std::uniform_real_distribution<float> distributionUniform(boundaries[i], boundaries[i+1]);
+                    std::uniform_real_distribution<float> distributionUniform(boundaries[i-1], boundaries[i+1]);
                     boundaries[i] = distributionUniform(*generator);
 
                 }
