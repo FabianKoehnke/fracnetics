@@ -47,9 +47,13 @@ class Node {
          *
          * @brief set edges (member) of the node given the number of nodes of the network (nn).
          * @note The number of outgoing edges are:
-         *  - between [1,nn-1] for Judgment Nodes and 
+         *  - between [2,nn-1] for Judgment Nodes and 
          *  - 1 for Processing and Start Nodes
-         *
+         * @param type (std::string):
+         *      - "J" = Judgment Node 
+         *      - "P" = Processing Node 
+         *      - "S" = Start Node 
+         * @param nn (int): node number to controle the number of outgoing edges
          */
         void setEdges(std::string type, int nn){
 
