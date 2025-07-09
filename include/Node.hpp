@@ -46,7 +46,7 @@ class Node {
          * @fn setEdges
          *
          * @brief set edges (member) of the node given the number of nodes of the network (nn).
-         * @note The number of outgoing edges are:
+         * @note The number of outgoing edges are (no self-loops allowed):
          *  - between [2,nn-1] for Judgment Nodes and 
          *  - 1 for Processing and Start Nodes
          * @param type (std::string):
@@ -54,8 +54,10 @@ class Node {
          *      - "P" = Processing Node 
          *      - "S" = Start Node 
          * @param nn (int): node number to controle the number of outgoing edges
+         * @param k (int): number of outgoing edges of a judgment node. 
+         *  If k=0, a random number of outgoing edges is choosen (default).
          */
-        void setEdges(std::string type, int nn){
+        void setEdges(std::string type, int nn, int k=0){
 
             if (type == "J") {
                 for(int i=0; i<nn; i++){
@@ -66,7 +68,11 @@ class Node {
                 std::uniform_int_distribution<int> distribution(2, nn-1);
                 int randomInt = distribution(*generator);// sets a random number of outgoing edges
                 std::shuffle(edges.begin(), edges.end(), *generator);
-                edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
+                if(k == 0){
+                    edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
+                }else{
+                    edges = std::vector<int>(edges.begin(), edges.begin()+k);
+                }
             } else if(type == "S" || type == "P"){
                 bool noSelfLoop = false;
                 while(noSelfLoop == false){// prevents self-loop
