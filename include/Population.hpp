@@ -7,6 +7,7 @@
 #include <utility>
 #include <cmath>
 #include "Network.hpp"
+#include "PrintHelper.hpp"
 
 /**
  * @class Population 
@@ -29,6 +30,7 @@ class Population {
         unsigned int jnf;
         unsigned int pn;
         unsigned int pnf;
+        bool fractalJudgment;
         std::vector<Network> individuals;
         float bestFit;
         std::vector<int> indicesElite;
@@ -41,18 +43,20 @@ class Population {
                 unsigned int _jn,
                 unsigned int _jnf,
                 unsigned int _pn,
-                unsigned int _pnf
+                unsigned int _pnf,
+                bool _fractalJudgment
                 ):
             generator(_generator),
             ni(_ni),
             jn(_jn),
             jnf(_jnf),
             pn(_pn),
-            pnf(_pnf)
+            pnf(_pnf),
+            fractalJudgment(_fractalJudgment)
 
     {
         for(int i=0; i<ni; i++){
-            individuals.push_back(Network(generator,jn,jnf,pn,pnf));
+            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment));
         }
     }
 
@@ -66,7 +70,13 @@ class Population {
             for(auto& network : individuals){
                for(auto& node : network.innerNodes){
                    if(node.type == "J"){
-                       node.setEdgesBoundaries(minF[node.f], maxF[node.f]);
+                       if(fractalJudgment == true){
+                           node.productionRuleParameter = randomParameterCuts(node.k_d.first-1, generator);
+                           std::vector<float> fractals = fractalLengths(node.k_d.second, sortAndDistance(node.productionRuleParameter));
+                           node.setEdgesBoundaries(minF[node.f], maxF[node.f], fractals);
+                       }else {
+                           node.setEdgesBoundaries(minF[node.f], maxF[node.f]);
+                       }
                    }
                } 
             }
@@ -264,6 +274,10 @@ class Population {
             }
         }
 
+        void callBoundaryMutationFractal(Node& node, const mutationBoundaryParam& param){
+            node.boundaryMutationFractal(param.probability, param.minF, param.maxF);
+        }
+
         /*
          * @fn crossover
          * @brief exchange the nodes 
@@ -315,9 +329,10 @@ class Population {
          * @param minf (std::vector<float>&): min values of all features 
          * @param maxf (std::vector<float>&): max values of all features 
          */
-        void callAddDelNodes(std::vector<float>& minf, std::vector<float>& maxf){
+        void callAddDelNodes(std::vector<float>& minf, std::vector<float>& maxf, std::string type){
             for(auto& ind : individuals){
                 ind.addDelNodes(minf, maxf);
+
             }
         }
 
