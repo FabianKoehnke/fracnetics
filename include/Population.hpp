@@ -97,7 +97,7 @@ class Population {
          * @param maxConsecutiveP (int) : maximal number of n consecutive processing nodes
          */
         void callFitness(
-                std::vector<std::vector<float>> dt,
+                std::vector<std::vector<float>>& dt,
                 std::vector<int>& yIndices,
                 std::vector<int>& XIndices,
                 int& dMax,
