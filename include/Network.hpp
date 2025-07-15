@@ -139,26 +139,28 @@ class Network {
             int currentNodeID = startNode.edges[0];
             usedNodes.insert(currentNodeID);
             int dec = 0;
-            CartPole CartPole;
+            CartPole cp(generator);
             fitness = 0;
-            CartPole.reset();
             int nConsecutiveP = 0;
-            for(int i=0; i<maxSteps; i++){
+            std::array<double, 4> obs = cp.reset(); // Initial observation for the episode
+            bool done = false;
+
+            while(done == false){
                 int  dSum = 0; // to prevent dead-looks 
                 if (innerNodes[currentNodeID].type == "P"){
-                    nConsecutiveP ++;
-
-                    if(innerNodes[currentNodeID].f != 2){ // dec == 2 is used as "decision before"
-                        dec = innerNodes[currentNodeID].f;
-                    }
-
-                    fitness += CartPole.step(dec);
+                    dec = innerNodes[currentNodeID].f;
                     currentNodeID = innerNodes[currentNodeID].edges[0];
                     usedNodes.insert(currentNodeID);
+                    fitness ++;
+                    nConsecutiveP ++;
+                    CartPole::StepResult result = cp.step(dec);
+                    obs = result.observation; 
+                    if(result.terminated || fitness >= maxSteps) done = true; 
+ 
                 } else if (innerNodes[currentNodeID].type == "J"){
                     nConsecutiveP = 0;
                     while(innerNodes[currentNodeID].type == "J"){
-                        float v = CartPole.observation[innerNodes[currentNodeID].f].get();
+                        float v = obs[innerNodes[currentNodeID].f];
                         currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
                         usedNodes.insert(currentNodeID);
                         dSum += 1;
@@ -166,15 +168,10 @@ class Network {
                             break;
                         }
                     }
-                
-                    dec = innerNodes[currentNodeID].f;
                 }
                 if (dSum >= dMax || nConsecutiveP > maxConsecutiveP){
-                    break;
+                    done = true;
                     fitness /= penalty;
-                }
-                if (CartPole.done == true){
-                    break;
                 }
             }
         }
