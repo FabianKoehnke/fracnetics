@@ -188,7 +188,7 @@ class Node {
          /*
          * @fn boundaryMutationUniform 
          * @brief mutate the boundaries by shifting them between intervals by a random drawn number from the uniform distribution.
-         * @param propability
+         * @param propability (float)
          */
         void boundaryMutationUniform(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
@@ -202,6 +202,13 @@ class Node {
             }
         }
 
+        /*
+         * @fn boundaryMutationFractal
+         * @brief shifting productionRuleParameter randomly (uniform), recalculats fractalLengths and boundaries
+         * @param propability (float)
+         * @param minf (std::vector<float>): min values of features 
+         * @param maxf (std::vector<float>): max values of features
+         */
         void boundaryMutationFractal(float propability, std::vector<float>& minf, std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
             for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
