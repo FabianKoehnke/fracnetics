@@ -2,10 +2,13 @@
 #define NETWORK_HPP
 #include <random>
 #include <unordered_set>
+#include <utility>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 #include "Cartpole.hpp"
 #include "Node.hpp"
+#include "Fractal.hpp"
 #include <iostream>
+
 /**
  * @class Network
  *
@@ -27,6 +30,7 @@ class Network {
         unsigned int jnf;
         unsigned int pn;
         unsigned int pnf;
+        bool fractalJudgment; 
         std::vector<Node> innerNodes;
         Node startNode;
         float fitness = std::numeric_limits<float>::lowest();
@@ -37,13 +41,15 @@ class Network {
                 unsigned int _jn,
                 unsigned int _jnf,
                 unsigned int _pn,
-                unsigned int _pnf
+                unsigned int _pnf,
+                bool _fractalJudgment
                 ):
             generator(_generator),
             jn(_jn),
             jnf(_jnf),
             pn(_pn),
             pnf(_pnf),
+            fractalJudgment(_fractalJudgment),
             startNode(generator,0,"S",-1) // init start node
             
     {
@@ -57,7 +63,14 @@ class Network {
                         "J", // node type 
                         randomInt // node function
                         ));
-            innerNodes.back().setEdges("J", pn+jn);
+            if(fractalJudgment == false){
+                innerNodes.back().setEdges("J", pn+jn);
+            }else{
+                std::pair<int, int> k_d = random_k_d_combination(pn+jn-1, generator);
+                innerNodes.back().k_d.first = k_d.first;
+                innerNodes.back().k_d.second = k_d.second;
+                innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+            }
         }
         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
         for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
@@ -199,7 +212,7 @@ class Network {
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
             bool resultAdd = distributionBernoulliAdd(*generator);
             for(int n=0; n<innerNodes.size(); n++){
-                if(resultAdd && usedNodes.size() >= innerNodes.size()){// adding node
+                if(resultAdd && usedNodes.size() >= innerNodes.size() * 1){// adding node hint 0.5 for more nodes in network
                     bool resultProcessingNode = distributionBernoulliProcessingNode(*generator);
                     if(resultProcessingNode){ // add processing node
                         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
@@ -214,21 +227,34 @@ class Network {
                             pn += 1;
                     }else{ // add judgment node 
                         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
-                            int randomInt = distributionJNF(*generator);
-                            innerNodes.push_back(Node(
-                                        generator, 
-                                        innerNodes.size(), // node id 
-                                        "J", // node type 
-                                        randomInt // node function
-                                        ));
+                        int randomInt = distributionJNF(*generator);
+                        innerNodes.push_back(Node(
+                                    generator, 
+                                    innerNodes.size(), // node id 
+                                    "J", // node type 
+                                    randomInt // node function
+                                    ));
+                       
+                        if(fractalJudgment == true){
+                            std::pair<int, int> k_d = random_k_d_combination(pn+jn, generator); // normaly pn+jn-1 but jn counter comes later
+                            innerNodes.back().k_d.first = k_d.first;
+                            innerNodes.back().k_d.second = k_d.second;
+                            innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+                            innerNodes.back().productionRuleParameter = randomParameterCuts(innerNodes.back().k_d.first-1, generator);
+                            std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
+                            innerNodes.back().setEdgesBoundaries(minf[randomInt], maxf[randomInt], fractals);
+                        }else {
                             innerNodes.back().setEdges("J", innerNodes.size());
                             innerNodes.back().setEdgesBoundaries(minf[randomInt], maxf[randomInt]);
-                            jn += 1;
+                        }
+
+                        jn += 1;
                     }
                     break;
+
                 }else if(!resultAdd && 
-                        innerNodes.size()-usedNodes.size() > 1 && 
-                        std::find(usedNodes.begin(), usedNodes.end(), innerNodes[n].id) == usedNodes.end())
+                        innerNodes.size()-usedNodes.size() > innerNodes.size() * 1 && // 1.5 
+                        std::find(usedNodes.begin(), usedNodes.end(), innerNodes[n].id) == usedNodes.end()) // node is not used
                 {// deleting nodes
                     for(int i=0; i<innerNodes.size(); i++){ // for each node
                         if(innerNodes[i].id > innerNodes[n].id){
@@ -243,6 +269,11 @@ class Network {
                         }
                     } 
                     startNode.changeEdge(innerNodes.size()-1, startNode.edges[0]);
+                    if(innerNodes[n].type == "J"){
+                        jn -= 1;
+                    }else if (innerNodes[n].type == "P") {
+                        pn -= 1;
+                    }
                     innerNodes.erase(innerNodes.begin()+innerNodes[n].id);
                 }
             }

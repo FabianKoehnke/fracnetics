@@ -1,10 +1,12 @@
 #ifndef NODE_HPP
 #define NODE_HPP
+#include <utility>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 
 #include <vector>
 #include <string>
 #include <random>
+#include "Fractal.hpp"
 #include <iostream>
 
 /**
@@ -28,6 +30,8 @@ class Node {
         unsigned int f;
         std::vector<int> edges;
         std::vector<double> boundaries;
+        std::vector<float> productionRuleParameter;
+        std::pair<int, int> k_d;
         
         Node(
             std::shared_ptr<std::mt19937_64> _generator,
@@ -133,14 +137,18 @@ class Node {
          * @param maxf (maxFeatureValue)
          *
          */
-        void setEdgesBoundaries(float minf, float maxf){ 
-           double span = (maxf - minf) / edges.size();
-           double sum = minf;
+        void setEdgesBoundaries(float minf, float maxf, std::vector<float> lengths = {}){ 
+           float sum = minf;
+           float span;
            for(int i = 0; i<edges.size()+1; i++){
+               if(lengths.size()==0){
+                   span = (maxf - minf) / edges.size();
+               }else {
+                   span = (maxf - minf) * lengths[i];
+               } 
                boundaries.push_back(sum);
                sum += span;
            }
-
         }
 
         /*
@@ -194,6 +202,19 @@ class Node {
             }
         }
 
+        void boundaryMutationFractal(float propability, std::vector<float>& minf, std::vector<float>& maxf){
+            std::bernoulli_distribution distributionBernoulli(propability);
+            for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
+                bool result = distributionBernoulli(*generator);
+                if(result){
+                    std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
+                    productionRuleParameter[i] = distributionUniform(*generator); 
+                    boundaries.clear();
+                    std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
+                    setEdgesBoundaries(minf[f], maxf[f], fractals);
+                }
+                }
+            }
 
         /*
          * @fn boundaryMutationNormal
