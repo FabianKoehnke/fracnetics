@@ -1,6 +1,6 @@
-#include "include/Data.hpp"
-#include "include/Population.hpp"
-#include "include/PrintHelper.hpp"
+#include "../include/Data.hpp"
+#include "../include/Population.hpp"
+#include "../include/PrintHelper.hpp"
 #include <chrono>
 #include <random>
 
@@ -17,8 +17,8 @@ int main(){
     bool fractalJudgment = false;
     float probCrossOver = 0.05;
     int generations = 1000;
-    int generationsNoImprovementLimit = 50;
-    int nIndividuals = 1000;
+    int generationsNoImprovementLimit = 500;
+    int nIndividuals = 300;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 1;
@@ -36,7 +36,7 @@ int main(){
     Data data;
     std::cout << "reading data" << std::endl;
     printMemoryUsage();
-    data.readCSV("data/cartpole.csv");
+    data.readCSV("../data/cartpole.csv");
     printMemoryUsage();
     std::cout << "data rows: " << data.dt.size() << std::endl;
     std::cout << "data columns: " << data.dt[0].size() << std::endl;
@@ -63,6 +63,7 @@ int main(){
     std::vector<float> bestFitnessPerGeneration;
     int improvementCounter = 0;
     for(int g=0; g<generations; g++){
+        //generator = std::make_shared<std::mt19937_64>(5494+g);
         population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty, "cartpole", maxConsecutiveP);
         population.tournamentSelection(tournamentSize,nElite);
         population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
@@ -175,10 +176,23 @@ int main(){
         }
         std::cout << std::endl;
     }
-    printVec(bestFitnessPerGeneration,"Best Fitness Values");
-    printVec(data.XIndices, "Xindices");
+    printLine();
+    //printVec(bestFitnessPerGeneration,"Best Fitness Values");
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     std::cout << "done in:" << duration.count() << "sek. \n"; 
+    
+    int sumTestFitness = 0;
+    int tests = 100;
+    printLine();
+    std::cout << "Validation" << std::endl;
+    for(int t=0; t<tests; t++){
+        //generator = std::make_shared<std::mt19937_64>(54+t);
+        population.callFitness(data.dt, data.yIndices, data.XIndices, dMax, penalty, "cartpole", maxConsecutiveP);
+        //std::cout << "Best Network: " << " Fit: " << population.individuals[population.indicesElite[0]].fitness << std::endl;
+        sumTestFitness += population.individuals[population.indicesElite[0]].fitness; 
+    }
+    std::cout << "Mean Test Results: " << sumTestFitness/tests << std::endl;
+
     return 0;
 }
