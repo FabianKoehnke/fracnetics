@@ -1,0 +1,14 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "fractalgenetics" 
+version = "0.1.0"
+description = "C++ Evolutionärer Algorithmus als Python-Package"
+authors = [{ name = "Dein Name", email = "du@example.com" }]
+license = "MIT"
+
+[tool.scikit-build]
+cmake.verbose = true
+wheel.packages = ["fractalgenetics"]
