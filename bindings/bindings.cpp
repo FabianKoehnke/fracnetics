@@ -1,6 +1,5 @@
 #include <pybind11/pybind11.h>
-
-namespace py = pybind11;
+#include "../src/main.cpp"
 
 // C++ function to expose
 double add(double a, double b) {
@@ -8,8 +7,9 @@ double add(double a, double b) {
 }
 
 // Define the Python module and bind the function
-PYBIND11_MODULE(_fractalgenetics, m) {
-    m.doc() = "Test module with simple add function";
+PYBIND11_MODULE(fracnetics, m) {
+    m.doc() = "fracnetics";
     m.def("add", &add, "Add two numbers");
+    m.def("run", run, "run evolution");
 }
 

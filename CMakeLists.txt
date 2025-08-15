@@ -11,11 +11,11 @@ include_directories(include)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
 # Build the Python module
-pybind11_add_module(_fractalgenetics bindings/bindings.cpp)
+pybind11_add_module(fracnetics bindings/bindings.cpp)
 
-set_target_properties(_fractalgenetics PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fractalgenetics
+set_target_properties(fracnetics PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fracnetics
 )
 
-target_compile_features(_fractalgenetics PUBLIC cxx_std_20)
+target_compile_features(fracnetics PUBLIC cxx_std_20)
 
