@@ -17,7 +17,7 @@ Fractnetics extends traditional **Genetic Network Programming** with **fractal e
 
 ---
 
-## ✨ Features
+## 🦾 Features
 
 - 🧬 Genetic Network Programming (GNP) core engine
 - ... in progress
