@@ -27,6 +27,9 @@ def test_population_init():
         print("pn:", pop.pn)
         print("meanFitness:", pop.meanFitness)
         print("minFitness:", pop.minFitness)
+        print("pop.individuals[0]", pop.individuals[0])
+        print("pop.individuals[0].pn", pop.individuals[0].pn)
+        print("pop.individuals[0].innerNodes[0].type", pop.individuals[0].innerNodes[0].type)
 
         print("✅ test: init pop successfull!")
 
