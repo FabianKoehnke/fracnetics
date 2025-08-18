@@ -4,9 +4,8 @@ data/*
 __pycache__/
 *.dSYM/
 # files
+gui/src/test.py
+test/tempTest.cpp
+test/test
 .DS_Store
-test.py
-testII.py
-test.cpp
-test
 !.gitignore
