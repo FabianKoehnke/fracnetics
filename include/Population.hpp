@@ -24,6 +24,7 @@
 class Population {
     private:
         std::shared_ptr<std::mt19937_64> generator;
+
     public:
         const unsigned int ni;
         unsigned int jn;
@@ -38,7 +39,7 @@ class Population {
         float minFitness = std::numeric_limits<float>::max();
 
         Population(
-                std::shared_ptr<std::mt19937_64> _generator,
+                int seed,
                 const unsigned int _ni,
                 unsigned int _jn,
                 unsigned int _jnf,
@@ -46,7 +47,7 @@ class Population {
                 unsigned int _pnf,
                 bool _fractalJudgment
                 ):
-            generator(_generator),
+            generator(std::make_shared<std::mt19937_64>(seed)),
             ni(_ni),
             jn(_jn),
             jnf(_jnf),

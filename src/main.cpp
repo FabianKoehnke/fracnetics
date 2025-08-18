@@ -2,13 +2,11 @@
 #include "../include/Population.hpp"
 #include "../include/PrintHelper.hpp"
 #include <chrono>
-#include <random>
 
 int main(){
     /**
      * Parameter
      */
-    auto generator = std::make_shared<std::mt19937_64>(542);
     float probEdgeMutationStartNode = 0.03;
     float probEdgeMutationInnerNodes = 0.03;
     float probBoundaryMutation = 0.1;
@@ -49,7 +47,7 @@ int main(){
      * Initializing the population
      */
     Population population(
-            generator, // generator
+            123, // seed 
             nIndividuals, // number of networks
             jn, // number of judgment nodes (jn)
             jnf, // number of jn functions 
