@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY test/initPop.py ..
+COPY test/ ../test/
+
 WORKDIR /fracnetics
 
 # Copy all files including pybind11 submodule
@@ -21,7 +22,8 @@ RUN pip install build scikit-build-core pybind11 twine
 # RUN cmake -Bbuild -S. && cmake --build build
 RUN python3 -m build --sdist
 RUN pip install dist/*.tar.gz
-RUN python3 -u ../initPop.py
+RUN python3 -u ../test/initPop.py
+RUN python3 -u ../test/functionsPop.py
 
 CMD ["python3"]
 
