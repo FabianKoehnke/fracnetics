@@ -46,6 +46,7 @@ PYBIND11_MODULE(fracnetics, m) {
 
     // Population
     py::class_<Population>(m, "Population")
+        // Member 
         .def(py::init<
                 int,
                 const unsigned int,
@@ -66,6 +67,9 @@ PYBIND11_MODULE(fracnetics, m) {
         .def_readwrite("indicesElite", &Population::indicesElite)
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
-        .def_readwrite("individuals", &Population::individuals);
+        .def_readwrite("individuals", &Population::individuals)
+        // Functions
+        .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries,
+         py::arg("minF"), py::arg("maxF"));
 }
 
