@@ -4,6 +4,7 @@ data/*
 __pycache__/
 *.dSYM/
 # files
+src/main
 gui/src/test.py
 test/tempTest.cpp
 test/test
