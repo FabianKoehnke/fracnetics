@@ -3,6 +3,7 @@
 #include <random>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 #include "Cartpole.hpp"
 #include "Node.hpp"
@@ -89,16 +90,14 @@ class Network {
         /**
          * @fn fitAccuracy
          * @brief executes transition path and calculates the accuracy.
-         * @param dt (std::vector<std::vector<float>>& dt) : data table
-         * @param yIndices (std::vector<int>&) : indices to select y values 
-         * @param XIndices (std::vector<int>&) : indices to select X valaues (features)
+         * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
+         * @param y (std::vector<int>&) : y of data table (target values) 
          * @param dMax (int) : maximal judgments until next decision
          * @param penalty (int) : devisor on fitness after exceeding maximal judgments
          */
         void fitAccuracy(
-                std::vector<std::vector<float>>& dt, 
-                std::vector<int>& yIndices, 
-                std::vector<int>& XIndices,
+                std::vector<std::vector<double>>& X,
+                std::vector<double>& y,
                 int& dMax,
                 int& penalty
                 ){
@@ -108,18 +107,18 @@ class Network {
             usedNodes.insert(currentNodeID);
             int dec;
             float correct = 0;
-            for(int i=0; i<dt.size(); i++){
+            for(int i=0; i<y.size(); i++){
                 int  dSum = 0; // to prevent dead-looks 
                 if (innerNodes[currentNodeID].type == "P"){
                     dec = innerNodes[currentNodeID].f;
-                    if(dec == dt[i][yIndices[0]]){
+                    if(dec == y[i]){
                         correct += 1;
                     }
                     currentNodeID = innerNodes[currentNodeID].edges[0];
                     usedNodes.insert(currentNodeID);
                 } else if (innerNodes[currentNodeID].type == "J"){
                     while(innerNodes[currentNodeID].type == "J"){
-                        float v = dt[i][XIndices[innerNodes[currentNodeID].f]];
+                        float v = X[i][innerNodes[currentNodeID].f];
                         currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
                         usedNodes.insert(currentNodeID);
                         dSum += 1;
@@ -129,7 +128,7 @@ class Network {
                     }
                 
                     dec = innerNodes[currentNodeID].f;
-                    if(dec == dt[i][yIndices[0]]){
+                    if(dec == y[i]){
                         correct += 1;
                     }
                 }
@@ -138,7 +137,7 @@ class Network {
                     correct /= penalty;
                 }
             }
-            fitness = correct / dt.size();
+            fitness = correct / y.size();
         }
 
         void fitCartpole(

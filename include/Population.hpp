@@ -87,9 +87,8 @@ class Population {
          * @brief call the fitness for each individual
          * @note stores the bestFit of the population in member bestFit
          *
-         * @param dt (std::vector<std::vector<float>>& dt) : data table
-         * @param yIndices (std::vector<int>&) : indices to select y values 
-         * @param XIndices (std::vector<int>&) : indices to select X valaues (features)
+         * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
+         * @param y (std::vector<int>&) : y of data table (target values) 
          * @param dMax (int) : maximal judgments (delay) until next decision 
          * @param penalty (int) : devisor on fitness after exceeding maximal judgments
          * @param type (std::string) : name of the fitness function:
@@ -98,9 +97,8 @@ class Population {
          * @param maxConsecutiveP (int) : maximal number of n consecutive processing nodes
          */
         void callFitness(
-                std::vector<std::vector<float>>& dt,
-                std::vector<int>& yIndices,
-                std::vector<int>& XIndices,
+                std::vector<std::vector<double>>& X,
+                std::vector<double>& y,
                 int& dMax,
                 int& penalty,
                 std::string type,
@@ -109,7 +107,7 @@ class Population {
             bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
                 if(type == "accuracy"){
-                    network.fitAccuracy(dt, yIndices, XIndices, dMax, penalty);
+                    network.fitAccuracy(X, y, dMax, penalty); 
                 }else if (type == "cartpole") {
                     network.fitCartpole(dMax, penalty, 500, maxConsecutiveP);
                 }
