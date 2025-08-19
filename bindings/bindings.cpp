@@ -69,7 +69,8 @@ PYBIND11_MODULE(fracnetics, m) {
         .def_readwrite("minFitness", &Population::minFitness)
         .def_readwrite("individuals", &Population::individuals)
         // Functions
-        .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries,
-         py::arg("minF"), py::arg("maxF"));
+        .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
+        .def("callFitness", &Population::callFitness,
+                py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"), py::arg("type"), py::arg("maxConsecutiveP"));
 }
 
