@@ -21,20 +21,14 @@ def test_population_init():
             fractalJudgment=fractal_judgment
         )
 
-        print("Population initialized!")
-        print("ni:", pop.ni)
-        print("jn:", pop.jn)
-        print("pn:", pop.pn)
-        print("meanFitness:", pop.meanFitness)
-        print("minFitness:", pop.minFitness)
-        print("pop.individuals[0]", pop.individuals[0])
-        print("pop.individuals[0].pn", pop.individuals[0].pn)
-        print("pop.individuals[0].innerNodes[0].type", pop.individuals[0].innerNodes[0].type)
+        pop.ni
+        pop.meanFitness
+        pop.individuals[0]
 
-        print("✅ test: init pop successfull!")
+        print("✅ initializing population")
 
     except Exception as e:
-        print("❌ error initialising the population:")
+        print("❌ error initializing the population:")
         print(e)
         sys.exit(1)
 
