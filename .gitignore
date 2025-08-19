@@ -6,7 +6,7 @@ __pycache__/
 # files
 src/main
 gui/src/test.py
-test/tempTest.cpp
-test/test
+tests/tempTest.cpp
+tests/test
 .DS_Store
 !.gitignore
