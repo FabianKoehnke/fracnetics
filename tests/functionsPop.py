@@ -25,12 +25,16 @@ def test_population_function():
         print(e)
         sys.exit(1)
 
+    print("✅ pop.setAllNodeBoundaries()") 
+
     try:
         pop.callFitness(X,y,10,2,"accuracy",1)
     except Exception as e:
         print("❌ error in pop.callFitness()")
         print(e)
         sys.exit(1)
+
+    print("✅ pop.callFitness()") 
 
 if __name__ == "__main__":
     test_population_function()
