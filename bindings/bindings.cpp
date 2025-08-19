@@ -71,6 +71,8 @@ PYBIND11_MODULE(fracnetics, m) {
         // Functions
         .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
         .def("callFitness", &Population::callFitness,
-                py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"), py::arg("type"), py::arg("maxConsecutiveP"));
+                py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"), py::arg("type"), py::arg("maxConsecutiveP"))
+        .def("tournamentSelection", &Population::tournamentSelection, py::arg("tournamentSize"), py::arg("nElite"))
+        .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"));
 }
 
