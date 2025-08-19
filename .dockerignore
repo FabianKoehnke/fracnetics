@@ -1,0 +1,8 @@
+# folder
+.vscode/*
+__pycache__/
+*.dSYM/
+gui
+#test
+# files
+.DS_Store
