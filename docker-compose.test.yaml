@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  test:
+    image: fracnetics 
+    volumes:
+      - ./tests:/tests
+    command: python3 /tests/fracneticsImport.py
+
