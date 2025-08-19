@@ -5,5 +5,9 @@ services:
     image: fracnetics 
     volumes:
       - ./tests:/tests
-    command: python3 /tests/fracneticsImport.py
-
+    command: >
+          bash -c "
+            python3 /tests/fracneticsImport.py && \
+            python3 /tests/initPop.py && \
+            python3 /tests/functionsPop.py
+          "
