@@ -36,6 +36,25 @@ def test_population_function():
 
     print("✅ pop.callFitness()") 
 
+    try:
+        pop.tournamentSelection(2,1)
+    except Exception as e:
+        print("❌ error in pop.tournamentSelection()")
+        print(e)
+        sys.exit(1)
+
+    print("✅ pop.tournamentSelection()") 
+    
+    try:
+        pop.callEdgeMutation(0.02,0.01)
+    except Exception as e:
+        print("❌ error in pop.callEdgeMutation()")
+        print(e)
+        sys.exit(1)
+
+    print("✅ pop.callEdgeMutation()") 
+
+
 if __name__ == "__main__":
     test_population_function()
 
