@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/functional.h>
 #include <memory>
 #include "../include/Network.hpp"
 #include "../include/Population.hpp"
@@ -72,7 +73,15 @@ PYBIND11_MODULE(fracnetics, m) {
         .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
         .def("callFitness", &Population::callFitness,
                 py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"), py::arg("type"), py::arg("maxConsecutiveP"))
-        .def("tournamentSelection", &Population::tournamentSelection, py::arg("tournamentSize"), py::arg("nElite"))
-        .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"));
+        .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
+        .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"))
+        .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"))
+        .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform, py::arg("probability"))
+        .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma, py::arg("probability"), py::arg("sigma"))
+        .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma, py::arg("probability"), py::arg("sigma"))
+        .def("callBoundaryMutationFractal", &Population::callBoundaryMutationFractal, py::arg("probability"), py::arg("minF"), py::arg("maxF"))
+        .def("crossover", &Population::crossover, py::arg("probability"))
+        .def("callAddDelNodes", &Population::callAddDelNodes, py::arg("minF"), py::arg("maxF"));
+
 }
 
