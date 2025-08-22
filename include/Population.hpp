@@ -1,5 +1,6 @@
 #ifndef POPULATION_HPP
 #define POPULATION_HPP
+#include <vector>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 
 #include <random>
@@ -201,80 +202,92 @@ class Population {
         }
 
         /*
-         * struct for parameters used by edges mutations
+         * struct for parameters used by edge mutations
          */
-        struct mutationBoundaryParam {
-            float probability;
-            float sigma;
-            float networkSize;
-            std::vector<float>& minF;
-            std::vector<float>& maxF;
+        struct additionalMutationParam{
+            int networkSize = -1;
         };
-
-        /*
-         * @fn callBoundaryMutationUniform
-         * @brief call method for boundaryMutationUniform
-         * @param node (Node&): node object 
-         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
-         */
-        void callBoundaryMutationUniform(Node& node, const mutationBoundaryParam& param){
-            node.boundaryMutationUniform(param.probability);
-        }
-       
-        /*
-         * @fn callBoundaryMutationNormal 
-         * @brief call method for boundaryMutationNormal
-         * @param node (Node&): node object 
-         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
-         */
-        void callBoundaryMutationNormal(Node& node, const mutationBoundaryParam& param){
-            node.boundaryMutationNormal(param.probability, param.sigma);
-        }
-
-         /*
-         * @fn callBoundaryMutationEdgeSizeDependingSigma 
-         * @brief call method for boundaryMutationNormal with sigmas depending on network size
-         * @param node (Node&): node object 
-         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
-         */
-        void callBoundaryMutationNetworkSizeDependingSigma(Node& node, const mutationBoundaryParam& param){
-            float sigma = param.sigma * (1/log(param.networkSize));
-            node.boundaryMutationNormal(param.probability, sigma);
-        }
-
-        /*
-         * @fn callBoundaryMutationEdgeSizeDependingSigma 
-         * @brief call method for boundaryMutationNormal with sigmas depending on number of edges of judgment node 
-         * @param node (Node&): node object 
-         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
-         */
-        void callBoundaryMutationEdgeSizeDependingSigma(Node& node, const mutationBoundaryParam& param){
-            float sigma = param.sigma * (1/log(node.edges.size()));
-            node.boundaryMutationNormal(param.probability, sigma);
-        }
 
          /*
          * @fn applyBoundaryMutation 
          * @brief apply the pased boundary mutation on each judgment node 
-         * @param param (const mutationBoundaryParam&): parameter of mutation (see struct mutationBoundaryParam)
-         * @param boundaryMutation (std::function<void(Node&, const mutationBoundaryParam&): deferent call methods for boundary mutation
+         * @param Func&& func (template function)
          */
-        void applyBoundaryMutation(const mutationBoundaryParam& param, std::function<void(Node&, const mutationBoundaryParam&)> boundaryMutation){
-            for(int i=0; i<individuals.size(); i++){
-                if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
-                    for(auto& node : individuals[i].innerNodes){
-                        if(node.type == "J"){
-                            mutationBoundaryParam localParam = param;
-                            localParam.networkSize = individuals[i].innerNodes.size();
-                            boundaryMutation(node, localParam);
+        template <typename Func>
+        void applyBoundaryMutation(Func&& func) {
+            for (int i = 0; i < individuals.size(); ++i) {
+                if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {
+                    additionalMutationParam amp;
+                    amp.networkSize = individuals[i].innerNodes.size();
+                    for (auto& node : individuals[i].innerNodes) {
+                        if (node.type == "J") {
+                           func(node, amp); 
                         }
                     }
                 }
             }
         }
 
-        void callBoundaryMutationFractal(Node& node, const mutationBoundaryParam& param){
-            node.boundaryMutationFractal(param.probability, param.minF, param.maxF);
+        /*
+         * @fn callBoundaryMutationUniform
+         * @brief call method for boundaryMutationUniform
+         * @param probability (const float): probability of mutate an edge
+         */
+        void callBoundaryMutationUniform(const float probability){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){ 
+                node.boundaryMutationUniform(probability);
+            });
+        }
+       
+        /*
+         * @fn callBoundaryMutationNormal 
+         * @brief call method for boundaryMutationNormal
+         * @param probability (const float): probability of mutate an edge
+         * @param (const float): sigma of the distribution
+         */
+        void callBoundaryMutationNormal(const float probability, const float sigma){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+                node.boundaryMutationNormal(probability, sigma);
+            });
+        }
+
+        /*
+         * @fn callBoundaryMutationEdgeSizeDependingSigma 
+         * @brief call method for boundaryMutationNormal with sigmas depending on network size
+         * @param probability (const float): probability of mutate an edge
+         * @param (const float): sigma of the distribution
+         */
+        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp){
+                float sigmaNew = sigma * (1/log(amp.networkSize));
+                node.boundaryMutationNormal(probability, sigmaNew);
+            });
+        }
+
+        /*
+         * @fn callBoundaryMutationEdgeSizeDependingSigma 
+         * @brief call method for boundaryMutationNormal with sigmas depending on number of edges of judgment node 
+         * @param probability (const float): probability of mutate an edge
+         * @param (const float): sigma of the distribution
+         */
+        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+                float sigmaNew = sigma * (1/log(node.edges.size()));
+                node.boundaryMutationNormal(probability, sigmaNew);
+            });
+        }
+        
+        /*
+         * @fn callBoundaryMutationFractal
+         * @brief call function for boundaryMutationFractal 
+         * @param probability (float): probability of mutate an edge
+         * @param minF (std::vector<float>&): min values of all features 
+         * @param maxF (std::vector<float>&): max values of all features 
+         */
+        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+                node.boundaryMutationFractal(probability, minF, maxF);
+            });
         }
 
         /*
@@ -325,12 +338,12 @@ class Population {
         /*
          * @fn callAddDelNodes 
          * @brief call addDelNodes for each individual 
-         * @param minf (std::vector<float>&): min values of all features 
-         * @param maxf (std::vector<float>&): max values of all features 
+         * @param minF (std::vector<float>&): min values of all features 
+         * @param maxF (std::vector<float>&): max values of all features 
          */
-        void callAddDelNodes(std::vector<float>& minf, std::vector<float>& maxf, std::string type){
+        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF){
             for(auto& ind : individuals){
-                ind.addDelNodes(minf, maxf);
+                ind.addDelNodes(minF, maxF);
 
             }
         }
