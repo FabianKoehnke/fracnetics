@@ -3,6 +3,7 @@ data/*
 .vscode/*
 __pycache__/
 *.dSYM/
+venv
 # files
 src/main
 gui/src/test.py
