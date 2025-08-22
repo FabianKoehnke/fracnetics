@@ -4,9 +4,11 @@ data/*
 __pycache__/
 *.dSYM/
 venv
+dist
 # files
 src/main
 gui/src/test.py
+fracnetics/*.so
 tests/tempTest.cpp
 tests/test
 .DS_Store
