@@ -209,7 +209,7 @@ class Node {
          * @param minf (std::vector<float>): min values of features 
          * @param maxf (std::vector<float>): max values of features
          */
-        void boundaryMutationFractal(float propability, std::vector<float>& minf, std::vector<float>& maxf){
+        void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
             for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
                 bool result = distributionBernoulli(*generator);

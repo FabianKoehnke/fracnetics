@@ -202,10 +202,10 @@ class Network {
         /*
          * @fn addDelNodes
          * @brief add and delete nodes to the individual (network)
-         * @param minf (std::vector<float>&): min values of all features 
-         * @param maxf (std::vector<float>&): min values of all features 
+         * @param minF (std::vector<float>&): min values of all features 
+         * @param maxF (std::vector<float>&): min values of all features 
          */
-        void addDelNodes(std::vector<float>& minf, std::vector<float>& maxf){ 
+        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
             float pnRatio = static_cast<float>(pn) / static_cast<float>(innerNodes.size());
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
@@ -241,10 +241,10 @@ class Network {
                             innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
                             innerNodes.back().productionRuleParameter = randomParameterCuts(innerNodes.back().k_d.first-1, generator);
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
-                            innerNodes.back().setEdgesBoundaries(minf[randomInt], maxf[randomInt], fractals);
+                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
                         }else {
                             innerNodes.back().setEdges("J", innerNodes.size());
-                            innerNodes.back().setEdgesBoundaries(minf[randomInt], maxf[randomInt]);
+                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
                         }
 
                         jn += 1;
