@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(GNPfrac LANGUAGES CXX)
+project(fracnetics LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -16,6 +16,8 @@ pybind11_add_module(fracnetics bindings/bindings.cpp)
 set_target_properties(fracnetics PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fracnetics
 )
+
+install(TARGETS fracnetics DESTINATION fracnetics)
 
 target_compile_features(fracnetics PUBLIC cxx_std_20)
 
