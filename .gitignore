@@ -13,3 +13,7 @@ tests/tempTest.cpp
 tests/test
 .DS_Store
 !.gitignore
+# scikit-build / ninja build artifacts
+fracnetics/*.ninja_*
+fracnetics/.cmake/
+fracnetics/.skbuild-info.json
