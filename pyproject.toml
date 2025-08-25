@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "fracnetics" 
-version = "0.1.7"
+version = "0.1.11"
 description = "Genetic network programming with fractal expansion"
 authors = [{ name = "Fabian Köhnke", email = "fabian.koehnke@googlemail.com" }]
 license = "MIT"
@@ -14,9 +14,9 @@ dependencies = [
 ]
 
 [tool.scikit-build.sdist]
-exclude = ["build", "gui", "dist", "libs", "test", "pyproject.toml"]
+exclude = ["build", "gui", "dist", "libs", "test"]
 
 [tool.scikit-build]
-cmake.verbose = true
+build.verbose = true
 wheel.packages = ["fracnetics"]
 #wheel.install-dir = "fracnetics"
