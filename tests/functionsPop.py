@@ -5,7 +5,7 @@ import sys
 def test_population_function():
 
     # reading data 
-    data = pd.read_csv("../fracnetics/data/IRIS.csv")
+    data = pd.read_csv("data/IRIS.csv")
     X = data.iloc[:,1:5].values
     y = data.iloc[:,5].values
     minF = data.iloc[:,1:5].min().values
@@ -99,7 +99,7 @@ def test_population_function():
     testBoundaryMutation(lambda: pop.callBoundaryMutationNormal(0.5,0.2), "callBoundaryMutationNormal()")
     testBoundaryMutation(lambda: pop.callBoundaryMutationNetworkSizeDependingSigma(0.5,0.2), "callBoundaryMutationNetworkSizeDependingSigma()")
     testBoundaryMutation(lambda: pop.callBoundaryMutationEdgeSizeDependingSigma(0.5,0.2), "callBoundaryMutationEdgeSizeDependingSigma()")
-    testBoundaryMutation(lambda: pop.callBoundaryMutationFractal(0.5,minF,maxF), "callBoundaryMutationFractal()")
+    testBoundaryMutation(lambda: pop.callBoundaryMutationFractal(0.8,minF,maxF), "callBoundaryMutationFractal()")
     
     try:
         edges = []
