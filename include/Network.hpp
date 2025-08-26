@@ -133,8 +133,8 @@ class Network {
                     }
                 }
                 if (dSum >= dMax){
-                    break;
                     correct /= penalty;
+                    break;
                 }
             }
             fitness = correct / y.size();
