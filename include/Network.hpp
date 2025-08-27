@@ -35,6 +35,9 @@ class Network {
         std::vector<Node> innerNodes;
         Node startNode;
         float fitness = std::numeric_limits<float>::lowest();
+        bool invalid = false; // to indicate invalid individuals
+        int currentNodeID;
+        int nConsecutiveP;
         std::unordered_set<int> usedNodes; // ids of nodes
 
         Network(
@@ -138,6 +141,40 @@ class Network {
                 }
             }
             fitness = correct / y.size();
+        }
+
+        template <typename dataContainer> // template for passing std::vector, std::array ...
+        int decisionAndNextNode(const dataContainer& data, int dMax){
+            int dec;
+            int dSum = 0;
+            double v;
+            if(innerNodes[currentNodeID].type == "P"){
+                dec = innerNodes[currentNodeID].f;
+                // update currentNodeID to next node
+                currentNodeID = innerNodes[currentNodeID].edges[0]; 
+                usedNodes.insert(currentNodeID);
+                nConsecutiveP ++;
+
+            } else if (innerNodes[currentNodeID].type == "J"){
+                nConsecutiveP = 0;
+                while(innerNodes[currentNodeID].type == "J"){
+                    // update currentNodeID to next node
+                    v = data[innerNodes[currentNodeID].f];
+                    currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
+                    usedNodes.insert(currentNodeID);
+                    dSum ++;
+                    if (dSum >= dMax){
+                        invalid = true;
+                        break;
+                    }
+                }
+                dec = innerNodes[currentNodeID].f;
+                // update currentNodeID to next node
+                currentNodeID = innerNodes[currentNodeID].edges[0]; 
+                usedNodes.insert(currentNodeID);
+                nConsecutiveP ++;
+           }
+            return dec;
         }
 
         void fitCartpole(
