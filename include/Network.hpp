@@ -185,40 +185,23 @@ class Network {
             ){
 
             usedNodes.clear();
-            int currentNodeID = startNode.edges[0];
+            currentNodeID = startNode.edges[0];
             usedNodes.insert(currentNodeID);
             int dec = 0;
             CartPole cp(generator);
             fitness = 0;
-            int nConsecutiveP = 0;
+            //nConsecutiveP = 0;
             std::array<double, 4> obs = cp.reset(); // Initial observation for the episode
             bool done = false;
 
             while(done == false){
-                int  dSum = 0; // to prevent dead-looks 
-                if (innerNodes[currentNodeID].type == "P"){
-                    dec = innerNodes[currentNodeID].f;
-                    currentNodeID = innerNodes[currentNodeID].edges[0];
-                    usedNodes.insert(currentNodeID);
-                    fitness ++;
-                    nConsecutiveP ++;
-                    CartPole::StepResult result = cp.step(dec);
-                    obs = result.observation; 
-                    if(result.terminated || fitness >= maxSteps) done = true; 
- 
-                } else if (innerNodes[currentNodeID].type == "J"){
-                    nConsecutiveP = 0;
-                    while(innerNodes[currentNodeID].type == "J"){
-                        float v = obs[innerNodes[currentNodeID].f];
-                        currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
-                        usedNodes.insert(currentNodeID);
-                        dSum += 1;
-                        if (dSum >= dMax){
-                            break;
-                        }
-                    }
-                }
-                if (dSum >= dMax || nConsecutiveP > maxConsecutiveP){
+                fitness ++;
+                CartPole::StepResult result = cp.step(dec);
+                obs = result.observation; 
+                dec = decisionAndNextNode(obs, dMax);
+                if(result.terminated || fitness >= maxSteps) done = true; 
+
+                if (invalid || nConsecutiveP > maxConsecutiveP){
                     done = true;
                     fitness /= penalty;
                 }
