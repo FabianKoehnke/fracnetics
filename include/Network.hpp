@@ -190,7 +190,7 @@ class Network {
             int dec = 0;
             CartPole cp(generator);
             fitness = 0;
-            //nConsecutiveP = 0;
+            nConsecutiveP = 0;
             std::array<double, 4> obs = cp.reset(); // Initial observation for the episode
             bool done = false;
 
