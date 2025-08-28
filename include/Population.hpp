@@ -8,6 +8,7 @@
 #include <utility>
 #include <cmath>
 #include "Network.hpp"
+#include "GymnasiumWrapper.hpp"
 #include "PrintHelper.hpp"
 
 /**
@@ -100,10 +101,12 @@ class Population {
         void callFitness(
                 std::vector<std::vector<double>>& X,
                 std::vector<double>& y,
-                int& dMax,
-                int& penalty,
+                int dMax,
+                int penalty,
                 std::string type,
-                int& maxConsecutiveP
+                int maxConsecutiveP,
+                GymEnvWrapper& env,
+                int steps = 0
                 ){
             bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
@@ -111,6 +114,13 @@ class Population {
                     network.fitAccuracy(X, y, dMax, penalty); 
                 }else if (type == "cartpole") {
                     network.fitCartpole(dMax, penalty, 500, maxConsecutiveP);
+                }else if (type == "gymnasium") {
+                    network.fitGymnasium(
+                            env,
+                            dMax, 
+                            penalty, 
+                            steps, 
+                            maxConsecutiveP);
                 }
 
                 if(network.fitness > bestFit){
