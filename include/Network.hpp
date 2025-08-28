@@ -8,6 +8,7 @@
 #include "Cartpole.hpp"
 #include "Node.hpp"
 #include "Fractal.hpp"
+#include "GymnasiumWrapper.hpp"
 #include <iostream>
 
 /**
@@ -177,6 +178,41 @@ class Network {
             return dec;
         }
 
+        void fitGymnasium(
+            GymEnvWrapper& env,
+            int& dMax,
+            int& penalty,
+            int maxSteps,
+            int maxConsecutiveP
+            ){
+
+            auto reset_out = env.reset();// Initial observation for the episode
+            auto obs = reset_out[0].cast<std::vector<double>>();   
+            auto info = reset_out[1];
+            usedNodes.clear();
+            currentNodeID = startNode.edges[0];
+            usedNodes.insert(currentNodeID);
+            int dec;
+            fitness = 0;
+            nConsecutiveP = 0;
+            bool done = false;
+            int steps = 0;
+
+            while(done == false){
+                dec = decisionAndNextNode(obs, dMax);
+                auto result = env.step(dec);
+                obs = result[0].cast<std::vector<double>>(); 
+                fitness += result[1].cast<float>();
+                steps ++;
+                if(result[2].cast<bool>() || steps >= maxSteps) done = true; 
+
+                if (invalid || nConsecutiveP > maxConsecutiveP){
+                    done = true;
+                    fitness /= penalty;
+                }
+            }
+        }
+          
         void fitCartpole(
             int& dMax,
             int& penalty,
