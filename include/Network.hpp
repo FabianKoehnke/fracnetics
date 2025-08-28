@@ -166,7 +166,7 @@ class Network {
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
-                        break;
+                        return 0; // TODO is this a suitable value? 
                     }
                 }
                 dec = innerNodes[currentNodeID].f;
