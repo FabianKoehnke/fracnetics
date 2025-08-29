@@ -8,7 +8,9 @@
 #include <utility>
 #include <cmath>
 #include "Network.hpp"
+#ifdef WITH_PYBIND
 #include "GymnasiumWrapper.hpp"
+#endif
 #include "PrintHelper.hpp"
 
 /**
@@ -85,48 +87,56 @@ class Population {
             }
         }
 
-        /* @fn callFitness
-         * @brief call the fitness for each individual
+        /* @fn applyFitness
+         * @brief apply the fitness for each individual
          * @note stores the bestFit of the population in member bestFit
-         *
-         * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
-         * @param y (std::vector<int>&) : y of data table (target values) 
-         * @param dMax (int) : maximal judgments (delay) until next decision 
-         * @param penalty (int) : devisor on fitness after exceeding maximal judgments
-         * @param type (std::string) : name of the fitness function:
-         *  - accuracy
-         *  - cartpole
-         * @param maxConsecutiveP (int) : maximal number of n consecutive processing nodes
+         * @param func (FuncFitness&&): template function
          */
-        void callFitness(
-                std::vector<std::vector<double>>& X,
-                std::vector<double>& y,
-                int dMax,
-                int penalty,
-                std::string type,
-                int maxConsecutiveP,
-                GymEnvWrapper& env,
-                int steps = 0
-                ){
+        template <typename FuncFitness>
+        void applyFitness(FuncFitness&& func){
             bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
-                if(type == "accuracy"){
-                    network.fitAccuracy(X, y, dMax, penalty); 
-                }else if (type == "cartpole") {
-                    network.fitCartpole(dMax, penalty, 500, maxConsecutiveP);
-                }else if (type == "gymnasium") {
-                    network.fitGymnasium(
-                            env,
-                            dMax, 
-                            penalty, 
-                            steps, 
-                            maxConsecutiveP);
-                }
-
+                func(network);
                 if(network.fitness > bestFit){
                     bestFit = network.fitness;
                 }
             }
+        }
+
+        void accuracy(
+                const std::vector<std::vector<double>>& X,
+                const std::vector<double>& y,
+                int dMax,
+                int penalty
+                ){
+            applyFitness([=](Network& network){
+                    network.fitAccuracy(X,y,dMax,penalty);
+            });
+        }
+
+        #ifdef WITH_PYBIND
+        void gymnasium(
+            GymEnvWrapper& env,
+            int dMax,
+            int penalty,
+            int maxSteps,
+            int maxConsecutiveP
+                ){
+            applyFitness([=](Network& network){
+                    network.fitGymnasium(env,dMax,penalty,maxSteps,maxConsecutiveP);
+            });
+        }
+        #endif
+
+        void cartpole(
+                int dMax,
+                int penalty,
+                int maxSteps,
+                int maxConsecutiveP
+                ){
+            applyFitness([=](Network& network){
+                    network.fitCartpole(dMax,penalty,maxSteps,maxConsecutiveP);
+            });
         }
 
         /*

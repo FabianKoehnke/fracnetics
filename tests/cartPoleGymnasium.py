@@ -22,15 +22,12 @@ pop.setAllNodeBoundaries(minFeatures,maxFeatures)
 
 fitnessProgess = []
 for g in range(200):
-  pop.callFitness(
-          X=[[1,2,3],[1,2,3]],
-          y=[1,2,3],
+  pop.gymnasium(
+          env,
           dMax=10,
           penalty=1,
-          type="gymnasium",
-          maxConsecutiveP=5,
-          env=env,
-          steps=500)
+          maxSteps=500,
+          maxConsecutiveP=5)
   pop.tournamentSelection(2,1)
   pop.callEdgeMutation(0.03, 0.03)
   pop.crossover(0.05)
@@ -50,15 +47,12 @@ print("Validation")
 env = gym.make("CartPole-v1", render_mode="human")
 validationResults = []
 for v in range(10):
-    pop.callFitness(
-          X=[[1,2,3],[1,2,3]],
-          y=[1,2,3],
+    pop.gymnasium(
+          env,
           dMax=10,
           penalty=1,
-          type="gymnasium",
-          maxConsecutiveP=5,
-          env=env,
-          steps=500)
+          maxSteps=500,
+          maxConsecutiveP=5)
     validationResults.append(pop.bestFit)
 print(statistics.mean(validationResults))
 print(f"Done in: {round(time.perf_counter()-start,2)}")
