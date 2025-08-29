@@ -208,7 +208,11 @@ class Network {
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
                     done = true;
-                    fitness /= penalty;
+                    if (fitness >= 0){
+                        fitness /= penalty;
+                    } else {
+                        fitness *= penalty;
+                    }
                 }
             }
         }
