@@ -223,8 +223,8 @@ class Population {
          * @brief apply the pased boundary mutation on each judgment node 
          * @param Func&& func (template function)
          */
-        template <typename Func>
-        void applyBoundaryMutation(Func&& func) {
+        template <typename FuncMutation>
+        void applyBoundaryMutation(FuncMutation&& func) {
             for (int i = 0; i < individuals.size(); ++i) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {
                     additionalMutationParam amp;
