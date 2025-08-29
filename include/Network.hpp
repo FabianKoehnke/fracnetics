@@ -8,7 +8,9 @@
 #include "Cartpole.hpp"
 #include "Node.hpp"
 #include "Fractal.hpp"
+#ifdef WITH_PYBIND
 #include "GymnasiumWrapper.hpp"
+#endif
 #include <iostream>
 
 /**
@@ -100,10 +102,10 @@ class Network {
          * @param penalty (int) : devisor on fitness after exceeding maximal judgments
          */
         void fitAccuracy(
-                std::vector<std::vector<double>>& X,
-                std::vector<double>& y,
-                int& dMax,
-                int& penalty
+                const std::vector<std::vector<double>>& X,
+                const std::vector<double>& y,
+                int dMax,
+                int penalty
                 ){
 
             usedNodes.clear();
@@ -178,10 +180,11 @@ class Network {
             return dec;
         }
 
+        #ifdef WITH_PYBIND
         void fitGymnasium(
-            GymEnvWrapper& env,
-            int& dMax,
-            int& penalty,
+            GymEnvWrapper env,
+            int dMax,
+            int penalty,
             int maxSteps,
             int maxConsecutiveP
             ){
@@ -216,10 +219,11 @@ class Network {
                 }
             }
         }
+        #endif
           
         void fitCartpole(
-            int& dMax,
-            int& penalty,
+            int dMax,
+            int penalty,
             int maxSteps,
             int maxConsecutiveP
             ){

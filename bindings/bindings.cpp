@@ -72,29 +72,18 @@ PYBIND11_MODULE(fracnetics, m) {
         .def_readwrite("individuals", &Population::individuals)
         // Functions
         .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
-        .def("callFitness",
-             [](Population &self,
-                std::vector<std::vector<double>> &X,
-                std::vector<double> &y,
-                int dMax,
-                int penalty,
-                std::string type,
-                int maxConsecutiveP,
-                py::object env,      // <--- hier rohes Python-Env erlauben
-                int steps) {
-                 
-                 GymEnvWrapper wrapper(env);   // <--- automatisch verpacken
-                 self.callFitness(X, y, dMax, penalty, type, maxConsecutiveP, wrapper, steps);
-             },
-             py::arg("X"),
-             py::arg("y"),
-             py::arg("dMax"),
-             py::arg("penalty"),
-             py::arg("type"),
-             py::arg("maxConsecutiveP"),
-             py::arg("env"),
-             py::arg("steps"))
-
+        .def("accuracy", &Population::accuracy, py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"))
+        .def("gymnasium", 
+                [](Population &self,
+                    py::object env,
+                    int dMax,
+                    int penalty,
+                    int maxSteps,
+                    int maxConsecutiveP) {
+                        GymEnvWrapper wrapper(env);
+                        self.gymnasium(wrapper,dMax,penalty,maxSteps,maxConsecutiveP);
+                    },
+                py::arg("env"), py::arg("dMax"), py::arg("penalty"), py::arg("maxSteps"), py::arg("maxConsecutiveP"))
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"))
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"))
