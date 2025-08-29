@@ -221,7 +221,7 @@ class Population {
          /*
          * @fn applyBoundaryMutation 
          * @brief apply the pased boundary mutation on each judgment node 
-         * @param Func&& func (template function)
+         * @param func (FuncMutation&&): template function
          */
         template <typename FuncMutation>
         void applyBoundaryMutation(FuncMutation&& func) {
