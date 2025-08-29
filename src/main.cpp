@@ -66,7 +66,7 @@ int main(){
     int improvementCounter = 0;
     for(int g=0; g<generations; g++){
         //generator = std::make_shared<std::mt19937_64>(5494+g);
-        population.callFitness(X, y, dMax, penalty, "cartpole", maxConsecutiveP);
+        population.cartpole(dMax, penalty, 500, maxConsecutiveP);
         population.tournamentSelection(tournamentSize,nElite);
         population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
        
@@ -134,7 +134,7 @@ int main(){
     std::cout << "Validation" << std::endl;
     for(int t=0; t<tests; t++){
         //generator = std::make_shared<std::mt19937_64>(54+t);
-        population.callFitness(X, y, dMax, penalty, "cartpole", maxConsecutiveP);
+        population.cartpole(dMax, penalty, 500, maxConsecutiveP);
         //std::cout << "Best Network: " << " Fit: " << population.individuals[population.indicesElite[0]].fitness << std::endl;
         sumTestFitness += population.individuals[population.indicesElite[0]].fitness; 
     }
