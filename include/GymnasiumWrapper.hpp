@@ -1,5 +1,6 @@
 #ifndef GYMNASIUM_WRAPPER_HPP
 #define GYMNASIUM_WRAPPER_HPP
+#ifdef WITH_PYBIND
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -33,4 +34,5 @@ public:
         env.attr("close")();
     }
 };
+#endif
 #endif
