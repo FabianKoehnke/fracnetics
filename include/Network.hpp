@@ -263,7 +263,7 @@ class Network {
          */
         void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
-            float pnRatio = static_cast<float>(pn) / static_cast<float>(innerNodes.size());
+            float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
             bool resultAdd = distributionBernoulliAdd(*generator);
             for(int n=0; n<innerNodes.size(); n++){
