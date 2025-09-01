@@ -5,6 +5,7 @@ __pycache__/
 *.dSYM/
 venv
 dist
+videos
 # files
 src/main
 gui/src/test.py
