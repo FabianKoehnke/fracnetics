@@ -79,11 +79,12 @@ PYBIND11_MODULE(fracnetics, m) {
                     int dMax,
                     int penalty,
                     int maxSteps,
-                    int maxConsecutiveP) {
+                    int maxConsecutiveP,
+                    int worstFitness) {
                         GymEnvWrapper wrapper(env);
-                        self.gymnasium(wrapper,dMax,penalty,maxSteps,maxConsecutiveP);
+                        self.gymnasium(wrapper,dMax,penalty,maxSteps,maxConsecutiveP,worstFitness);
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("penalty"), py::arg("maxSteps"), py::arg("maxConsecutiveP"))
+                py::arg("env"), py::arg("dMax"), py::arg("penalty"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"))
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"))
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"))

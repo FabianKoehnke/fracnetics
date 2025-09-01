@@ -8,9 +8,7 @@
 #include "Cartpole.hpp"
 #include "Node.hpp"
 #include "Fractal.hpp"
-#ifdef WITH_PYBIND
 #include "GymnasiumWrapper.hpp"
-#endif
 #include <iostream>
 
 /**
@@ -180,13 +178,13 @@ class Network {
             return dec;
         }
 
-        #ifdef WITH_PYBIND
         void fitGymnasium(
             GymEnvWrapper env,
             int dMax,
             int penalty,
             int maxSteps,
-            int maxConsecutiveP
+            int maxConsecutiveP,
+            int worstFitness
             ){
 
             auto reset_out = env.reset();// Initial observation for the episode
@@ -211,15 +209,10 @@ class Network {
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
                     done = true;
-                    if (fitness >= 0){
-                        fitness /= penalty;
-                    } else {
-                        fitness *= penalty;
-                    }
+                    fitness = worstFitness;
                 }
             }
         }
-        #endif
           
         void fitCartpole(
             int dMax,

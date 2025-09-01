@@ -8,9 +8,7 @@
 #include <utility>
 #include <cmath>
 #include "Network.hpp"
-#ifdef WITH_PYBIND
 #include "GymnasiumWrapper.hpp"
-#endif
 #include "PrintHelper.hpp"
 
 /**
@@ -114,19 +112,18 @@ class Population {
             });
         }
 
-        #ifdef WITH_PYBIND
         void gymnasium(
             GymEnvWrapper& env,
             int dMax,
             int penalty,
             int maxSteps,
-            int maxConsecutiveP
+            int maxConsecutiveP,
+            int worstFitness 
                 ){
             applyFitness([=](Network& network){
-                    network.fitGymnasium(env,dMax,penalty,maxSteps,maxConsecutiveP);
+                    network.fitGymnasium(env,dMax,penalty,maxSteps,maxConsecutiveP,worstFitness);
             });
         }
-        #endif
 
         void cartpole(
                 int dMax,
