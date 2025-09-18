@@ -17,7 +17,7 @@ int main(){
     float probCrossOver = 0.05;
     int generations = 100;
     int generationsNoImprovementLimit = 500;
-    int nIndividuals = 300;
+    int nIndividuals = 10000;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 1;
@@ -35,7 +35,7 @@ int main(){
     Data data;
     std::cout << "reading data" << std::endl;
     printMemoryUsage();
-    data.readCSV("../data/cartpole.csv");
+    data.readCSV("data/cartpole.csv");
     printMemoryUsage();
     std::cout << "data rows: " << data.dt.size() << std::endl;
     std::cout << "data columns: " << data.dt[0].size() << std::endl;
@@ -129,7 +129,7 @@ int main(){
     std::cout << "done in:" << duration.count() << "sek. \n"; 
     
     int sumTestFitness = 0;
-    int tests = 100;
+    int tests = 10;
     printLine();
     std::cout << "Validation" << std::endl;
     for(int t=0; t<tests; t++){
