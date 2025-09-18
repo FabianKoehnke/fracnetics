@@ -33,7 +33,7 @@ def test_population_function():
 
     try:
         fit1 = pop.individuals[0].fitness
-        pop.callFitness(X,y,10,2,"accuracy",1)
+        pop.accuracy(X,y,10,2)
         fit2 = pop.individuals[0].fitness
         if fit1 == fit2:
             print("no difference of fitnes after applying callFitness()")
