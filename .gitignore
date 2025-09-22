@@ -6,6 +6,7 @@ __pycache__/
 venv
 dist
 videos
+gui
 # files
 src/main
 gui/src/test.py
