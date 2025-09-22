@@ -118,10 +118,11 @@ class Population {
             int penalty,
             int maxSteps,
             int maxConsecutiveP,
-            int worstFitness 
+            int worstFitness,
+            int seed
                 ){
             applyFitness([=](Network& network){
-                    network.fitGymnasium(env,dMax,penalty,maxSteps,maxConsecutiveP,worstFitness);
+                    network.fitGymnasium(env,dMax,penalty,maxSteps,maxConsecutiveP,worstFitness,seed);
             });
         }
 
