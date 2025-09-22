@@ -5,10 +5,11 @@ import time
 from gymnasium.wrappers import RecordVideo
 
 start = time.perf_counter()
+seed=42
 env = gym.make("CartPole-v1")
 # initializing population
 pop = fn.Population(
-    seed=42,
+    seed=seed,
     ni=100,
     jn=1,
     jnf=4,
@@ -29,7 +30,8 @@ for g in range(250):
           penalty=2,
           maxSteps=500,
           maxConsecutiveP=10,
-          worstFitness=0)
+          worstFitness=0,
+          seed=seed+g)
   pop.tournamentSelection(2,1)
   pop.callEdgeMutation(0.03, 0.03)
   pop.crossover(0.05)

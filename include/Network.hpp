@@ -184,7 +184,8 @@ class Network {
             int penalty,
             int maxSteps,
             int maxConsecutiveP,
-            int worstFitness
+            int worstFitness,
+            int seed
             ){
 
             auto reset_out = env.reset();// Initial observation for the episode

@@ -45,7 +45,7 @@ https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/note
   - Generic fitness evaluation via template functions (`applyFitness`).  
   - Built-in evaluation modes:
     - Classification accuracy (`accuracy`)  
-    - Reinforcement Learning with OpenAI Gym environments (`gymnasium`, `cartpole`)  
+    - Reinforcement Learning environments of OpenAI Gym (`gymnasium`)  
 
 - **Selection & Elitism**  
   - Tournament selection with configurable size.  
