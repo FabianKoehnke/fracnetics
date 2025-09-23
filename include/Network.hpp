@@ -145,6 +145,12 @@ class Network {
         }
 
         template <typename dataContainer> // template for passing std::vector, std::array ...
+        /*
+         * @fn decisionAndNextNode
+         * @brief makes a decision and selects a new node
+         * @param data (const dataContainer&) : current features at position i 
+         * @param dMax (int) : maximal judgments until next decision
+         */
         int decisionAndNextNode(const dataContainer& data, int dMax){
             int dec;
             int dSum = 0;
