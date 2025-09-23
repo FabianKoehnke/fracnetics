@@ -172,7 +172,7 @@ class Network {
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
-                        return 0; // TODO is this a suitable value? 
+                        return -1; 
                     }
                 }
                 dec = innerNodes[currentNodeID].f;
