@@ -221,6 +221,14 @@ class Network {
             }
         }
           
+        /*
+         * @fn fitCartpole
+         * @brief cart pole problem implementation like Gymnasium 
+         * @param dMax (int) : maximal judgments until next decision
+         * @param penalty (int) : devisor on fitness after exceeding maximal judgments
+         * @param maxSteps (int) : maximal steps during episode 
+         * @param maxConsecutiveP (int) : maximal consecutive processing nodes during transition
+         */
         void fitCartpole(
             int dMax,
             int penalty,
