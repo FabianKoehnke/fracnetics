@@ -252,6 +252,10 @@ class Network {
             }
         }
 
+        /*
+         * @fn changeFalseEdges
+         * @brief change an edge if it has no successor
+         */
         void changeFalseEdges(){
             for(auto& node : innerNodes){
                 std::uniform_int_distribution<int> distribution(0, innerNodes.size()-1);
