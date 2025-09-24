@@ -149,6 +149,7 @@ class Network {
          * @fn decisionAndNextNode
          * @brief makes a decision and selects a new node
          * @param data (const dataContainer&) : current features at position i 
+         *  Hint: only works for data of dimension 1
          * @param dMax (int) : maximal judgments until next decision
          */
         int decisionAndNextNode(const dataContainer& data, int dMax){
