@@ -14,8 +14,8 @@ class Data {
     public:
         
         std::vector<std::vector<float>> dt;
-        std::vector<std::vector<float*>> X;
-        std::vector<float*> y;
+        std::vector<std::vector<float>> X;
+        std::vector<float> y;
         std::vector<int> yIndices;
         std::vector<int> XIndices;
         std::vector<float> minX;
@@ -76,10 +76,10 @@ class Data {
         void xySplit(){
             X.resize(dt.size());// set number of rows in X
             for(int i=0; i<dt.size(); i++){
-                y.push_back(&dt[i].back());
+                y.push_back(dt[i].back());
                 X[i].resize(dt[i].size()-1);// set number of columns in X 
                 for(int k=0; k<dt[i].size()-1; k++){
-                    X[i][k] = &dt[i][k];
+                    X[i][k] = dt[i][k];
                 }
             }
         }
