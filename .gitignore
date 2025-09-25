@@ -13,6 +13,7 @@ gui/src/test.py
 fracnetics/*.so
 tests/tempTest.cpp
 tests/test
+tests/iris
 .DS_Store
 compile_flags.txt
 !.gitignore
