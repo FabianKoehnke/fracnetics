@@ -45,6 +45,7 @@ PYBIND11_MODULE(fracnetics, m) {
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
     .def_readwrite("usedNodes", &Network::usedNodes)
+    .def_readwrite("decisions", &Network::decisions)
     .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"));
 
     // Population
