@@ -44,7 +44,8 @@ PYBIND11_MODULE(fracnetics, m) {
     .def_readwrite("innerNodes", &Network::innerNodes)
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
-    .def_readwrite("usedNodes", &Network::usedNodes);
+    .def_readwrite("usedNodes", &Network::usedNodes)
+    .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"));
 
     // Population
     py::class_<Population>(m, "Population")
@@ -72,6 +73,7 @@ PYBIND11_MODULE(fracnetics, m) {
         .def_readwrite("individuals", &Population::individuals)
         // Functions
         .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
+        .def("callTraversePath", &Population::callTraversePath, py::arg("X"), py::arg("dMax"))
         .def("accuracy", &Population::accuracy, py::arg("X"), py::arg("y"), py::arg("dMax"), py::arg("penalty"))
         .def("gymnasium", 
                 [](Population &self,
