@@ -108,16 +108,17 @@ class Data {
          * @fn minMaxFeatures
          * @brief finds min and max of the features (X).
          * @note stored in std::vector<float> minX and maxX
+         * @param X (std::vector<std::vector<float>>X) : table of features 
          */
-        void minMaxFeatures(){
-            for(int i=0; i<XIndices.size(); i++){ // for each feature
-                float min = dt[0][XIndices[i]]; 
-                float max = dt[0][XIndices[i]]; 
-                for(int k=1; k<dt.size(); k++){ // for each row in dt 
-                    if(dt[k][XIndices[i]]<min){ // find min from dt with values from XIndices
-                        min=dt[k][XIndices[i]];
-                    } else if(dt[k][XIndices[i]]>max){
-                        max=dt[k][XIndices[i]];
+        void minMaxFeatures(std::vector<std::vector<float>> features){
+            for(int i=0; i<features[0].size(); i++){ // for each feature
+                float min = features[0][i]; 
+                float max = features[0][i]; 
+                for(int k=1; k<features.size(); k++){ // for each row in dt 
+                    if(features[k][i]<min){ // find min from dt with values from featuresIndices
+                        min=features[k][i];
+                    } else if(features[k][i]>max){
+                        max=features[k][i];
                     }
                 }
                 minX.push_back(min);
