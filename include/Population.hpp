@@ -85,6 +85,21 @@ class Population {
             }
         }
 
+        /*
+         * @fn callTraversePath
+         * @brief call traversing the path of a network
+         * @param X (std::vector<std::vector<float>>&) : X of data table (features)
+         * @param dMax (int) : maximal judgments until next decision
+         */
+        void callTraversePath(
+                const std::vector<std::vector<float>>& X,
+                int dMax
+                ){
+            for (auto& network : individuals){
+                network.traversePath(X,dMax);
+            }
+        }
+
         /* @fn applyFitness
          * @brief apply the fitness for each individual
          * @note stores the bestFit of the population in member bestFit
@@ -102,8 +117,8 @@ class Population {
         }
 
         void accuracy(
-                const std::vector<std::vector<double>>& X,
-                const std::vector<double>& y,
+                const std::vector<std::vector<float>>& X,
+                const std::vector<float>& y,
                 int dMax,
                 int penalty
                 ){

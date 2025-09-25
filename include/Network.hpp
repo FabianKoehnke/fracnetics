@@ -40,6 +40,7 @@ class Network {
         int currentNodeID;
         int nConsecutiveP;
         std::unordered_set<int> usedNodes; // ids of nodes
+        std::vector<int> decisions;
 
         Network(
                 std::shared_ptr<std::mt19937_64> _generator,
@@ -142,6 +143,27 @@ class Network {
                 }
             }
             fitness = correct / y.size();
+        }
+
+        /*
+         * @fn traversePath
+         * @brief traverse the network path and stores decisions in member decisions
+         * @param X (std::vector<std::vector<float>>&) : X of data table (features)
+         * @param dMax (int) : maximal judgments until next decision
+         */
+        void traversePath(
+                const std::vector<std::vector<float>>& X,
+                int dMax
+                ){
+           usedNodes.clear();
+           currentNodeID = startNode.edges[0];
+           usedNodes.insert(currentNodeID);
+           nConsecutiveP = 0;
+           int dec;
+            for(const auto& row : X){
+                dec = decisionAndNextNode(row, dMax);
+                decisions.push_back(dec);
+            }
         }
 
         template <typename dataContainer> // template for passing std::vector, std::array ...
