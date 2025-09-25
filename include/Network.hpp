@@ -100,8 +100,8 @@ class Network {
          * @param penalty (int) : devisor on fitness after exceeding maximal judgments
          */
         void fitAccuracy(
-                const std::vector<std::vector<double>>& X,
-                const std::vector<double>& y,
+                const std::vector<std::vector<float>>& X,
+                const std::vector<float>& y,
                 int dMax,
                 int penalty
                 ){
