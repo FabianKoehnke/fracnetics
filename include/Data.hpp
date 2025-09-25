@@ -71,15 +71,17 @@ class Data {
         /**
          * @fn xySplit 
          * @brief splits dt (data) in X (features) and y (target) and stores them as member 
-         * @note X and y are pointers to dt 
+         * @param yIndex (int) : index of the target variable y
+         * @parma xIndices (std:vector<int>) : indices of features X
          */
-        void xySplit(){
+        void xySplit(int yIndex, std::vector<int>& xIndices){
             X.resize(dt.size());// set number of rows in X
             for(int i=0; i<dt.size(); i++){
-                y.push_back(dt[i].back());
-                X[i].resize(dt[i].size()-1);// set number of columns in X 
-                for(int k=0; k<dt[i].size()-1; k++){
-                    X[i][k] = dt[i][k];
+                y.push_back(dt[i][yIndex]);
+                X[i].resize(xIndices.size());// set number of columns in X 
+                for(int k = 0; k<xIndices.size(); k++){
+                    int xI = xIndices[k];
+                    X[i][k] = dt[i][xI];
                 }
             }
         }
