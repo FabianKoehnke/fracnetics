@@ -23,7 +23,8 @@ PYBIND11_MODULE(fracnetics, m) {
     .def_readwrite("edges", &Node::edges)
     .def_readwrite("boundaries", &Node::boundaries)
     .def_readwrite("productionRuleParameter", &Node::productionRuleParameter)
-    .def_readwrite("k_d", &Node::k_d);
+    .def_readwrite("k_d", &Node::k_d)
+    .def_readwrite("used", &Node::used);
 
     // Network 
     py::class_<Network>(m, "Network")
@@ -44,7 +45,6 @@ PYBIND11_MODULE(fracnetics, m) {
     .def_readwrite("innerNodes", &Network::innerNodes)
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
-    .def_readwrite("usedNodes", &Network::usedNodes)
     .def_readwrite("decisions", &Network::decisions)
     .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"));
 
