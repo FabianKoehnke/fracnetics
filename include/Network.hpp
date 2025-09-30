@@ -39,7 +39,7 @@ class Network {
         bool invalid = false; // to indicate invalid individuals
         int currentNodeID;
         int nConsecutiveP;
-        std::unordered_set<int> usedNodes; // ids of nodes
+        int nUsedNodes;
         std::vector<int> decisions;
 
         Network(
@@ -130,9 +130,9 @@ class Network {
                 int penalty
                 ){
 
-            usedNodes.clear();
+            clearUsedNodes();
             int currentNodeID = startNode.edges[0];
-            usedNodes.insert(currentNodeID);
+            innerNodes[currentNodeID].used = true;
             int dec;
             float correct = 0;
             for(int i=0; i<y.size(); i++){
@@ -143,12 +143,12 @@ class Network {
                         correct += 1;
                     }
                     currentNodeID = innerNodes[currentNodeID].edges[0];
-                    usedNodes.insert(currentNodeID);
+                    innerNodes[currentNodeID].used = true;
                 } else if (innerNodes[currentNodeID].type == "J"){
                     while(innerNodes[currentNodeID].type == "J"){
                         float v = X[i][innerNodes[currentNodeID].f];
                         currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
-                        usedNodes.insert(currentNodeID);
+                        innerNodes[currentNodeID].used = true;
                         dSum += 1;
                         if (dSum >= dMax){
                             break;
@@ -178,9 +178,10 @@ class Network {
                 const std::vector<std::vector<float>>& X,
                 int dMax
                 ){
-           usedNodes.clear();
+           decisions.clear();
+           clearUsedNodes();
            currentNodeID = startNode.edges[0];
-           usedNodes.insert(currentNodeID);
+           innerNodes[currentNodeID].used = true;
            nConsecutiveP = 0;
            int dec;
             for(const auto& row : X){
@@ -205,7 +206,7 @@ class Network {
                 dec = innerNodes[currentNodeID].f;
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
-                usedNodes.insert(currentNodeID);
+                innerNodes[currentNodeID].used = true;
                 nConsecutiveP ++;
 
             } else if (innerNodes[currentNodeID].type == "J"){
@@ -214,7 +215,7 @@ class Network {
                     // update currentNodeID to next node
                     v = data[innerNodes[currentNodeID].f];
                     currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
-                    usedNodes.insert(currentNodeID);
+                    innerNodes[currentNodeID].used = true;
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
@@ -224,7 +225,7 @@ class Network {
                 dec = innerNodes[currentNodeID].f;
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
-                usedNodes.insert(currentNodeID);
+                innerNodes[currentNodeID].used = true;
                 nConsecutiveP ++;
            }
             return dec;
@@ -243,9 +244,9 @@ class Network {
             auto reset_out = env.reset();// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
             auto info = reset_out[1];
-            usedNodes.clear();
+            clearUsedNodes();
             currentNodeID = startNode.edges[0];
-            usedNodes.insert(currentNodeID);
+            innerNodes[currentNodeID].used = true;
             int dec;
             fitness = 0;
             nConsecutiveP = 0;
@@ -282,9 +283,9 @@ class Network {
             int maxConsecutiveP
             ){
 
-            usedNodes.clear();
+            clearUsedNodes();
             currentNodeID = startNode.edges[0];
-            usedNodes.insert(currentNodeID);
+            innerNodes[currentNodeID].used = true;
             int dec = 0;
             CartPole cp(generator);
             fitness = 0;
@@ -332,8 +333,9 @@ class Network {
             float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
             bool resultAdd = distributionBernoulliAdd(*generator);
+            countUsedNodes();
             for(int n=0; n<innerNodes.size(); n++){
-                if(resultAdd && usedNodes.size() >= innerNodes.size() * 1){// adding node hint 0.5 for more nodes in network
+                if(resultAdd && nUsedNodes >= innerNodes.size() * 1){// adding node hint 0.5 for more nodes in network
                     bool resultProcessingNode = distributionBernoulliProcessingNode(*generator);
                     if(resultProcessingNode){ // add processing node
                         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
@@ -374,13 +376,15 @@ class Network {
                     break;
 
                 }else if(!resultAdd && 
-                        innerNodes.size()-usedNodes.size() > innerNodes.size() * 1 && // 1.5 
-                        std::find(usedNodes.begin(), usedNodes.end(), innerNodes[n].id) == usedNodes.end()) // node is not used
+                        innerNodes.size()-nUsedNodes > 1 &&
+                        innerNodes[n].used == false) // node is not used
                 {// deleting nodes
                     for(int i=0; i<innerNodes.size(); i++){ // for each node
+                        // adapting node IDs of innerNodes
                         if(innerNodes[i].id > innerNodes[n].id){
                             innerNodes[i].id -= 1; // set back node numbers for nodes greater deleted id 
                         }
+                        // adapting node edges
                         for(int k=0; k<innerNodes[i].edges.size(); k++){ // for each edge
                             if(innerNodes[i].edges[k] > innerNodes[n].id){
                                 innerNodes[i].edges[k] -= 1; // change edges to reset node ids 
@@ -388,8 +392,14 @@ class Network {
                                 innerNodes[i].changeEdge(innerNodes.size()-1, innerNodes[i].edges[k]);
                             }
                         }
-                    } 
-                    startNode.changeEdge(innerNodes.size()-1, startNode.edges[0]);
+                    }
+
+                    // adapting start node edge; hint: no changeEdge() needed because a node connected 
+                    // by a startnode ist always used. 
+                    if(startNode.edges[0] >= innerNodes[n].id){ // >= because we decreased already by one
+                        startNode.edges[0] -= 1;
+                    }
+
                     if(innerNodes[n].type == "J"){
                         jn -= 1;
                     }else if (innerNodes[n].type == "P") {
