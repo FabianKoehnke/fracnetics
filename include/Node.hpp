@@ -32,6 +32,7 @@ class Node {
         std::vector<double> boundaries;
         std::vector<float> productionRuleParameter;
         std::pair<int, int> k_d;
+        bool used = false;
         
         Node(
             std::shared_ptr<std::mt19937_64> _generator,
