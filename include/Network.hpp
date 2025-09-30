@@ -92,6 +92,29 @@ class Network {
         
     }
 
+        /*
+         * @fn clearUsedNodes
+         * @brief set member "used" to false
+         */
+        void clearUsedNodes(){
+            for(auto& node : innerNodes){
+                node.used = false;
+            }
+        }
+
+        /*
+         * @fn countUsedNodes
+         * @brief count usedNodes and stores in member nUsedNodes
+         */
+        void countUsedNodes(){
+            nUsedNodes = 0;
+            for(const auto& node : innerNodes){
+                if(node.used == true){
+                    nUsedNodes += 1;
+                }
+            }
+        }
+
         /**
          * @fn fitAccuracy
          * @brief executes transition path and calculates the accuracy.
