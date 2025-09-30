@@ -38,7 +38,7 @@ class Population {
         float bestFit;
         std::vector<int> indicesElite;
         float meanFitness = 0;
-        float minFitness = std::numeric_limits<float>::max();
+        float minFitness;
 
         Population(
                 int seed,
@@ -107,12 +107,8 @@ class Population {
          */
         template <typename FuncFitness>
         void applyFitness(FuncFitness&& func){
-            bestFit = std::numeric_limits<float>::lowest();
             for (auto& network : individuals){
                 func(network);
-                if(network.fitness > bestFit){
-                    bestFit = network.fitness;
-                }
             }
         }
 
@@ -163,7 +159,8 @@ class Population {
             std::unordered_set<int> tournament;
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
             meanFitness = 0;
-            minFitness = std::numeric_limits<float>::max();
+            minFitness = individuals[0].fitness;
+            bestFit = individuals[0].fitness;
 
             for(int i=0; i<individuals.size()-E; i++){
                 float bestFitTournament = std::numeric_limits<float>::lowest();
@@ -184,6 +181,9 @@ class Population {
                 meanFitness += individuals[indexBestIndTournament].fitness;
                 if (individuals[indexBestIndTournament].fitness < minFitness) {
                     minFitness = individuals[indexBestIndTournament].fitness;
+                }
+                if (individuals[indexBestIndTournament].fitness > bestFit) {
+                    bestFit = individuals[indexBestIndTournament].fitness;
                 }
             }
             setElite(E, individuals, selection);
@@ -214,6 +214,7 @@ class Population {
                 selection.push_back(individuals[eliteIndex]);
                 individuals.erase(individuals.begin()+eliteIndex);
                 counter += 1;
+                if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will forgotten in bestFit calculation
             }
         }
 
