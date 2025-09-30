@@ -135,6 +135,7 @@ class Network {
             innerNodes[currentNodeID].used = true;
             int dec;
             float correct = 0;
+            invalid = false;
             for(int i=0; i<y.size(); i++){
                 int  dSum = 0; // to prevent dead-looks 
                 if (innerNodes[currentNodeID].type == "P"){
@@ -183,6 +184,7 @@ class Network {
            currentNodeID = startNode.edges[0];
            innerNodes[currentNodeID].used = true;
            nConsecutiveP = 0;
+           invalid = false;
            int dec;
             for(const auto& row : X){
                 dec = decisionAndNextNode(row, dMax);
@@ -219,7 +221,7 @@ class Network {
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
-                        return -1; 
+                        return std::numeric_limits<float>::lowest(); 
                     }
                 }
                 dec = innerNodes[currentNodeID].f;
@@ -250,21 +252,24 @@ class Network {
             int dec;
             fitness = 0;
             nConsecutiveP = 0;
+            invalid = false;
             bool done = false;
             int steps = 0;
 
             while(done == false){
                 dec = decisionAndNextNode(obs, dMax);
+
+                if (invalid || nConsecutiveP > maxConsecutiveP){
+                    fitness = worstFitness;
+                    break;
+                }
+
                 auto result = env.step(dec);
                 obs = result[0].cast<std::vector<double>>(); 
                 fitness += result[1].cast<float>();
                 steps ++;
                 if(result[2].cast<bool>() || steps >= maxSteps) done = true; 
 
-                if (invalid || nConsecutiveP > maxConsecutiveP){
-                    done = true;
-                    fitness = worstFitness;
-                }
             }
         }
           
@@ -290,6 +295,7 @@ class Network {
             CartPole cp(generator);
             fitness = 0;
             nConsecutiveP = 0;
+            invalid = false;
             std::array<double, 4> obs = cp.reset(); // Initial observation for the episode
             bool done = false;
 
