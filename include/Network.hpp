@@ -145,6 +145,7 @@ class Network {
          * @param data (const dataContainer&) : current features at position i 
          *  Hint: only works for data of dimension 1
          * @param dMax (int) : maximal judgments until next decision
+         * @return : decission (int)
          */
         int decisionAndNextNode(const dataContainer& data, int dMax){
             int dec;
@@ -162,12 +163,13 @@ class Network {
                 while(innerNodes[currentNodeID].type == "J"){
                     // update currentNodeID to next node
                     v = data[innerNodes[currentNodeID].f];
-                    currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
+                    int judgeResult = innerNodes[currentNodeID].judge(v);
+                    currentNodeID = innerNodes[currentNodeID].edges[judgeResult];
                     innerNodes[currentNodeID].used = true;
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
-                        return std::numeric_limits<float>::lowest(); 
+                        return std::numeric_limits<int>::lowest(); 
                     }
                 }
                 dec = innerNodes[currentNodeID].f;
