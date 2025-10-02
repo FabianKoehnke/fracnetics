@@ -115,60 +115,6 @@ class Network {
             }
         }
 
-        /**
-         * @fn fitAccuracy
-         * @brief executes transition path and calculates the accuracy.
-         * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
-         * @param y (std::vector<int>&) : y of data table (target values) 
-         * @param dMax (int) : maximal judgments until next decision
-         * @param penalty (int) : devisor on fitness after exceeding maximal judgments
-         */
-        void fitAccuracy(
-                const std::vector<std::vector<float>>& X,
-                const std::vector<float>& y,
-                int dMax,
-                int penalty
-                ){
-
-            clearUsedNodes();
-            int currentNodeID = startNode.edges[0];
-            innerNodes[currentNodeID].used = true;
-            int dec;
-            float correct = 0;
-            invalid = false;
-            for(int i=0; i<y.size(); i++){
-                int  dSum = 0; // to prevent dead-looks 
-                if (innerNodes[currentNodeID].type == "P"){
-                    dec = innerNodes[currentNodeID].f;
-                    if(dec == y[i]){
-                        correct += 1;
-                    }
-                    currentNodeID = innerNodes[currentNodeID].edges[0];
-                    innerNodes[currentNodeID].used = true;
-                } else if (innerNodes[currentNodeID].type == "J"){
-                    while(innerNodes[currentNodeID].type == "J"){
-                        float v = X[i][innerNodes[currentNodeID].f];
-                        currentNodeID = innerNodes[currentNodeID].edges[innerNodes[currentNodeID].judge(v)];
-                        innerNodes[currentNodeID].used = true;
-                        dSum += 1;
-                        if (dSum >= dMax){
-                            break;
-                        }
-                    }
-                
-                    dec = innerNodes[currentNodeID].f;
-                    if(dec == y[i]){
-                        correct += 1;
-                    }
-                }
-                if (dSum >= dMax){
-                    correct /= penalty;
-                    break;
-                }
-            }
-            fitness = correct / y.size();
-        }
-
         /*
          * @fn traversePath
          * @brief traverse the network path and stores decisions in member decisions
@@ -232,6 +178,46 @@ class Network {
            }
             return dec;
         }
+
+        /*
+         * @fn fitAccuracy
+         * @brief executes transition path and calculates the accuracy.
+         * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
+         * @param y (std::vector<int>&) : y of data table (target values) 
+         * @param dMax (int) : maximal judgments until next decision
+         * @param penalty (int) : devisor on fitness after exceeding maximal judgments
+         */
+        void fitAccuracy(
+                const std::vector<std::vector<float>>& X,
+                const std::vector<int>& y,
+                int dMax,
+                int penalty
+                ){
+
+            clearUsedNodes();
+            currentNodeID = startNode.edges[0];
+            innerNodes[currentNodeID].used = true;
+            int dec;
+            invalid = false;
+            float correct = 0;
+
+            for(int i=0; i<y.size(); i++){
+                int  dSum = 0; // to prevent dead-looks 
+                dec = decisionAndNextNode(X[i], dMax);
+                if(invalid == true){
+                    fitness = 0;
+                    break;
+                }
+                if(dec == y[i]){
+                    correct += 1;
+                }
+            }
+
+            if(invalid != true){
+                fitness = correct / y.size();
+            }
+        }
+
 
         void fitGymnasium(
             GymEnvWrapper env,
