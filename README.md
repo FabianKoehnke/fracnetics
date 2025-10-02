@@ -30,10 +30,10 @@ Small Tutorial Using Fracnetics
 
 This notebooks demonstrate how to use the Fracnetics library to solve the CartPole environment problem from Gymnasium (a fork of OpenAI Gym) and the simple Irisdata classification.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
+[![Open Cartpole Tutorial In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
 https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/notebooks/minExampleCartPole.ipynb)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
+[![Open Iris Tutorial In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
 https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/notebooks/minExampleIRIS.ipynb)
  
 ---
