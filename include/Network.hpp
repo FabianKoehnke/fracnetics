@@ -367,30 +367,37 @@ class Network {
 
                         jn += 1;
                     }
-                    break;
+                    break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
                         innerNodes.size()-nUsedNodes > 1 &&
                         innerNodes[n].used == false) // node is not used
                 {// deleting nodes
-                    for(int i=0; i<innerNodes.size(); i++){ // for each node
+
+                    for(auto& node : innerNodes){
                         // adapting node IDs of innerNodes
-                        if(innerNodes[i].id > innerNodes[n].id){
-                            innerNodes[i].id -= 1; // set back node numbers for nodes greater deleted id 
+                        if(node.id > innerNodes[n].id){
+                            node.id -= 1; // set back node numbers for nodes greater deleted id 
                         }
-                        // adapting node edges
-                        for(int k=0; k<innerNodes[i].edges.size(); k++){ // for each edge
-                            if(innerNodes[i].edges[k] > innerNodes[n].id){
-                                innerNodes[i].edges[k] -= 1; // change edges to reset node ids 
-                            }else if(innerNodes[i].edges[k] == innerNodes[n].id){ // change edge pointing to deleted node
-                                innerNodes[i].changeEdge(innerNodes.size()-1, innerNodes[i].edges[k]);
+                    }
+
+                    for(auto& node : innerNodes){ // for each node
+
+                       // adapting node edges
+                        for(int& edge : node.edges){ // for each edge
+
+                            if(edge > n){
+                                edge -= 1; // change edges to reset node ids 
+                            }else if(edge == n){ // change edge pointing to deleted node
+                                edge = node.changeEdge(innerNodes.size()-1, edge);
                             }
                         }
                     }
 
+                    
                     // adapting start node edge; hint: no changeEdge() needed because a node connected 
                     // by a startnode ist always used. 
-                    if(startNode.edges[0] >= innerNodes[n].id){ // >= because we decreased already by one
+                    if(startNode.edges[0] > n){
                         startNode.edges[0] -= 1;
                     }
 
@@ -399,7 +406,9 @@ class Network {
                     }else if (innerNodes[n].type == "P") {
                         pn -= 1;
                     }
-                    innerNodes.erase(innerNodes.begin()+innerNodes[n].id);
+
+                    innerNodes.erase(innerNodes.begin()+n);
+                    break; // TODO del this! 
                 }
             }
         }
