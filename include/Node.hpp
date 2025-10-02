@@ -105,7 +105,7 @@ class Node {
          * @return index of edge (<int>)
          *
          */
-        int judge(double v){
+        int judge(float v){
             
             if(v <= boundaries[0]){
                 return 0;
@@ -163,7 +163,7 @@ class Node {
             for(auto& edge : edges){
                 bool result = distributionBernoulli(*generator);
                 if(result){ 
-                    changeEdge(nn, edge);
+                    edge = changeEdge(nn, edge);
                 }
             }
         }
@@ -174,14 +174,12 @@ class Node {
          * @param nn (int): number of node of the network 
          * @param edge (int&): successor of edge of
          */
-        void changeEdge(int nn, int& edge){
+        int changeEdge(int nn, int& edge){
             std::uniform_int_distribution<int> distributionUniform(0, nn-1);
-            bool noSelf = false;
-            while(noSelf == false){ // prevent self-loop and same edge
+            while(true){ 
                 int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
-                if(randomInt != this->id && randomInt != edge){
-                    edge = randomInt;
-                    noSelf = true;
+                if(randomInt != this->id && randomInt != edge){// prevent self-loop and same edge
+                    return randomInt;
                 }
             }
         }
