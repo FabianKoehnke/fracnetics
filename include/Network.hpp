@@ -56,7 +56,7 @@ class Network {
             pn(_pn),
             pnf(_pnf),
             fractalJudgment(_fractalJudgment),
-            startNode(generator,0,"S",-1) // init start node
+            startNode(generator,0,"S",0) // init start node
             
     {
         startNode.setEdges("S", jn+pn);
