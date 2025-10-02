@@ -10,7 +10,7 @@ env = gym.make("CartPole-v1")
 # initializing population
 pop = fn.Population(
     seed=seed,
-    ni=100,
+    ni=500,
     jn=1,
     jnf=4,
     pn=2,
@@ -33,9 +33,9 @@ for g in range(250):
           worstFitness=0,
           seed=seed+g)
   pop.tournamentSelection(2,1)
-  pop.callEdgeMutation(0.03, 0.03)
   pop.crossover(0.05)
   pop.callAddDelNodes(minFeatures,maxFeatures)
+  pop.callEdgeMutation(0.03, 0.03)
   maxFitness = pop.bestFit
   print(maxFitness)
   fitnessProgess.append(maxFitness)
@@ -57,7 +57,8 @@ for v in range(10):
           penalty=2,
           maxSteps=500,
           maxConsecutiveP=10,
-          worstFitness=0)
+          worstFitness=0,
+          seed=seed+v)
     validationResults.append(pop.bestFit)
 print(statistics.mean(validationResults))
 
@@ -71,6 +72,7 @@ pop.gymnasium(
       penalty=1,
       maxSteps=500,
       maxConsecutiveP=5,
-      worstFitness=0)
+      worstFitness=0,
+      seed=seed)
 env.close()
 print(f"Done in: {round(time.perf_counter()-start,2)}")

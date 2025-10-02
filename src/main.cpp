@@ -17,7 +17,7 @@ int main(){
     float probCrossOver = 0.05;
     int generations = 100;
     int generationsNoImprovementLimit = 500;
-    int nIndividuals = 10000;
+    int nIndividuals = 3000 ;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 1;
@@ -40,8 +40,9 @@ int main(){
     std::cout << "data rows: " << data.dt.size() << std::endl;
     std::cout << "data columns: " << data.dt[0].size() << std::endl;
     printLine();
-    data.columnSelector(std::pair<int, int> (0,0), std::pair<int, int> (0,4)); // set the indices of y and X
-    data.minMaxFeatures(); // calculate the min and max values of X (for node boundaries)
+    std::vector<int> xIndices = {0,1,2,3};
+    data.xySplit(0,xIndices);
+    data.minMaxFeatures(data.X); // calculate the min and max values of X (for node boundaries)
     // for cartpole just empty data needed
     std::vector<std::vector<double>> X;
     std::vector<double> y;
@@ -68,12 +69,11 @@ int main(){
         //generator = std::make_shared<std::mt19937_64>(5494+g);
         population.cartpole(dMax, penalty, 500, maxConsecutiveP);
         population.tournamentSelection(tournamentSize,nElite);
-        population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
-       
         population.crossover(probCrossOver);
         if(addDel == 1){
             population.callAddDelNodes(data.minX, data.maxX);
         }
+        population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
         std::cout << 
             "Geneation: " << g << 
             " BestFit: " << population.individuals[population.indicesElite[0]].fitness << 
@@ -100,7 +100,7 @@ int main(){
     int nodeCounter = 0;
     for(const auto& n : net.innerNodes){
         std::string usedNodeMarker;
-        if(std::find(net.usedNodes.begin(), net.usedNodes.end(), nodeCounter) == net.usedNodes.end()){
+        if(n.used == true){
             usedNodeMarker = "";
         }else{
             usedNodeMarker = "*";
