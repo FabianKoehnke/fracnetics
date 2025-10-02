@@ -4,6 +4,17 @@
 #include <chrono>
 #include <vector>
 
+float accuracy(std::vector<int> v1, std::vector<int> v2){
+    float acc = 0;
+    for(int i=0; i<v1.size(); i++){
+        if(v1[i]==v2[i]){
+            acc++;
+        }
+    }
+    acc /= v1.size();
+    return acc;
+}
+
 int main(){
     /**
      * Parameter
@@ -15,9 +26,9 @@ int main(){
     std::string boundaryMutationType = "normal"; // uniform, networkSigma, normal, edgeSigma, edgeFractal
     bool fractalJudgment = false;
     float probCrossOver = 0.05;
-    int generations = 10;
+    int generations = 200;
     int generationsNoImprovementLimit = 500;
-    int nIndividuals = 1000;
+    int nIndividuals = 3000;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 1;
@@ -41,6 +52,12 @@ int main(){
     std::cout << "data columns: " << data.dt[0].size() << std::endl;
     std::vector<int> xIndices = {1,2,3,4};
     data.xySplit(5,xIndices);
+
+    std::vector<int> yInt;
+    for(float v : data.y){
+        yInt.push_back(static_cast<int>(v));
+    }
+
     std::cout << "X rows: " << data.X.size() << std::endl;
     std::cout << "X columns: " << data.X[0].size() << std::endl;
     printLine();
@@ -62,21 +79,25 @@ int main(){
             ); 
 
     population.setAllNodeBoundaries(data.minX, data.maxX);
-    population.callTraversePath(data.X, dMax);
     printLine(); 
     std::cout << "start EA" << std::endl;
     std::vector<float> bestFitnessPerGeneration;
     int improvementCounter = 0;
     for(int g=0; g<generations; g++){
         //generator = std::make_shared<std::mt19937_64>(5494+g);
-        population.accuracy(data.X,data.y,dMax,penalty);
+        population.accuracy(data.X,yInt,dMax,penalty);
+        //population.callTraversePath(data.X, dMax);
+        //for(auto& ind : population.individuals){
+        //    ind.fitness = accuracy(yInt,ind.decisions);
+        //}
         population.tournamentSelection(tournamentSize,nElite);
-        population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
        
         population.crossover(probCrossOver);
         if(addDel == 1){
             population.callAddDelNodes(data.minX, data.maxX);
         }
+        population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
+
         std::cout << 
             "Geneation: " << g << 
             " BestFit: " << population.individuals[population.indicesElite[0]].fitness << 
@@ -103,10 +124,10 @@ int main(){
     int nodeCounter = 0;
     for(const auto& n : net.innerNodes){
         std::string usedNodeMarker;
-        if(std::find(net.usedNodes.begin(), net.usedNodes.end(), nodeCounter) == net.usedNodes.end()){
-            usedNodeMarker = "";
-        }else{
+        if(n.used==false){
             usedNodeMarker = "*";
+        }else{
+            usedNodeMarker = "";
         }
         nodeCounter ++;
         std::cout << usedNodeMarker << "type: " << n.type << " id: " << n.id << " F: " << n.f << " k: " << n.k_d.first << " d: " << n.k_d.second << " ";
