@@ -114,7 +114,7 @@ class Population {
 
         void accuracy(
                 const std::vector<std::vector<float>>& X,
-                const std::vector<float>& y,
+                const std::vector<int>& y,
                 int dMax,
                 int penalty
                 ){
@@ -200,10 +200,10 @@ class Population {
          */
         void setElite(int E, std::vector<Network> individuals, std::vector<Network>& selection){
             unsigned int counter = 0;
-            unsigned int eliteIndex = 0;
             indicesElite.clear();
             while(counter<E){
                 float eliteFit = individuals[0].fitness;
+                unsigned int eliteIndex = 0;
                 for(int i=1; i<individuals.size(); i++){
                     if(individuals[i].fitness > eliteFit){
                         eliteFit = individuals[i].fitness;
