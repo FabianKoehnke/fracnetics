@@ -307,10 +307,9 @@ class Network {
          */
         void changeFalseEdges(){
             for(auto& node : innerNodes){
-                std::uniform_int_distribution<int> distribution(0, innerNodes.size()-1);
                 for(auto& edge : node.edges){
                     if(edge > innerNodes.size()-1){ // edge has no successor node -> set new one
-                        node.changeEdge(innerNodes.size(), edge);
+                        edge = node.changeEdge(innerNodes.size(), edge);
                     }
                 }
             }
