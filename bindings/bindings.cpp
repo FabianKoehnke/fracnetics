@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/functional.h>
 #include <memory>
+#include <utility>
 #include "../include/Network.hpp"
 #include "../include/Population.hpp"
 #include "../include/GymnasiumWrapper.hpp"
@@ -24,8 +25,41 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("boundaries", &Node::boundaries)
     .def_readwrite("productionRuleParameter", &Node::productionRuleParameter)
     .def_readwrite("k_d", &Node::k_d)
-    .def_readwrite("used", &Node::used);
+    .def_readwrite("used", &Node::used)
+    // pickle support 
+    .def(py::pickle(
+        [](const Node &n) { // __getstate__
+            return py::make_tuple(
+                n.id,
+                n.type,
+                n.f,
+                n.edges,
+                n.boundaries,
+                n.productionRuleParameter,
+                n.k_d,
+                n.used
+            );
+        },
+        [](py::tuple t) { // __setstate__
+            if (t.size() != 8)
+                throw std::runtime_error("Invalid state for Node!");
 
+            Node n(
+                std::make_shared<std::mt19937_64>(std::random_device{}()), // new generator 
+                t[0].cast<unsigned int>(),
+                t[1].cast<std::string>(),
+                t[2].cast<unsigned int>()
+            );
+
+            n.edges = t[3].cast<std::vector<int>>();  
+            n.boundaries = t[4].cast<std::vector<double>>();   
+            n.productionRuleParameter = t[5].cast<std::vector<float>>(); 
+            n.k_d = t[6].cast<std::pair<int, int>>();
+            n.used = t[7].cast<bool>();
+
+            return n;
+        }
+    ));
     // Network 
     py::class_<Network>(m, "Network")
     .def(py::init<
@@ -46,7 +80,36 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
     .def_readwrite("decisions", &Network::decisions)
-    .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"));
+    .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"))
+        // Pickle support
+    .def(py::pickle(
+        [](const Network &n) { // __getstate__
+            return py::make_tuple(
+                n.jn, n.jnf, n.pn, n.pnf, n.fractalJudgment,
+                n.innerNodes, n.startNode, n.fitness, n.decisions
+            );
+        },
+        [](py::tuple t) { // __setstate__
+            if (t.size() != 9)
+                throw std::runtime_error("Invalid state for Network!");
+
+            Network net(
+                std::make_shared<std::mt19937_64>(std::random_device{}()), // new generator 
+                t[0].cast<unsigned int>(),
+                t[1].cast<unsigned int>(),
+                t[2].cast<unsigned int>(),
+                t[3].cast<unsigned int>(),
+                t[4].cast<bool>()
+            );
+
+            net.innerNodes = t[5].cast<std::vector<Node>>();
+            net.startNode = t[6].cast<Node>(); 
+            net.fitness = t[7].cast<float>();
+            net.decisions = t[8].cast<std::vector<int>>();
+
+            return net;
+        }
+    ));
 
     // Population
     py::class_<Population>(m, "Population")
@@ -97,6 +160,40 @@ PYBIND11_MODULE(_core, m) {
         .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma, py::arg("probability"), py::arg("sigma"))
         .def("callBoundaryMutationFractal", &Population::callBoundaryMutationFractal, py::arg("probability"), py::arg("minF"), py::arg("maxF"))
         .def("crossover", &Population::crossover, py::arg("probability"))
-        .def("callAddDelNodes", &Population::callAddDelNodes, py::arg("minF"), py::arg("maxF"));
+        .def("callAddDelNodes", &Population::callAddDelNodes, py::arg("minF"), py::arg("maxF"))
+        // pickle support 
+        .def(py::pickle(
+        [](const Population &p) { // __getstate__
+            return py::make_tuple(
+                p.ni, p.jn, p.jnf, p.pn, p.pnf, p.fractalJudgment,
+                p.bestFit, p.indicesElite, p.meanFitness, p.minFitness, p.individuals
+            );
+        },
+        [](py::tuple t) { // __setstate__
+            if (t.size() != 11)
+                throw std::runtime_error("Invalid state for Population!");
+
+            Population p(
+                0, // placeholder for seed (not a member)
+                t[0].cast<unsigned int>(),
+                t[1].cast<unsigned int>(),
+                t[2].cast<unsigned int>(),
+                t[3].cast<unsigned int>(),
+                t[4].cast<unsigned int>(),
+                t[5].cast<bool>()
+            );
+
+            p.bestFit = t[6].cast<float>();
+            p.indicesElite = t[7].cast<std::vector<int>>();
+            p.meanFitness = t[8].cast<float>();
+            p.minFitness = t[9].cast<float>();
+            p.individuals = t[10].cast<std::vector<Network>>(); // passe hier den Typ deiner Individuals an
+
+            return p;
+        }
+    ))
+
+
+        ;
 }
 
