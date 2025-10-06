@@ -1,7 +1,6 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 #include <random>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 #define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
