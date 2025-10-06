@@ -8,7 +8,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(fracnetics, m) {
+PYBIND11_MODULE(_core, m) {
     // Node
     py::class_<Node>(m, "Node")
     .def(py::init<

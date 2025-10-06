@@ -1,2 +1,2 @@
-from .fracnetics import *  
+from ._core import *  
 

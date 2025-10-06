@@ -11,13 +11,13 @@ include_directories(include)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
 # Build the Python module
-pybind11_add_module(fracnetics bindings/bindings.cpp)
+pybind11_add_module(_core bindings/bindings.cpp)
 
-set_target_properties(fracnetics PROPERTIES
+set_target_properties(_core PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fracnetics
 )
 
-install(TARGETS fracnetics DESTINATION fracnetics)
+install(TARGETS _core DESTINATION fracnetics)
 
-target_compile_features(fracnetics PUBLIC cxx_std_20)
+target_compile_features(_core PUBLIC cxx_std_20)
 
