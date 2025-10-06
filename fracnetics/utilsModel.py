@@ -2,11 +2,19 @@ import pickle
 
 def storePopulation(obj, filename):
     """
-    Stores the population object in a file using pickle serialization.
+    Store a population object in a file using pickle serialization.
 
-    Parameters:
-        obj: Population 
-        filename (str): The path or filename where the population should be stored.
+    Parameters
+    ----------
+    obj : Population
+        The population object to store.
+    filename : str
+        Path or filename where the population should be saved.
+
+    Returns
+    -------
+    None
+        Prints a confirmation message upon successful storage.
     """
     with open(filename, 'wb') as f:
         pickle.dump(obj, f)
@@ -15,15 +23,18 @@ def storePopulation(obj, filename):
 
 def loadPopulation(filename):
     """
-    Loads a previously Populaiton from a file.
+    Load a previously stored population object from a file.
 
-    Parameters:
-        filename (str): The path or filename of the stored population.
+    Parameters
+    ----------
+    filename : str
+        Path or filename of the stored population.
 
-    Returns:
-        The population.
+    Returns
+    -------
+    Population
+        The deserialized population object.
     """
     with open(filename, 'rb') as f:
         obj = pickle.load(f)
     return obj
-
