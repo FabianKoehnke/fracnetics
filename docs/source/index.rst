@@ -15,7 +15,7 @@ documentation for details.
    :maxdepth: 2
    :caption: Contents:
 
-    cpp_api
-    python_api
-    auto_examples/index
+   cpp_api
+   python_api
+   auto_examples/index
 
