@@ -150,7 +150,7 @@ class Node {
            }
         }
 
-        /*
+        /**
          * @fn edgeMutation
          * @brief change the edges of a network (individual)
          * @param propability (float): propability of changing an edge 
@@ -166,7 +166,7 @@ class Node {
             }
         }
 
-        /*
+        /**
          * @fn changeEdge
          * @brief change the successor of an edge 
          * @param nn (int): number of node of the network 
@@ -182,7 +182,7 @@ class Node {
             }
         }
 
-         /*
+         /**
          * @fn boundaryMutationUniform 
          * @brief mutate the boundaries by shifting them between intervals by a random drawn number from the uniform distribution.
          * @param propability (float)
@@ -199,7 +199,7 @@ class Node {
             }
         }
 
-        /*
+        /**
          * @fn boundaryMutationFractal
          * @brief shifting productionRuleParameter randomly (uniform), recalculats fractalLengths and boundaries
          * @param propability (float)
@@ -220,7 +220,7 @@ class Node {
                 }
             }
 
-        /*
+        /**
          * @fn boundaryMutationNormal
          * @brief mutate the boundaries by shifting them between intervals by a random drawn number from the normal distribution.
          * @param propability

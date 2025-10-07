@@ -65,7 +65,7 @@ class Population {
         }
     }
 
-        /*
+        /**
          * @fn setAllNodeBoundaries
          * @brief call setEdgesBoundaries for each node of each individual 
          * @param minF (std::vector<float>&): min values of all features 
@@ -87,7 +87,7 @@ class Population {
             }
         }
 
-        /*
+        /**
          * @fn callTraversePath
          * @brief call traversing the path of a network
          * @param X (std::vector<std::vector<float>>&) : X of data table (features)
@@ -102,7 +102,7 @@ class Population {
             }
         }
 
-        /* @fn applyFitness
+        /** @fn applyFitness
          * @brief apply the fitness for each individual
          * @note stores the bestFit of the population in member bestFit
          * @param func (FuncFitness&&): template function
@@ -150,7 +150,7 @@ class Population {
             });
         }
 
-        /*
+        /**
          * @fn tournamentSelection
          * @brief runs tournament selection and sets the new population
          * @param N (int): tournament size
@@ -193,7 +193,7 @@ class Population {
             meanFitness /= individuals.size();
         }
 
-        /*
+        /**
          * @fn setElite
          * @brief stores the elite in given selection 
          * @param E (int): number of elite 
@@ -220,7 +220,7 @@ class Population {
             }
         }
 
-        /*
+        /**
          * @fn callEdgeMutation
          * @brief call edgeMutation for each node in and each network (individual)
          * @param probInnerNodes (float): probability of changing inner nodes (jn and pn)
@@ -257,7 +257,7 @@ class Population {
             }
         }
 
-        /*
+        /**
          * @fn callBoundaryMutationUniform
          * @brief call method for boundaryMutationUniform
          * @param probability (const float): probability of mutate an edge
@@ -268,7 +268,7 @@ class Population {
             });
         }
        
-        /*
+        /**
          * @fn callBoundaryMutationNormal 
          * @brief call method for boundaryMutationNormal
          * @param probability (const float): probability of mutate an edge
@@ -280,7 +280,7 @@ class Population {
             });
         }
 
-        /*
+        /**
          * @fn callBoundaryMutationEdgeSizeDependingSigma 
          * @brief call method for boundaryMutationNormal with sigmas depending on network size
          * @param probability (const float): probability of mutate an edge
@@ -293,7 +293,7 @@ class Population {
             });
         }
 
-        /*
+        /**
          * @fn callBoundaryMutationEdgeSizeDependingSigma 
          * @brief call method for boundaryMutationNormal with sigmas depending on number of edges of judgment node 
          * @param probability (const float): probability of mutate an edge
@@ -306,7 +306,7 @@ class Population {
             });
         }
         
-        /*
+        /**
          * @fn callBoundaryMutationFractal
          * @brief call function for boundaryMutationFractal 
          * @param probability (float): probability of mutate an edge
@@ -319,7 +319,7 @@ class Population {
             });
         }
 
-        /*
+        /**
          * @fn crossover
          * @brief exchange the nodes 
          * @note rules because of callAddDelNodes:
@@ -364,7 +364,7 @@ class Population {
 
         }
 
-        /*
+        /**
          * @fn callAddDelNodes 
          * @brief call addDelNodes for each individual 
          * @param minF (std::vector<float>&): min values of all features 
