@@ -7,7 +7,6 @@
 #include "Node.hpp"
 #include "Fractal.hpp"
 #include "GymnasiumWrapper.hpp"
-#include <iostream>
 
 /**
  * @class Network
@@ -21,7 +20,6 @@
  * @param pnf (unsigned int): number of processing node funcions
  *
  */
-
 class Network {
     private:
         std::shared_ptr<std::mt19937_64> generator;
@@ -56,42 +54,39 @@ class Network {
             fractalJudgment(_fractalJudgment),
             startNode(generator,0,"S",0) // init start node
             
-    {
-        startNode.setEdges("S", jn+pn);
-        std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
-        for(int i=0; i<jn; i++){ // init judgment nodes 
-            int randomInt = distributionJNF(*generator);
-            innerNodes.push_back(Node(
-                        generator, 
-                        i, // node id 
-                        "J", // node type 
-                        randomInt // node function
-                        ));
-            if(fractalJudgment == false){
-                innerNodes.back().setEdges("J", pn+jn);
-            }else{
-                std::pair<int, int> k_d = random_k_d_combination(pn+jn-1, generator);
-                innerNodes.back().k_d.first = k_d.first;
-                innerNodes.back().k_d.second = k_d.second;
-                innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+        {
+            startNode.setEdges("S", jn+pn);
+            std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
+            for(int i=0; i<jn; i++){ // init judgment nodes 
+                int randomInt = distributionJNF(*generator);
+                innerNodes.push_back(Node(
+                            generator, 
+                            i, // node id 
+                            "J", // node type 
+                            randomInt // node function
+                            ));
+                if(fractalJudgment == false){
+                    innerNodes.back().setEdges("J", pn+jn);
+                }else{
+                    std::pair<int, int> k_d = random_k_d_combination(pn+jn-1, generator);
+                    innerNodes.back().k_d.first = k_d.first;
+                    innerNodes.back().k_d.second = k_d.second;
+                    innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+                }
+            }
+            std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
+            for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
+                int randomInt = distributionPNF(*generator);
+                innerNodes.push_back(Node(
+                            generator, 
+                            i, // node id 
+                            "P", // node type 
+                            randomInt // node function
+                            ));
+                innerNodes.back().setEdges("P", jn+pn);
             }
         }
-        std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
-        for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
-            int randomInt = distributionPNF(*generator);
-            innerNodes.push_back(Node(
-                        generator, 
-                        i, // node id 
-                        "P", // node type 
-                        randomInt // node function
-                        ));
-            innerNodes.back().setEdges("P", jn+pn);
-        }
-        
-    }
-
-        /*
-         * @fn clearUsedNodes
+        /**
          * @brief set member "used" to false
          */
         void clearUsedNodes(){
@@ -99,8 +94,7 @@ class Network {
                 node.used = false;
             }
         }
-
-        /*
+        /**
          * @fn countUsedNodes
          * @brief count usedNodes and stores in member nUsedNodes
          */
@@ -112,8 +106,7 @@ class Network {
                 }
             }
         }
-
-        /*
+        /**
          * @fn traversePath
          * @brief traverse the network path and stores decisions in member decisions
          * @param X (std::vector<std::vector<float>>&) : X of data table (features)
@@ -137,7 +130,7 @@ class Network {
         }
 
         template <typename dataContainer> // template for passing std::vector, std::array ...
-        /*
+        /**
          * @fn decisionAndNextNode
          * @brief makes a decision and selects a new node
          * @param data (const dataContainer&) : current features at position i 
@@ -179,7 +172,7 @@ class Network {
             return dec;
         }
 
-        /*
+        /**
          * @fn fitAccuracy
          * @brief executes transition path and calculates the accuracy.
          * @param X (std::vector<std::vector<int>>&) : X of data table (features) 
@@ -259,7 +252,7 @@ class Network {
             }
         }
           
-        /*
+        /**
          * @fn fitCartpole
          * @brief cart pole problem implementation like Gymnasium 
          * @param dMax (int) : maximal judgments until next decision
@@ -299,7 +292,7 @@ class Network {
             }
         }
 
-        /*
+        /**
          * @fn changeFalseEdges
          * @brief change an edge if it has no successor
          */
@@ -313,7 +306,7 @@ class Network {
             }
         }
 
-        /*
+        /**
          * @fn addDelNodes
          * @brief add and delete nodes to the individual (network)
          * @param minF (std::vector<float>&): min values of all features 
