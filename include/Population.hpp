@@ -23,6 +23,11 @@
 class Population {
     private:
         std::shared_ptr<std::mt19937_64> generator;
+        /** @cond INTERNAL */
+        struct additionalMutationParam {
+            int networkSize = -1;
+        };
+        /** @endcond */
 
     public:
         const unsigned int ni;
@@ -232,14 +237,7 @@ class Population {
              }
         }
 
-        /*
-         * struct for parameters used by edge mutations
-         */
-        struct additionalMutationParam{
-            int networkSize = -1;
-        };
-
-         /*
+         /**
          * @fn applyBoundaryMutation 
          * @brief apply the pased boundary mutation on each judgment node 
          * @param func (FuncMutation&&): template function
