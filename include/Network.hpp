@@ -3,7 +3,6 @@
 #include <random>
 #include <utility>
 #include <vector>
-#define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
 #include "Cartpole.hpp"
 #include "Node.hpp"
 #include "Fractal.hpp"
