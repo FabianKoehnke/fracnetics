@@ -6,3 +6,8 @@ Python API Reference
    :undoc-members:
    :show-inheritance:
 
+.. automodule:: fracnetics.utilsModel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
