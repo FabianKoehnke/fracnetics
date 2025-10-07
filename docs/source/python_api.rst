@@ -1,7 +1,7 @@
 Python API Reference
 ====================
 
-.. automodule:: your_module
+.. automodule:: fracnetics 
    :members:
    :undoc-members:
    :show-inheritance:
