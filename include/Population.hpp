@@ -1,15 +1,12 @@
 #ifndef POPULATION_HPP
 #define POPULATION_HPP
 #include <vector>
-#define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
-
 #include <random>
 #include <unordered_set>
 #include <utility>
 #include <cmath>
 #include "Network.hpp"
 #include "GymnasiumWrapper.hpp"
-#include "PrintHelper.hpp"
 
 /**
  * @class Population 

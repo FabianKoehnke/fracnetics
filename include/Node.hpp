@@ -1,8 +1,6 @@
 #ifndef NODE_HPP
 #define NODE_HPP
 #include <utility>
-#define DEBUG_VAR(x) std::cout << #x << " = " << x << std::endl;
-
 #include <vector>
 #include <string>
 #include <random>
