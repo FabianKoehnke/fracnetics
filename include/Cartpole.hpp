@@ -27,7 +27,7 @@ public:
 
     std::array<double, 4> state;
 
-    /// Physical constants (matching Gymnasium implementation)
+    // Physical constants (matching Gymnasium implementation)
     const double gravity = 9.8;
     const double masscart = 1.0;
     const double masspole = 0.1;
@@ -37,11 +37,11 @@ public:
     const double force_mag = 10.0;
     const double tau = 0.02;// seconds between state updates
 
-    /// Termination thresholds
+    // Termination thresholds
     const double theta_threshold_radians = 12 * 2 * M_PI / 360; // 12 degrees
     const double x_threshold = 2.4;
 
-    /// Random number generator for state initialization
+    // Random number generator for state initialization
     std::shared_ptr<std::mt19937_64> rng;
     std::uniform_real_distribution<double> dist{-0.05, 0.05};
 
@@ -74,15 +74,18 @@ public:
         return state;
     }
 
-    /**
+    /*
      * @brief Struct encapsulating the result of a step() call.
      */
+
+    // @cond INTERNAL 
     struct StepResult {
         std::array<double, 4> observation;
         double reward;
         bool terminated;
         bool truncated;
     };
+    // @endcond
 
     /**
      * @brief Advances the environment by one time step.
