@@ -6,10 +6,7 @@
 Fracnetics documentation
 ========================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+**Fracnetics** is a Python library for **Genetic Network Programming (GNP)** enhanced with **fractal geometry**, designed to model scalable, recursive, and self-similar network structures inspired by biological evolution and natural growth patterns.
 
 .. toctree::
    :maxdepth: 2
