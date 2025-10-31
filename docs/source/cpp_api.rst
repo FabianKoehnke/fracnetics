@@ -42,11 +42,3 @@ Fractal
    :project: Fracnetics
    :path: ../include/Fractal.hpp
 
-Print Helper
-------------
-
-.. doxygenfile:: PrintHelper.hpp
-   :project: Fracnetics
-   :path: ../include/PrintHelper.hpp
-
-

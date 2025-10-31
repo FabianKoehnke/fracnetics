@@ -49,4 +49,20 @@ html_static_path = ['_static']
 sphinx_gallery_conf = {
     'examples_dirs': '../../examples',   # Python examples
     'gallery_dirs': 'auto_examples',
+    'filename_pattern': r'/example_',
 }
+
+html_theme_options = {
+    "icon_links": [
+        {
+            "name": "Examples",
+            "url": "examples.html",
+            "icon": "fa-solid fa-book-open",
+            "type": "fontawesome",
+        },
+    ],
+    "logo": {
+        "text": "🦾 Fracnetics",
+    },
+}
+
