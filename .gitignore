@@ -7,21 +7,30 @@ venv
 dist
 videos
 gui
-docs/cpp/
-docs/build/
-docs/source/auto_examples/
+
 # files
-docs/make.bat
 src/main
 gui/src/test.py
-fracnetics/*.so
-tests/tempTest.cpp
-tests/test
-tests/iris
 .DS_Store
 compile_flags.txt
 !.gitignore
-# scikit-build / ninja build artifacts
+examples/.ipynb_checkpoints/
+
+# fracnetics build
+fracnetics/*.so
 fracnetics/*.ninja_*
 fracnetics/.cmake/
 fracnetics/.skbuild-info.json
+
+# documentation
+docs/make.bat
+docs/build/
+docs/cpp/
+docs/source/auto_examples/
+docs/source/sg_execution_times.rst
+
+#tests 
+tests/tempTest.cpp
+tests/test
+tests/iris
+
