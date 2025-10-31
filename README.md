@@ -8,11 +8,16 @@
 
 ## 🔬 Overview
 
-Fracnetics extends traditional **Genetic Network Programming** with **fractal expansion**, enabling dynamic and hierarchical structure generation. It is designed for researchers and developers exploring:
+**Fracnetics** is a high-performance **C++ library with Python bindings** for **Genetic Network Programming (GNP)** — an evolutionary approach that evolves **directed graph structures** for decision-making and control tasks.
+
+It extends GNP with **variable-size** networks and **fractal-based edge patterns**, inspired by **L-systems** and biological growth,  
+to create hierarchical, self-similar decision boundaries.
+
+It is designed for researchers and developers exploring:
 
 - Evolutionary network design
-- Recursive architecture formation
-- Bio-inspired optimization and simulation
+- Directed multigraph network architecture
+- variable-size networks
 - Complex systems with self-similar topology
 
 ---
@@ -44,18 +49,13 @@ https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/note
 
 - **Population Management**  
   - Create and manage a full population of `Network` individuals.  
-  - Random initialization with reproducible seed support.  
+  - Graph-Based Evolution: Networks evolve as directed graphs with judgment nodes (conditional decisions) and processing nodes (actions), enabling node reuse and cyclic execution paths
 
 - **Fitness Evaluation**  
-  - Generic fitness evaluation via template functions (`applyFitness`).  
-  - Built-in evaluation modes:
-    - Classification accuracy (`accuracy`)  
-    - Reinforcement Learning environments of OpenAI Gym (`gymnasium`)  
+    - Built-in support for OpenAI Gymnasium environments
+    - Traverse a network path via ``callTraversePath`` and calculate any own fitness/ target function
 
-- **Selection & Elitism**  
-  - Tournament selection with configurable size.  
-  - Automatic tracking and preservation of **elite individuals**.  
-  - Population statistics: `bestFit`, `meanFitness`, `minFitness`.  
+- **Selection & Elitism**: Tournament selection with configurable size.
 
 - **Mutation Operators**  
   - **Edge mutation** (altering connections between nodes).  
@@ -66,14 +66,11 @@ https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/note
     - Edge-count dependent sigma scaling  
     - Fractal-based mutation  
 
-- **Crossover**  
-  - Node exchange between individuals with configurable probability.  
-  - Automatic handling of dangling edges.  
-  - Elites excluded from crossover.  
+- **Crossover**: Node exchange between individuals.
 
-- **Structural Variation**  
-  - **Add/Delete Nodes**: dynamic structural changes in networks.  
-  - Support for fractal judgment nodes with special production rules.
+- **Innovative Opreators**  
+    - **Add/Delete Nodes** – dynamic structural changes in networks.
+    - **Fractal Geometry Integration** – hierarchical boundary generation via production rules (L-systems-style subdivision).
 
 ---
 
