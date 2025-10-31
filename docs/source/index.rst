@@ -8,8 +8,8 @@ Fracnetics Documentation
 
 **Fracnetics** is a high-performance **C++ library with Python bindings** for **Genetic Network Programming (GNP)** — an evolutionary approach that evolves **directed graph structures** for decision-making and control tasks.
 
-It extends GNP with **variable-size** networks and **fractal-based edge patterns**, inspired by **L-systems** and biological growth,  
-to create hierarchical, self-similar decision boundaries.
+The Library extends **Genetic Network Programming (GNP)** with **variable-size** networks and **fractal geometry**, designed to model adaptive, recursive, and self-similar network structures inspired by biological evolution and natural growth patterns.
+
 
 It is designed for researchers and developers exploring:
 
