@@ -6,6 +6,11 @@
 
 ---
 
+## Connect
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fabian-koehnke/)
+
+
 ## 🔬 Overview
 
 **Fracnetics** extends **Genetic Network Programming (GNP)** with **variable-size** networks and **fractal geometry**, designed to model adaptive, recursive, and self-similar network structures inspired by biological evolution and natural growth patterns.
