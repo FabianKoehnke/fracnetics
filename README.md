@@ -18,6 +18,8 @@
 It is designed for researchers and developers exploring:
 
 - Evolutionary network design
+- Obtain fully interpretable networks
+- Training agents in dynamic environments
 - Directed multigraph network architecture
 - variable-size networks
 - Complex systems with self-similar topology
