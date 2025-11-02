@@ -21,7 +21,7 @@ It is designed for researchers and developers exploring:
 - Obtain fully interpretable networks
 - Training agents in dynamic environments
 - Directed multigraph network architecture
-- variable-size networks [^1]
+- variable-size networks based on Fabian Köhnke and Christian Borgelt, 2025[^1]
 - Complex systems with self-similar topology
 
 [^1]: Fabian Köhnke and Christian Borgelt "Variable-Size Genetic Network Programming for Portfolio Optimization with Trading Rules" *EvoApplications*, 2025. [DOI-Link](https://doi.org/10.1007/978-3-031-90062-4_18)
