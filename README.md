@@ -41,11 +41,11 @@ This notebooks demonstrate how to use the Fracnetics library to solve the CartPo
 
 **CartPole Tutorial**  
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](
-https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/notebooks/minExampleCartPole.ipynb)
+https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/examples/example_CartPole.ipynb)
 
 **Iris Tutorial**  
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](
-https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/notebooks/minExampleIRIS.ipynb)
+https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/examples/example_IRIS.ipynb)
  
 ---
 
