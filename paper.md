@@ -9,12 +9,11 @@ authors:
     orcid: 0009-0007-2726-5980 
     affiliation: 1 
   - name: Christian Borgelt 
-    orcid: XXXX
+    orcid: 0009-0007-0119-3034 
     affiliation: 1
 affiliations:
  - name: University of Salzburg, Austria, Dept. of Artificial Intelligence 
    index: 1
-   ror: 00hx57361
 date: 2 November 2025
 bibliography: paper.bib
 ---
