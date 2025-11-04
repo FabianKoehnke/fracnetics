@@ -1,3 +1,9 @@
+
+![Run Tests](https://github.com/FabianKoehnke/fracnetics/actions/workflows/test.yml/badge.svg)
+[![PyPI](https://img.shields.io/pypi/v/fracnetics.svg)](https://pypi.org/project/fracnetics/)
+[![Documentation Status](https://readthedocs.org/projects/fracnetics/badge/?version=latest)](https://fracnetics.readthedocs.io/en/latest/?badge=latest)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fabian-koehnke/)
+
 # Fracnetics
 
 **Fracnetics** is a high-performance **C++ library with Python bindings** for **Genetic Network Programming (GNP)** — an evolutionary approach that evolves **directed graph structures** for decision-making and control tasks.
@@ -5,11 +11,6 @@
 > Bridging evolution, networks, and fractals into one framework.
 
 ---
-
-## Connect
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fabian-koehnke/)
-
 
 ## 🔬 Overview
 
