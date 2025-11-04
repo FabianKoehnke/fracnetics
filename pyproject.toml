@@ -9,7 +9,7 @@ description = "Genetic Network Programming with Fractal Expansion"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Fabian Köhnke", email = "fabian.koehnke@googlemail.com" }]
 license = "MIT"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "pybind11>=2.10.0",
 ]
