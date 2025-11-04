@@ -1,1 +1,2 @@
-notebooks/*.ipynb linguist-generated=true
+examples/*.ipynb linguist-generated=true
+*.tex linguist-vendored
