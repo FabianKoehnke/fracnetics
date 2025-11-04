@@ -22,20 +22,20 @@ bibliography: paper.bib
 # Summary 
 
 'Fracnetics' is Python library with C++ core engine for Genetic Network Programming (GNP) — 
-an evolutionary algorithm that evolves directed graph structures. 
+an evolutionary algorithms that evolves directed graph structures. 
 
-They are based on the theory of biological evolution developed by Charles Darwin. 
+Evolutionary algorithms are based on the theory of biological evolution developed by Charles Darwin. 
 The basic principle of biological evolution can be formulated as follows:
-Beneficial traits resulting from random variation are favored by natural selection [@Kruse.2015]. 
+"Beneficial traits resulting from random variation are favored by natural selection" [@Kruse.2015]. 
 
-Fracnetics ist ein Portmanteau zusammengesetzt aus Fractals, Network und Genetic. 
-Er deutet auf die Genetic Network Programming als zugrundeliegenden Algorithmus hin und
-gibt mit Fractals einen zusätzlich Hinweis auf eine Erweiterung der GNP, die die
-Architektur der Netzwerke um fraktale Eigenschaften erweitert. 
+Fracnetics is a portmanteau composed of fractals, network, and genetic.
+It refers to Genetic Network Programming as the underlying algorithm and, with fractals, 
+additionally hints at an extension of GNP that enhances the architecture of the networks with fractal properties.
 
-Mit Fracnetics lässt sich auf einfache Weise mittels API die GNP auf jegliche Problemstellungen anwenden und Agenten trainieren.
-Für das evolutionäre Verfahren und deren netzwerkspezifische Topologie stellt die API mehrere Methoden wie z.B. 
-die Erzeugung von Populationen, Turnierauswahl und mehrere Operatoren für die Rekombination und Veränderungen der Genstruktur zur Verfügung.
+With Fracnetics, GNP can easily be applied to any problem through its Python API, allowing agents/models to be trained.
+For the evolutionary process and its network-specific topology, the API provides classes and methods, 
+such as the initialization of populations, tournament selection, 
+and several operators for recombination and modifications of the gene structure (crossover and mutation).
 
 # Genetic Network Programming and Extensions
 
@@ -45,7 +45,7 @@ been used to solve optimization problems with large search spaces. Due to the
 network structure of individuals and the possibility of reusing nodes, an implicit
 memory can develop. As a consequence, GNP targets dynamic environments
 and has been applied successfully in fields such as robotics and financial market
-analysis.
+analysis [@Chen.2009II][@Mabu.2007].
 
 We extended the Genetic Network Programming by a new mutation operator,
 which allows for a variable number of nodes and edges per individual [@kohnke2025variable].
@@ -54,25 +54,25 @@ The operator is fitness neutral and has no hyper-parameter.
 Due to higher flexibility, it is now possible for GNP to automatically adapt to the complexity of a given task
 and to find suitable features, especially for high dimensional data sets.
 
-Zukünftige Forschung soll nun auch Fraktale Strukturen im Datenraum untersuchen, wofür Fracnetics entwickelt wurde.
+Future research will now also explore fractal structures in the data space, for which Fracnetics was developed.
 
 # Statement of Need
 
-Fracnetics ist die erste open-source library, die gezielt auf die Genetic Network Programming eine API zur Verfügung stellt. 
-Durch die einfache Anwendung auf jegliche individuelle Problemstellungen, lässt sich die Forschung der GNP so erleichtern und intensivieren.
-Selbstverständlich kann Fracnetics auch für jegliche industrielle Optimierungen verwendet werden und ist besonders geeignet 
-für dynamische Umgebungen wie dem Finanzbereich und der Robotik.
+Fracnetics is the first open-source library that provides an API for Genetic Network Programming.
+By enabling easy application to any individual optimization task, it simplifies and intensifies research on GNP.
+Of course, Fracnetics can also be used for all kinds of industrial optimizations and is particularly suited
+for dynamic environments such as finance and robotics.
 
-Inkludiert ist auch der neue in [@kohnke2025variable] vorgestellt Mutationsoperator, der die Topologie eines Netzwerks durch 
-Wachstum und Schrumpfen verändern kann, um sie an die Komplexität eines gegeben Problems automatisch anzupassen.
+Included is the novel mutation operator introduced in [@kohnke2025variable], which can modify the topology of a network
+by growing or shrinking networks, thereby can automatically adapt to the complexity of a given task. With this innovative 
+operator, solving a complex optimization task such as portfolio optimization is feasible with a minimal initial network size of only three nodes.
 
-Die Fraktale Erweiterung der Netzstrukturen stellt zusätzlich eine Methode zur Verfügung den Datenraum (Features) in 
-selbstähnliche Intervalle einzuteilen. This is especially useful for datasets where information exists at multiple resolutions.
-Financial markets, e.g., often exhibit fractal-like behavior: price movements at different time scales [@Mandelbrot.2005] or 
-environmental interactions in robotics often display recursive or repeating patterns. 
+The fractal extension of the network topology additionally provides a method for dividing the feature space
+into self-similar intervals. This is especially useful for datasets where information exists at multiple scales.
+Financial markets, for example, often exhibit fractal-like behavior: price movements at different time scales [@Mandelbrot.2005],
+or environmental interactions in robotics often display recursive or repeating patterns.
 
-Die angelernten Modelle (Netzwerke) bleiben dabei vollständig interpretierbar und leisten so einen fundamentalen Beitrag zu 
-interpretierbarer AI.
+The trained models (networks) remain fully interpretable, thus making a fundamental contribution to interpretable AI.
 
 # Key Features
 
@@ -97,11 +97,8 @@ interpretierbarer AI.
 
 - **Crossover**: Node exchange between individuals.
 
-- **Innovative Opreators**  
-    - **Add/Delete Nodes** – dynamic structural changes in networks.
+- **Innovative Operators**  
+    - **Add/Delete Nodes** – structural changes in network topology.
     - **Fractal Geometry Integration** – hierarchical boundary generation via production rules (L-systems-style subdivision).
-
-
-- TODO Vorgehen/Funktionen teasern
 
 # References 
