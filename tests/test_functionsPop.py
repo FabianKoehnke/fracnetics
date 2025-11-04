@@ -1,15 +1,10 @@
 import fracnetics as fn
 import pandas as pd 
 import sys
+import gymnasium as gym
 
 def test_population_function():
 
-    # reading data 
-    data = pd.read_csv("data/IRIS.csv")
-    X = data.iloc[:,1:5].values
-    y = data.iloc[:,5].values
-    minF = data.iloc[:,1:5].min().values
-    maxF = data.iloc[:,1:5].max().values
 
     # initializing population
     pop = fn.Population(
@@ -23,7 +18,10 @@ def test_population_function():
     )
     
     try:
-        pop.setAllNodeBoundaries(minF,maxF)
+        minF= [-4.8, -5, -0.418, -10]
+        maxF= [4.8, 5, 0.418, 10]
+        pop.setAllNodeBoundaries(minF, maxF)
+
     except Exception as e:
         print("❌ error in pop.setAllNodeBoundaries()")
         print(e)
@@ -32,8 +30,16 @@ def test_population_function():
     print("✅ pop.setAllNodeBoundaries()") 
 
     try:
+        env = gym.make("CartPole-v1")
         fit1 = pop.individuals[0].fitness
-        pop.accuracy(X,y,10,2)
+        pop.gymnasium(
+            env,
+            dMax=10,
+            maxSteps=500,
+            maxConsecutiveP=10,
+            worstFitness=0,
+            seed=123
+        )
         fit2 = pop.individuals[0].fitness
         if fit1 == fit2:
             print("no difference of fitnes after applying callFitness()")
