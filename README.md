@@ -1,5 +1,5 @@
 
-![Run Tests](https://github.com/FabianKoehnke/fracnetics/.github/workflows/tests.yml/badge.svg)
+![Run Tests](https://github.com/FabianKoehnke/fracnetics/actions/workflows/tests.yml/badge.svg)
 [![PyPI](https://img.shields.io/pypi/v/fracnetics.svg)](https://pypi.org/project/fracnetics/)
 [![Documentation Status](https://readthedocs.org/projects/fracnetics/badge/?version=latest)](https://fracnetics.readthedocs.io/en/latest/?badge=latest)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fabian-koehnke/)
