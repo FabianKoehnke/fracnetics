@@ -1,0 +1,3 @@
+fracnetics>=0.7.11
+pandas>=2.3.2
+gymnasium>=1.2.0 
