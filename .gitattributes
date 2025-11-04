@@ -1,2 +1,4 @@
 examples/*.ipynb linguist-generated=true
-*.tex linguist-vendored
+*.tex linguist-documentation
+*.md linguist-documentation
+*.bib linguist-documentation
