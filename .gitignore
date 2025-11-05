@@ -7,8 +7,6 @@ venv
 dist
 videos
 gui
-# pyvis folder
-examples/lib 
 
 # files
 src/main
@@ -31,8 +29,12 @@ docs/cpp/
 docs/source/auto_examples/
 docs/source/sg_execution_times.rst
 
-#tests 
+# tests 
 tests/tempTest.cpp
 tests/test
 tests/iris
+
+# examples 
+examples/cartpole_solution.html
+examples/lib 
 
