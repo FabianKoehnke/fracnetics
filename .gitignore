@@ -7,6 +7,8 @@ venv
 dist
 videos
 gui
+# pyvis folder
+examples/lib 
 
 # files
 src/main
