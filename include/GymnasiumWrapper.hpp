@@ -4,6 +4,7 @@
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
+using namespace py::literals;
 
 class GymEnvWrapper {
 private:
@@ -13,8 +14,8 @@ public:
     GymEnvWrapper() = default;
     explicit GymEnvWrapper(const py::object& env_obj) : env(env_obj) {}
 
-    py::tuple reset() {
-        return env.attr("reset")();
+    py::tuple reset(int seed) {
+        return env.attr("reset")("seed"_a=seed);
     }
 
     py::tuple step(const py::object& action) {

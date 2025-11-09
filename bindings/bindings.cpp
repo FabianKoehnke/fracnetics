@@ -3,6 +3,7 @@
 #include <pybind11/functional.h>
 #include <memory>
 #include <utility>
+#include <vector>
 #include "../include/Network.hpp"
 #include "../include/Population.hpp"
 #include "../include/GymnasiumWrapper.hpp"
@@ -80,7 +81,16 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
     .def_readwrite("decisions", &Network::decisions)
+    .def_readwrite("currentNodeID", &Network::currentNodeID)
+    .def_readwrite("invalid", &Network::invalid)
+    .def_readwrite("nBest", &Network::nBest)
+    .def_readwrite("nConsecutiveP", &Network::nConsecutiveP)
     .def("traversePath", &Network::traversePath, py::arg("X"), py::arg("dMax"))
+    .def("clearUsedNodes", &Network::clearUsedNodes)
+    .def("decisionAndNextNode", &Network::decisionAndNextNode<std::vector<double>>, 
+            py::arg("data"), 
+            py::arg("dMax")
+            )
         // Pickle support
     .def(py::pickle(
         [](const Network &n) { // __getstate__
@@ -159,7 +169,7 @@ PYBIND11_MODULE(_core, m) {
         .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma, py::arg("probability"), py::arg("sigma"))
         .def("callBoundaryMutationFractal", &Population::callBoundaryMutationFractal, py::arg("probability"), py::arg("minF"), py::arg("maxF"))
         .def("crossover", &Population::crossover, py::arg("probability"))
-        .def("callAddDelNodes", &Population::callAddDelNodes, py::arg("minF"), py::arg("maxF"))
+        .def("callAddDelNodes", &Population::callAddDelNodes, py::arg("minF"), py::arg("maxF"), py::arg("junk"))
         // pickle support 
         .def(py::pickle(
         [](const Population &p) { // __getstate__
@@ -186,7 +196,7 @@ PYBIND11_MODULE(_core, m) {
             p.indicesElite = t[7].cast<std::vector<int>>();
             p.meanFitness = t[8].cast<float>();
             p.minFitness = t[9].cast<float>();
-            p.individuals = t[10].cast<std::vector<Network>>(); // passe hier den Typ deiner Individuals an
+            p.individuals = t[10].cast<std::vector<Network>>(); 
 
             return p;
         }
