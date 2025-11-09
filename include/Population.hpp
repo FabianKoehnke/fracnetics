@@ -709,13 +709,14 @@ class Population {
          * 
          * @param minF Vector of minimum values for all features (for new judgment node initialization)
          * @param maxF Vector of maximum values for all features (for new judgment node initialization)
+         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes.
          * 
          * @note This operator has not influence on the individuals fitness  
          * @see Network::addDelNodes()
          */
-        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF){
+        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk){
             for(auto& ind : individuals){
-                ind.addDelNodes(minF, maxF);
+                ind.addDelNodes(minF, maxF, junk);
 
             }
         }

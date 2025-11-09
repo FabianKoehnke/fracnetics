@@ -61,6 +61,7 @@ class Network {
         int currentNodeID; /**< ID of the currently active node during network traversal */
         int nConsecutiveP; /**< Counter for consecutive processing nodes encountered */
         int nUsedNodes; /**< Number of nodes that have been used during network traversal */
+        int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
         /** @endcond */
 
@@ -398,7 +399,7 @@ class Network {
             int seed
             ){
 
-            auto reset_out = env.reset();// Initial observation for the episode
+            auto reset_out = env.reset(seed=seed);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
             auto info = reset_out[1];
             clearUsedNodes();
@@ -578,6 +579,7 @@ class Network {
          * 
          * @param minF Vector of minimum feature values for each feature dimension (used for judgment node boundary initialization)
          * @param maxF Vector of maximum feature values for each feature dimension (used for judgment node boundary initialization)
+         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes.
          * 
          * @warning This method must be called bevore edgeMutation()! Reason: if edges are change 
          * by edgeMutation(), the node flag "used" is not guaranteed to be correct.
@@ -586,14 +588,14 @@ class Network {
          * @post Node IDs are contiguous from 0 to innerNodes.size()-1
          * 
          */
-        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF){ 
+        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
             float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
             bool resultAdd = distributionBernoulliAdd(*generator);
             countUsedNodes();
             for(int n=0; n<innerNodes.size(); n++){
-                if(resultAdd && nUsedNodes >= innerNodes.size() * 1){// adding node hint 0.5 for more nodes in network
+                if(resultAdd && nUsedNodes >= innerNodes.size() * junk){// adding node 
                     bool resultProcessingNode = distributionBernoulliProcessingNode(*generator);
                     if(resultProcessingNode){ // add processing node
                         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
@@ -634,7 +636,7 @@ class Network {
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
-                        innerNodes.size()-nUsedNodes > 1 &&
+                        innerNodes.size() * junk - nUsedNodes > 1 &&
                         innerNodes[n].used == false) // node is not used
                 {// deleting nodes
 
