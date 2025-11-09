@@ -35,6 +35,6 @@ tests/test
 tests/iris
 
 # examples 
-examples/cartpole_solution.html
+examples/*.html
 examples/lib 
 
