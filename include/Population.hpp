@@ -55,6 +55,7 @@ class Population {
         std::vector<int> indicesElite; /**< Indices of elite individuals (protected from mutation) */
         float meanFitness = 0; /**< Mean fitness across all individuals in the population */
         float minFitness; /**< Minimum fitness value in the current population */
+        std::vector<int> nFeatureValues; /** stores the number of feature values */
         /** @endcond */
 
         /** @name Constructor */
@@ -82,7 +83,10 @@ class Population {
          * @param _pnf Number of processing node function types (determines action/output)
          * @param _fractalJudgment If true, judgment nodes use fractal-based edge patterns; if false, standard edge patterns 
          * (see boundaryMutationFractal() for more informations on fractal boundaries)
-         * 
+         * @param _nFeatureValues set the number of features values to distinguish between numerical and categorical data
+                - for numerical features: set 0 at the i-th feature 
+                - for categorical features: set the numbers of categories at feature position i. This will be the amount of outgoing edges of a judgment node 
+                - default is an empty vector and all features are treated as numerical
          */
         Population(
                 int seed,
@@ -91,7 +95,8 @@ class Population {
                 unsigned int _jnf,
                 unsigned int _pn,
                 unsigned int _pnf,
-                bool _fractalJudgment
+                bool _fractalJudgment,
+                std::vector<int> _nFeatureValues = {}
                 ):
             generator(std::make_shared<std::mt19937_64>(seed)),
             ni(_ni),
@@ -99,11 +104,12 @@ class Population {
             jnf(_jnf),
             pn(_pn),
             pnf(_pnf),
-            fractalJudgment(_fractalJudgment)
+            fractalJudgment(_fractalJudgment),
+            nFeatureValues(_nFeatureValues)
 
     {
         for(int i=0; i<ni; i++){
-            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment));
+            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment,nFeatureValues));
         }
     }
         /** @} */
