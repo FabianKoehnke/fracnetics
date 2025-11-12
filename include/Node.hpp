@@ -36,7 +36,7 @@ class Node {
         unsigned int f; /**< Node function: feature index for judgment nodes or output value for processing nodes */
         std::vector<int> edges; /**< Indices of successor nodes (outgoing edges) */
         std::vector<double> boundaries; /**< Decision boundaries for judgment nodes (divides feature space into intervals) */
-        std::vector<float> productionRuleParameter; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
+        std::vector<float> productionRuleParameter = {}; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
         /** @endcond */
@@ -368,17 +368,19 @@ class Node {
          */
         void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
-                bool result = distributionBernoulli(*generator);
-                if(result){
-                    std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
-                    productionRuleParameter[i] = distributionUniform(*generator); 
-                    boundaries.clear();
-                    std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
-                    setEdgesBoundaries(minf[f], maxf[f], fractals);
-                }
+            if(productionRuleParameter.size() > 0){ // some node are not fractals, e.g., categorical features
+                for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
+                    bool result = distributionBernoulli(*generator);
+                    if(result){
+                        std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
+                        productionRuleParameter[i] = distributionUniform(*generator); 
+                        boundaries.clear();
+                        std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
+                        setEdgesBoundaries(minf[f], maxf[f], fractals);
+                    }
                 }
             }
+        }
 
         /**
          * @brief Mutates decision boundaries by shifting them using a normal (Gaussian) distribution.
