@@ -87,6 +87,10 @@ class Network {
          * @param _pn Number of initial processing nodes in the network
          * @param _pnf Number of processing node function types available (determines random function assignment range)
          * @param _fractalJudgment If true, judgment nodes use fractal-based edge patterns; if false, standard edge patterns are used
+         * @param _nFeatureValues set the number of features values to distinguish between numerical and categorical data
+         *          - for numerical features: set 0 at the i-th feature 
+         *          - for categorical features: set the numbers of categories at feature position i. This will be the amount of outgoing edges of a judgment node 
+         *          - default is an empty vector and all features are treated as numerical
          */
         Network(
                 std::shared_ptr<std::mt19937_64> _generator,
@@ -94,7 +98,8 @@ class Network {
                 unsigned int _jnf,
                 unsigned int _pn,
                 unsigned int _pnf,
-                bool _fractalJudgment
+                bool _fractalJudgment,
+                std::vector<int> _nFeatureValues = {}
                 ):
             generator(_generator),
             jn(_jn),
@@ -107,6 +112,7 @@ class Network {
         {
             startNode.setEdges("S", jn+pn);
             std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
+            int nOutgoingEdges;
             for(int i=0; i<jn; i++){ // init judgment nodes 
                 int randomInt = distributionJNF(*generator);
                 innerNodes.push_back(Node(
@@ -115,8 +121,13 @@ class Network {
                             "J", // node type 
                             randomInt // node function
                             ));
-                if(fractalJudgment == false){
-                    innerNodes.back().setEdges("J", pn+jn);
+
+                if(_nFeatureValues.size()>0){
+                     nOutgoingEdges = _nFeatureValues[randomInt];
+                } else {nOutgoingEdges = 0;}
+
+                if(fractalJudgment == false || nOutgoingEdges != 0){
+                    innerNodes.back().setEdges("J", pn+jn, nOutgoingEdges);
                 }else{
                     std::pair<int, int> k_d = random_k_d_combination(pn+jn-1, generator);
                     innerNodes.back().k_d.first = k_d.first;

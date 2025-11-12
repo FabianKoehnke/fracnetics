@@ -131,9 +131,11 @@ PYBIND11_MODULE(_core, m) {
                 unsigned int,
                 unsigned int,
                 unsigned int,
-                bool>(),
+                bool,
+                std::vector<int>
+                >(),
              py::arg("seed"), py::arg("ni"), py::arg("jn"), py::arg("jnf"),
-             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"))
+             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("nFeatureValues"))
         .def_readonly("ni", &Population::ni)
         .def_readwrite("jn", &Population::jn)
         .def_readwrite("jnf", &Population::jnf)
@@ -145,6 +147,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
         .def_readwrite("individuals", &Population::individuals)
+        .def_readwrite("nFeatureValues", &Population::nFeatureValues)
         // Functions
         .def("setAllNodeBoundaries", &Population::setAllNodeBoundaries, py::arg("minF"), py::arg("maxF"))
         .def("callTraversePath", &Population::callTraversePath, py::arg("X"), py::arg("dMax"))
