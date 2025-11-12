@@ -156,11 +156,12 @@ PYBIND11_MODULE(_core, m) {
                     int maxSteps,
                     int maxConsecutiveP,
                     int worstFitness,
-                    int seed) {
+                    int seed,
+                    float gamma) {
                         GymEnvWrapper wrapper(env);
-                        self.gymnasium(wrapper,dMax,maxSteps,maxConsecutiveP,worstFitness,seed);
+                        self.gymnasium(wrapper,dMax,maxSteps,maxConsecutiveP,worstFitness,seed,gamma);
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"))
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"), py::arg("gamma"))
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"))
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"))

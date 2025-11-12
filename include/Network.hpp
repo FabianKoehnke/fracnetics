@@ -1,6 +1,7 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 /// \cond INTERNAL
+#include <cmath>
 #include <random>
 #include <utility>
 #include <vector>
@@ -387,6 +388,7 @@ class Network {
          *  Here we can control the number of possible actions after using the observation data again.  
          * @param worstFitness Fitness value assigned when network violates constraints
          * @param seed Random seed for environment initialization 
+         * @param gamma discount factor of the rewards
          * 
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
@@ -396,7 +398,8 @@ class Network {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            int seed
+            int seed,
+            float gamma = 1
             ){
 
             auto reset_out = env.reset(seed=seed);// Initial observation for the episode
@@ -422,10 +425,10 @@ class Network {
 
                 auto result = env.step(dec);
                 obs = result[0].cast<std::vector<double>>(); 
-                fitness += result[1].cast<float>();
+                fitness += std::pow(gamma, steps) * result[1].cast<float>();
                 steps ++;
-                if(result[2].cast<bool>() || steps >= maxSteps) done = true; 
-
+                if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
+          
             }
         }
           
