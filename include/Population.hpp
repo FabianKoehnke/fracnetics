@@ -723,7 +723,7 @@ class Population {
          */
         void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk){
             for(auto& ind : individuals){
-                ind.addDelNodes(minF, maxF, junk);
+                ind.addDelNodes(minF, maxF, junk, nFeatureValues);
 
             }
         }

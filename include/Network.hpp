@@ -602,7 +602,7 @@ class Network {
          * @post Node IDs are contiguous from 0 to innerNodes.size()-1
          * 
          */
-        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk){ 
+        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk, std::vector<int> nFeatureValues){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
             float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
@@ -625,14 +625,24 @@ class Network {
                     }else{ // add judgment node 
                         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
                         int randomInt = distributionJNF(*generator);
+                        int nOutgoingEdges;
                         innerNodes.push_back(Node(
                                     generator, 
                                     innerNodes.size(), // node id 
                                     "J", // node type 
                                     randomInt // node function
                                     ));
-                       
-                        if(fractalJudgment == true){
+
+                        if(nFeatureValues.size() > 0){ // feature is categorical
+                             nOutgoingEdges = nFeatureValues[randomInt];
+                        } else {nOutgoingEdges = 0;}
+
+
+                        if(fractalJudgment == false || nOutgoingEdges != 0){ // fractal or categorical feature
+                            innerNodes.back().setEdges("J", pn+jn, nOutgoingEdges);
+                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
+                        }
+                        else if(fractalJudgment == true && nOutgoingEdges == 0){ 
                             std::pair<int, int> k_d = random_k_d_combination(pn+jn, generator); // normaly pn+jn-1 but jn counter comes later
                             innerNodes.back().k_d.first = k_d.first;
                             innerNodes.back().k_d.second = k_d.second;
@@ -640,9 +650,6 @@ class Network {
                             innerNodes.back().productionRuleParameter = randomParameterCuts(innerNodes.back().k_d.first-1, generator);
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
-                        }else {
-                            innerNodes.back().setEdges("J", innerNodes.size());
-                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
                         }
 
                         jn += 1;
