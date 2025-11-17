@@ -1,5 +1,6 @@
 #ifndef POPULATION_HPP
 #define POPULATION_HPP
+#include <string>
 #include <vector>
 #include <random>
 #include <unordered_set>
@@ -637,9 +638,11 @@ class Population {
          * **Node exchange**:
          * 1. Determines maximum exchangeable nodes: min(parent1.size, parent2.size). This is only 
          * needed if parents have different network sizes caused by applying callAddDelNodes().
-         * 2. For each node (up to max exchangeable nodes):
+         * 2. For each node (up to max exchangeable nodes) given type:
+         *  "uniform:
          *    - With passed probability: swaps nodes at that position
          *    - After swap: repairs any invalid edges (edges pointing to non-existent nodes)
+         *  "onepoint": draw a random number from the genotype and exchange all nodes until this point
          * 
          * **Edge repair rules**:
          * - Only check edges for the smaller parent (edges may become invalid after receiving nodes)
@@ -647,13 +650,18 @@ class Population {
          * - Prevents graph structure corruption after recombination
          * 
          * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged
+         * @param type Type of the crossover:
+         *  - "uniform": selects each node and exchange them with given probability
+         *  - "onepoint": draw a random number from the genotype and exchange all nodes until this point
          * 
          * @note tournamentSelection() must have been called to set indicesElite
          * @note Only nodes up to min(size1, size2) can be exchanged due to position-based matching
          */
-        void crossover(float propability){
+        void crossover(float propability = 1, std::string type = ""){
+
             std::bernoulli_distribution distributionBernoulli(propability);
             std::vector<unsigned int> inds;
+            int nNodesToExchange;
             for(int i=0; i<individuals.size(); i++){
                 inds.push_back(i);
             }
@@ -666,9 +674,20 @@ class Population {
                 }
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
-                int maxNodeNumbers = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
+                if(type == "uniform"){
 
-                for(int k=0; k<maxNodeNumbers-1; k++){ // for each node
+                    nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
+                } else if (type == "onepoint") {
+
+                    int maxNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
+                    std::uniform_int_distribution<int> distributionUniform(0, maxNodesToExchange-1);
+                    int randomInt = distributionUniform(*generator);
+                    nNodesToExchange = randomInt;
+                } else {
+                    nNodesToExchange = 0;
+                }
+
+                for(int k=0; k<nNodesToExchange-1; k++){ // for each node
                     bool result = distributionBernoulli(*generator);
                     if(result){
                         std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
