@@ -9,3 +9,6 @@ def test_import_fracnetics():
     except Exception as e:
         pytest.fail(f"❌ Error importing'fracnetics': {e}")
 
+if __name__ == "__main__":
+    test_import_fracnetics()
+
