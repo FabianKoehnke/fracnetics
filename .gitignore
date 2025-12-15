@@ -7,6 +7,7 @@ venv
 dist
 videos
 gui
+build
 
 # files
 src/main
