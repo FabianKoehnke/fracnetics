@@ -698,11 +698,31 @@ class Population {
                             parent2.changeFalseEdges(); 
                         }
                     }
- 
                 }
 
             }
+        }
 
+
+
+        /**
+         * @brief Find all succesor nodes after path traversal 
+         * @details 
+         * @param individual (network)
+         * @param subNodesStart (node index) start of the subnetwork. If -1, a random node index will be selected. 
+         */
+        std::vector<int> findSuccessorNodes(auto&individual, int subNodesStart = -1){
+            std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
+            if(subNodesStart == -1){
+                subNodesStart = distributionUniform(*generator);
+            }
+            std::vector<int> nodeIndices;
+            for(int i=0; i<individual.innerNodes.size(); i++){
+                if(individual.innerNodes[i].traverseCounter >= individual.innerNodes[subNodesStart].traverseCounter){
+                    nodeIndices.push_back(i);
+                }
+            }
+            return nodeIndices;
         }
 
         /**
