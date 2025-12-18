@@ -712,8 +712,8 @@ class Population {
          * @param subNodesStart (node index) start of the subnetwork. If -1, a random node index will be selected. 
          */
         std::vector<int> findSuccessorNodes(auto&individual, int subNodesStart = -1){
-            std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
             if(subNodesStart == -1){
+                std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
                 subNodesStart = distributionUniform(*generator);
             }
             std::vector<int> nodeIndices;
