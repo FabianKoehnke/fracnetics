@@ -703,6 +703,21 @@ class Population {
             }
         }
 
+        /*
+         *
+         */ 
+        std::unordered_map<int , int>initNodeSwapMap(
+                std::vector<int> subnodes1, 
+                std::vector<int> subnodes2
+                ){
+            // initialize swap maps
+            std::unordered_map<int, int> map;
+            int minSubNodes = std::min(subnodes1.size(), subnodes2.size());
+            for(int i=0; i<minSubNodes; i++){
+                map[subnodes1[i]] = subnodes1[i];
+            }
+        }
+
 
         /**
          * TODO
