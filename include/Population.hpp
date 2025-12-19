@@ -718,6 +718,19 @@ class Population {
             }
         }
 
+        /*
+         *
+         */
+        void remapIndividualsNodesEdges(std::unordered_map<int, int>& map, Network& individual){
+            for(auto& node: individual.innerNodes){
+                for(auto& edge : node.edges){
+                    if(map.contains(edge)){
+                        edge = map[edge];
+                    }
+                }
+            }
+        }
+
 
         /**
          * TODO
