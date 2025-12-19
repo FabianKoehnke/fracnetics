@@ -704,6 +704,27 @@ class Population {
         }
 
 
+        /**
+         * TODO
+         */
+        void swapOverhangNodes(
+                const std::vector<int>& successor1,
+                const std::vector<int>& successor2,
+                Network& parent1, // larger individual
+                Network& parent2
+                ){
+            // swap from parent1 to parent2
+            int overhang = successor1.size() - successor2.size();
+            for(int i=0; i<overhang; i++){
+                int nodeIndex = successor1.size()-1+i;
+                // add overhang 
+                parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
+                parent2.innerNodes.back().id = parent2.innerNodes.size()-1;
+
+                // delete overhang
+                parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
+            }
+        }
 
         /**
          * @brief Find all succesor nodes after path traversal 
