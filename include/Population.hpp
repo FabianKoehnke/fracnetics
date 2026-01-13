@@ -703,23 +703,40 @@ class Population {
             }
         }
 
-        /*
-         *
-         */ 
+        /**
+         * @brief Initializes a node index mapping between two subnode vectors for crossover operations.
+         * 
+         * @details Creates a mapping from subnodes1 indices to subnodes2 indices. If subnodes1 is longer,
+         * the excess nodes are mapped to new indices starting from sizeNetwork2. This ensures proper node
+         * index translation when combining networks during genetic crossover.
+         * 
+         * @param subnodes1 Vector of node indices from the first network
+         * @param subnodes2 Vector of node indices from the second network
+         * @param sizeNetwork2 The current size of the second network, used as base for new indices
+         * @return std::unordered_map<int, int> Mapping from subnodes1 indices to corresponding target indices
+         */
         std::unordered_map<int , int>initNodeSwapMap(
-                std::vector<int> subnodes1, 
-                std::vector<int> subnodes2
+                const std::vector<int>& subnodes1, 
+                const std::vector<int>& subnodes2,
+                int sizeNetwork2
                 ){
-            // initialize swap maps
+            // initialize swap map
             std::unordered_map<int, int> map;
             int minSubNodes = std::min(subnodes1.size(), subnodes2.size());
             for(int i=0; i<minSubNodes; i++){
-                map[subnodes1[i]] = subnodes1[i];
+                map[subnodes1[i]] = subnodes2[i];
+            }
+
+            if(subnodes1.size() <= minSubNodes){
+                return map;
+            } else { // adding overhang as appended indices
+                for(int i = subnodes2.size(); i<subnodes1.size(); i++){
+                    map[subnodes1[i]] = sizeNetwork2;
+                    sizeNetwork2 ++;
+                }
+                return map;
             }
         }
-
-        /*
-         *
          */
         void remapIndividualsNodesEdges(std::unordered_map<int, int>& map, Network& individual){
             for(auto& node: individual.innerNodes){
