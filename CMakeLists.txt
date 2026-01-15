@@ -35,16 +35,20 @@ find_package(GTest REQUIRED)
 
 add_library(test_lib
     tests/crossover.cpp
+    tests/network.cpp
 )
 
-# WICHTIG: pybind11 + Python einbinden
 target_link_libraries(test_lib
     PRIVATE
         pybind11::module
         Python::Python
+        GTest::gtest
 )
 
-add_executable(runTests tests/crossover.cpp)
+add_executable(runTests
+    tests/crossover.cpp
+    tests/network.cpp
+)
 
 target_link_libraries(runTests
     PRIVATE
@@ -54,7 +58,7 @@ target_link_libraries(runTests
         Python::Python
 )
 
-
 enable_testing()
 include(GoogleTest)
+gtest_discover_tests(runTests)
 
