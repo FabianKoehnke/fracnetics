@@ -549,6 +549,37 @@ class Network {
         }
 
         /**
+         * @brief Remaps node IDs and their associated edges using a provided mapping.
+         * 
+         * @details This method updates node IDs and edge references for a subset of nodes
+         * specified by their indices. For each node in the given indices, if its ID exists
+         * in the mapping, it is replaced with the mapped value. Similarly, all edges of
+         * these nodes are updated if they exist in the mapping. This is useful for
+         * renumbering or consolidating node identifiers while maintaining 
+         * graph connectivity.
+         * 
+         * @param map A reference to an unordered map where keys are old node IDs and values
+         * are new node IDs to remap to.
+         * @param nodeIndices A vector of indices specifying which nodes in the innerNodes
+         * collection should be processed for remapping.
+         */
+        void remapNodeIdsAndEdges(std::unordered_map<int, int>& map, const std::vector<int>& nodeIndices){
+
+            for(int ni: nodeIndices){
+
+                if(map.contains(innerNodes[ni].id)){
+                    innerNodes[ni].id = map[innerNodes[ni].id];
+                }
+
+                for(auto& edge : innerNodes[ni].edges){
+                    if(map.contains(edge)){
+                        edge = map[edge];
+                    }
+                }
+            }
+        }
+
+        /**
          * @brief Performs network grow and shrink during the evolution.
          * 
          * @details
