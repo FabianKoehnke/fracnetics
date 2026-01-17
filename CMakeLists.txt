@@ -36,6 +36,7 @@ find_package(GTest REQUIRED)
 add_library(test_lib
     tests/crossover.cpp
     tests/network.cpp
+    tests/population.cpp
 )
 
 target_link_libraries(test_lib
@@ -48,6 +49,7 @@ target_link_libraries(test_lib
 add_executable(runTests
     tests/crossover.cpp
     tests/network.cpp
+    tests/population.cpp
 )
 
 target_link_libraries(runTests
