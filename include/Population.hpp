@@ -767,24 +767,34 @@ class Population {
         }
         
 
-        /**
-         * TODO
+         /**
+         * @brief Adds overhang nodes from the larger parent to the smaller parent during crossover.
+         * 
+         * @details When two parents have different numbers of successor nodes, this method transfers
+         * the excess nodes (overhang) from the larger parent's network to the smaller parent's network.
+         * The overhang nodes are moved from parent1 to parent2's innerNodes vector.
+         * 
+         * @param successor1 Vector of successor node indices from the larger parent network
+         * @param successor2 Vector of successor node indices from the smaller parent network
+         * @param parent1 The larger parent network from which overhang nodes are extracted
+         * @param parent2 The smaller parent network to which overhang nodes are added
+         *
+         * @note The added node IDs and edges may need further adjustment to maintain graph validity.
          */
-        void swapOverhangNodes(
+        void addOverhangNodes(
                 const std::vector<int>& successor1,
                 const std::vector<int>& successor2,
                 Network& parent1, // larger individual
                 Network& parent2
                 ){
-            // swap from parent1 to parent2
+
             int overhang = successor1.size() - successor2.size();
             for(int i=0; i<overhang; i++){
                 int nodeIndex = successor1.size()-1+i;
-                // add overhang 
                 parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
-                parent2.innerNodes.back().id = parent2.innerNodes.size()-1;
+            }
+        }
 
-                // delete overhang
                 parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
             }
         }
