@@ -92,7 +92,7 @@ TEST_F(NetworkRemapTest, RemapNodeIdsAndEdges_PartialRemapping) {
 
 TEST_F(NetworkRemapTest, RemapNodeIdsAndEdges_EmptyMapping) {
     // Create a network
-    Network net(generator, 1, 2, 1, 2, false);
+    Network net(generator, 2, 2, 1, 2, false);
     
     int originalId = net.innerNodes[0].id;
     std::vector<int> originalEdges = net.innerNodes[0].edges;
