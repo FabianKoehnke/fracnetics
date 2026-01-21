@@ -790,7 +790,7 @@ class Population {
 
             int overhang = successor1.size() - successor2.size();
             for(int i=0; i<overhang; i++){
-                int nodeIndex = successor1.size()-1+i;
+                int nodeIndex = successor1[successor1.size()-1+i];
                 parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
             }
         }
