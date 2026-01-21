@@ -556,14 +556,23 @@ class Network {
          * in the mapping, it is replaced with the mapped value. Similarly, all edges of
          * these nodes are updated if they exist in the mapping. This is useful for
          * renumbering or consolidating node identifiers while maintaining 
-         * graph connectivity.
+         * graph connectivity. 
          * 
          * @param map A reference to an unordered map where keys are old node IDs and values
          * are new node IDs to remap to.
          * @param nodeIndices A vector of indices specifying which nodes in the innerNodes
          * collection should be processed for remapping.
+         * @param includeStartNode If true, remaps the first edge of the start node if it
+         * exists in the mapping. Defaults to false.
          */
-        void remapNodeIdsAndEdges(std::unordered_map<int, int>& map, const std::vector<int>& nodeIndices){
+        void remapNodeIdsAndEdges(std::unordered_map<int, int>& map, const std::vector<int>& nodeIndices, bool includeStartNode = false){
+            if(map.empty()) return; // Prevent segmentation fault on empty mapping
+
+            if(includeStartNode){
+                if(map.contains(startNode.edges[0])){
+                    startNode.edges[0] = map[startNode.edges[0]];
+                }
+            }
 
             for(int ni: nodeIndices){
 
