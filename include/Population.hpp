@@ -795,6 +795,47 @@ class Population {
             }
         }
 
+         /**
+         * @brief Deletes overhang nodes from the larger parent network.
+         * 
+         * @details Removes excess nodes from parent1 when it has more successor nodes than parent2.
+         * For each overhang node to be deleted, this method:
+         * 1. Creates a deletion map that remaps indices of nodes after the deleted node (shifting them down by one)
+         * 2. Assigns the deleted node index a random valid edge 
+         * 3. Remaps all node IDs and edges in the network to maintain consistency after deletion
+         * 4. Erases the node from the innerNodes vector
+         * This process ensures that all references remain valid after node removal, preventing dangling references.
+         * 
+         * @param successor1 Vector of successor node indices from the larger parent network
+         * @param successor2 Vector of successor node indices from the smaller parent network
+         * @param parent1 The larger parent network from which overhang nodes will be deleted (modified in-place)
+         */
+        void deleteOverhangNodes(
+                const std::vector<int>& successor1,
+                const std::vector<int>& successor2,
+                Network& parent1 // larger individual
+                ){
+
+            int overhang = successor1.size() - successor2.size();
+            for(int i=0; i<overhang; i++){
+
+                int nodeIndex = successor1[successor1.size()-1-i]; // node index for deletion
+
+                // initialize deletion map
+                std::unordered_map<int, int> map;
+                for(int i=nodeIndex; i<parent1.innerNodes.size(); i++){
+                    map[i+1] = i;
+                }
+                // random number for deleted node
+                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size()-1, nodeIndex);
+                // remap nodes
+                std::vector<int> indices; 
+                for(int k=0; k<parent1.innerNodes.size(); k++){// all node must be checked for remaping 
+                    indices.push_back(k);
+                }
+                parent1.remapNodeIdsAndEdges(map,indices,true);
+
+                // delete overhang nodes from parent1
                 parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
             }
         }
