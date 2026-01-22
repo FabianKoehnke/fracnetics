@@ -782,9 +782,9 @@ class Population {
          * @note The added node IDs and edges may need further adjustment to maintain graph validity.
          */
         void addOverhangNodes(
-                const std::vector<int>& successor1,
+                const std::vector<int>& successor1,// larger subnetwork 
                 const std::vector<int>& successor2,
-                Network& parent1, // larger individual
+                Network& parent1, 
                 Network& parent2
                 ){
 
@@ -792,6 +792,13 @@ class Population {
             for(int i=0; i<overhang; i++){
                 int nodeIndex = successor1[successor1.size()-1+i];
                 parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
+
+                if(parent2.innerNodes.back().type == "J"){
+                    parent2.jn += 1;
+                }else if (parent2.innerNodes.back().type == "P") {
+                    parent2.pn += 1;
+                }
+
             }
         }
 
@@ -811,9 +818,9 @@ class Population {
          * @param parent1 The larger parent network from which overhang nodes will be deleted (modified in-place)
          */
         void deleteOverhangNodes(
-                const std::vector<int>& successor1,
+                const std::vector<int>& successor1,// larger subnetwork 
                 const std::vector<int>& successor2,
-                Network& parent1 // larger individual
+                Network& parent1 
                 ){
 
             int overhang = successor1.size() - successor2.size();
@@ -835,6 +842,11 @@ class Population {
                 }
                 parent1.remapNodeIdsAndEdges(map,indices,true);
 
+                if(parent1.innerNodes[nodeIndex].type == "J"){
+                    parent1.jn -= 1;
+                }else if (parent1.innerNodes[nodeIndex].type == "P") {
+                    parent1.pn -= 1;
+                }
                 // delete overhang nodes from parent1
                 parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
             }
