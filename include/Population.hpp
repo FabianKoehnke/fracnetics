@@ -768,16 +768,16 @@ class Population {
         
 
          /**
-         * @brief Adds overhang nodes from the larger parent to the smaller parent during crossover.
+         * @brief Adds overhang nodes from the larger parent subnetwork to the smaller parent subnetwork during crossover.
          * 
          * @details When two parents have different numbers of successor nodes, this method transfers
          * the excess nodes (overhang) from the larger parent's network to the smaller parent's network.
          * The overhang nodes are moved from parent1 to parent2's innerNodes vector.
          * 
-         * @param successor1 Vector of successor node indices from the larger parent network
-         * @param successor2 Vector of successor node indices from the smaller parent network
-         * @param parent1 The larger parent network from which overhang nodes are extracted
-         * @param parent2 The smaller parent network to which overhang nodes are added
+         * @param successor1 Vector of successor node indices from the larger parent subnetwork
+         * @param successor2 Vector of successor node indices from the smaller parent subnetwork
+         * @param parent1 The parent network from which overhang nodes are extracted
+         * @param parent2 The parent network to which overhang nodes are added
          *
          * @note The added node IDs and edges may need further adjustment to maintain graph validity.
          */
@@ -858,7 +858,7 @@ class Population {
          * @param individual (network)
          * @param subNodesStart (node index) start of the subnetwork. If -1, a random node index will be selected. 
          */
-        std::vector<int> findSuccessorNodes(auto&individual, int subNodesStart = -1){
+        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1){
             if(subNodesStart == -1){
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
                 subNodesStart = distributionUniform(*generator);
