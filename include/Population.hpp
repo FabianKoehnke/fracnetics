@@ -803,9 +803,9 @@ class Population {
         }
 
          /**
-         * @brief Deletes overhang nodes from the larger parent network.
+         * @brief Deletes overhang nodes from the larger parent subnetwork.
          * 
-         * @details Removes excess nodes from parent1 when it has more successor nodes than parent2.
+         * @details Removes excess nodes from parent1 when it has more successor subnodes than parent2.
          * For each overhang node to be deleted, this method:
          * 1. Creates a deletion map that remaps indices of nodes after the deleted node (shifting them down by one)
          * 2. Assigns the deleted node index a random valid edge 
@@ -813,9 +813,9 @@ class Population {
          * 4. Erases the node from the innerNodes vector
          * This process ensures that all references remain valid after node removal, preventing dangling references.
          * 
-         * @param successor1 Vector of successor node indices from the larger parent network
-         * @param successor2 Vector of successor node indices from the smaller parent network
-         * @param parent1 The larger parent network from which overhang nodes will be deleted (modified in-place)
+         * @param successor1 Vector of successor node indices from the larger parent subnetwork
+         * @param successor2 Vector of successor node indices from the smaller parent subnetwork
+         * @param parent1 The larger parent subnetwork from which overhang nodes will be deleted (modified in-place)
          */
         void deleteOverhangNodes(
                 const std::vector<int>& successor1,// larger subnetwork 
