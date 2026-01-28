@@ -1,7 +1,10 @@
 #ifndef POPULATION_HPP
 #define POPULATION_HPP
+#include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include <ranges>
 #include <random>
 #include <unordered_set>
 #include <utility>
@@ -660,13 +663,15 @@ class Population {
         void crossover(float propability = 1, std::string type = ""){
 
             std::bernoulli_distribution distributionBernoulli(propability);
-            std::vector<unsigned int> inds;
             int nNodesToExchange;
+            std::vector<unsigned int> inds;
             for(int i=0; i<individuals.size(); i++){
                 inds.push_back(i);
             }
             std::shuffle(inds.begin(), inds.end(), *generator);
-            for(int i=0; i<inds.size()-1; i+=2){ // for each individual
+            for(int i=0; i<inds.size()-1; i+=2){ // for each individual pair 
+                
+                std::vector<int> nodesToExchange;
                 if(std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end() ||
                     std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end()
                     ){ // preventing crossover for elite
@@ -675,22 +680,101 @@ class Population {
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
                 if(type == "uniform"){
-
                     nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
-                } else if (type == "onepoint") {
+                    // set nodesToExchange
+                    for(int i=0; i<nNodesToExchange; i++){
+                        bool result = distributionBernoulli(*generator);
+                        if(result == true){
+                            nodesToExchange.push_back(i);
+                        }
+                    }
 
+                } else if (type == "onepoint") {
                     int maxNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
                     std::uniform_int_distribution<int> distributionUniform(0, maxNodesToExchange-1);
-                    int randomInt = distributionUniform(*generator);
-                    nNodesToExchange = randomInt;
+                    nNodesToExchange = distributionUniform(*generator);
+                    // set nodesToExchange
+                    for(int i=0; i<nNodesToExchange; i++){
+                        nodesToExchange.push_back(i);
+                    }
+
                 } else {
                     nNodesToExchange = 0;
                 }
 
-                for(int k=0; k<nNodesToExchange-1; k++){ // for each node
-                    bool result = distributionBernoulli(*generator);
-                    if(result){
+                // exchange nodes
+                if(type == "randomWidth"){
+                    std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
+                    std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
+                    // swap map from individual1 to individual2 (key is the old index and the value is the new index)
+                    std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
+                    // swap map from individual2 to individual1 (key is the old index and the value is the new index)
+                    std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size()); 
+                    
+                    // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
+                    if(successor1.size() - successor2.size() >= parent1.innerNodes.size() -2 ||
+                       successor2.size() - successor1.size() >= parent2.innerNodes.size() -2){
+                        return;
+                    }
+
+                    if(successor1.size() == 0 || successor2.size() == 0){ 
+                        // node is unused TODO!
+                        return;
+                    } else { 
+
+                        int minSubNodes = std::min(successor1.size(), successor2.size());
+                        for(int i=0; i<minSubNodes; i++){ 
+                            // exchange all nodes until same subnetwork size is reached 
+                            std::swap(parent1.innerNodes[successor1[i]], parent2.innerNodes[successor2[i]]);
+                        }
+
+                        // add overhang nodes
+                        if(successor1.size() > successor2.size()){
+                           addOverhangNodes(successor1, successor2, parent1, parent2);
+                                                    
+                        } else if (successor1.size() < successor2.size()) {
+                           addOverhangNodes(successor2, successor1, parent2, parent1);
+                        }
+
+                        // remap nodes and edges of individual 1
+                        auto keys = std::views::keys(swapMap1);
+                        std::vector<int> indices1{keys.begin(), keys.end()};
+                        parent1.remapNodeIdsAndEdges(swapMap1,indices1,false);
+
+                        // remap nodes and edges of individual 2
+                        auto keys2 = std::views::keys(swapMap2);
+                        std::vector<int> indices2{keys2.begin(), keys2.end()};
+                        parent2.remapNodeIdsAndEdges(swapMap2,indices2,false);
+                    }
+
+                    // delete overhang nodesToExchange
+                    if(successor1.size() > successor2.size()){
+                        deleteOverhangNodes(successor1, successor2, parent1);
+                                                
+                    } else if (successor1.size() < successor2.size()) {
+                        deleteOverhangNodes(successor2, successor1, parent2);
+                    }
+                   
+                } else{
+                    for(int k : nodesToExchange){ // for each node
                         std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
+                    }
+                }
+
+                // repare node edges
+                if (type == "randomWidth"){
+
+                    if(nodesToExchange.size() > 0){
+                        // just check for "false edges" if parent is the smaller one (expensive)
+                        if(parent1.innerNodes.size() > parent2.innerNodes.size()){
+                            parent1.changeFalseEdges();
+                        } else if (parent2.innerNodes.size() > parent1.innerNodes.size()) {
+                            parent2.changeFalseEdges(); 
+                        }
+                    }
+                } else {
+
+                    if(nodesToExchange.size() > 0){
                         // just check for "false edges" if parent is the smaller one (expensive)
                         if(parent1.innerNodes.size() < parent2.innerNodes.size()){
                             parent1.changeFalseEdges();
@@ -699,7 +783,6 @@ class Population {
                         }
                     }
                 }
-
             }
         }
 
@@ -737,6 +820,7 @@ class Population {
                 return map;
             }
         }
+
        /**
          * @brief Remaps node indices in individual's edges according to the provided mapping.
          * 
