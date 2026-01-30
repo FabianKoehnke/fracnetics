@@ -642,23 +642,36 @@ class Population {
          * 1. Determines maximum exchangeable nodes: min(parent1.size, parent2.size). This is only 
          * needed if parents have different network sizes caused by applying callAddDelNodes().
          * 2. For each node (up to max exchangeable nodes) given type:
-         *  "uniform:
+         *  "uniform":
          *    - With passed probability: swaps nodes at that position
          *    - After swap: repairs any invalid edges (edges pointing to non-existent nodes)
          *  "onepoint": draw a random number from the genotype and exchange all nodes until this point
+         *  "randomWidth": exchanges subnetworks of potentially different widths between parents:
+         *    1. Identifies successor nodes (active subnetwork) in both parents using findSuccessorNodes()
+         *    2. Creates swap maps (old index -> new index) for remapping nodes between parents
+         *    3. Validates that exchanging subnetworks won't reduce networks below 2 inner nodes (invalid network)
+         *    4. Swaps nodes up to min(successor1.size, successor2.size) between the subnetworks
+         *    5. Handles overhang nodes (extra nodes in larger subnetwork):
+         *       - Adds overhang nodes from larger to smaller parent (addOverhangNodes)
+         *       - Remaps all node IDs and edges in both parents to maintain consistency
+         *       - Deletes overhang nodes from the larger parent (deleteOverhangNodes)
+         *    6. This allows crossover between networks of different effective widths while preserving structure and modularity.
          * 
          * **Edge repair rules**:
-         * - Only check edges for the smaller parent (edges may become invalid after receiving nodes)
+         * - For "uniform" and "onepoint": Only check edges for the smaller parent (edges may become invalid after receiving nodes)
+         * - For "randomWidth": Check edges for the larger parent (due to node deletion creating potential dangling edges)
          * - changeFalseEdges() redirects any dangling edges to valid random nodes
          * - Prevents graph structure corruption after recombination
          * 
-         * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged
+         * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged (used for "uniform" type only). Default is 1.
          * @param type Type of the crossover:
-         *  - "uniform": selects each node and exchange them with given probability
-         *  - "onepoint": draw a random number from the genotype and exchange all nodes until this point
+         *  - "uniform": selects each node and exchanges them with given probability
+         *  - "onepoint": draws a random cutpoint from the genotype and exchanges all nodes until this point
+         *  - "randomWidth": exchanges subnetworks of different widths where all succesor nodes of a randomly selected node are exchanged
          * 
          * @note tournamentSelection() must have been called to set indicesElite
-         * @note Only nodes up to min(size1, size2) can be exchanged due to position-based matching
+         * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
+         * @note For "randomWidth", parent networks must have more than 2 inner nodes to safely use changeFalseEdges()
          */
         void crossover(float propability = 1, std::string type = ""){
 
@@ -671,14 +684,30 @@ class Population {
             std::shuffle(inds.begin(), inds.end(), *generator);
             for(int i=0; i<inds.size()-1; i+=2){ // for each individual pair 
                 
+                // preventing crossover for elite
                 std::vector<int> nodesToExchange;
                 if(std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end() ||
                     std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end()
-                    ){ // preventing crossover for elite
+                    ){ 
                     continue;
                 }
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
+
+                // check parent sizes 
+                bool parent1IsLarger;
+                bool parent2IsLarger;
+                if(parent1.innerNodes.size() > parent2.innerNodes.size()){
+                    parent1IsLarger = true;
+                    parent2IsLarger = false;
+                } else if (parent2.innerNodes.size() > parent1.innerNodes.size()){
+                    parent1IsLarger = false;
+                    parent2IsLarger = true;
+                } else {
+                    parent1IsLarger = false;
+                    parent2IsLarger = false;
+                }
+
                 if(type == "uniform"){
                     nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
                     // set nodesToExchange
@@ -762,26 +791,10 @@ class Population {
                 }
 
                 // repare node edges
-                if (type == "randomWidth"){
-
-                    if(nodesToExchange.size() > 0){
-                        // just check for "false edges" if parent is the smaller one (expensive)
-                        if(parent1.innerNodes.size() > parent2.innerNodes.size()){
-                            parent1.changeFalseEdges();
-                        } else if (parent2.innerNodes.size() > parent1.innerNodes.size()) {
-                            parent2.changeFalseEdges(); 
-                        }
-                    }
-                } else {
-
-                    if(nodesToExchange.size() > 0){
-                        // just check for "false edges" if parent is the smaller one (expensive)
-                        if(parent1.innerNodes.size() < parent2.innerNodes.size()){
-                            parent1.changeFalseEdges();
-                        } else if (parent2.innerNodes.size() < parent1.innerNodes.size()) {
-                            parent2.changeFalseEdges(); 
-                        }
-                    }
+                if(parent2IsLarger){
+                    parent1.changeFalseEdges();
+                } else if (parent1IsLarger) {
+                    parent2.changeFalseEdges(); 
                 }
             }
         }
