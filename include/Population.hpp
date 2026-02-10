@@ -733,6 +733,12 @@ class Population {
 
                 // exchange nodes
                 if(type == "randomWidth"){
+
+                    bool result = distributionBernoulli(*generator);
+                    if(result == false){
+                        continue; // random width crossover should not be applied, skip to next pair
+                    }
+
                     std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
                     std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
                     // swap map from individual1 to individual2 (key is the old index and the value is the new index)
