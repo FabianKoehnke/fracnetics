@@ -31,9 +31,9 @@ int main(){
     int nIndividuals = 3000;
     int tournamentSize = 2;
     int nElite = 1;
-    int jn = 1;
+    int jn = 10;
     int jnf = 4;
-    int pn = 2;
+    int pn = 10;
     int pnf = 3;
     int dMax = 10;
     int penalty = 2;
@@ -92,7 +92,7 @@ int main(){
         //}
         population.tournamentSelection(tournamentSize,nElite);
        
-        population.crossover(probCrossOver);
+        population.crossover(probCrossOver, "randomWidth");
         if(addDel == 1){
             population.callAddDelNodes(data.minX, data.maxX);
         }
