@@ -969,7 +969,7 @@ class Population {
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
                 subNodesStart = distributionUniform(*generator);
             }
-            std::vector<int> nodeIndices;
+            std::vector<int> nodeIndices = {subNodesStart};;
             for(int i=0; i<individual.innerNodes.size(); i++){
                 if(individual.innerNodes[i].traverseCounter >= individual.innerNodes[subNodesStart].traverseCounter){
                     nodeIndices.push_back(i);
