@@ -350,7 +350,9 @@ class Population {
          */
         void tournamentSelection(int N, int E){
             std::vector<Network> selection;
+            selection.reserve(individuals.size()); 
             std::unordered_set<int> tournament;
+            tournament.reserve(N);
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
             meanFitness = 0;
             minFitness = individuals[0].fitness;
@@ -372,19 +374,18 @@ class Population {
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
-                meanFitness += individuals[indexBestIndTournament].fitness;
-                if (individuals[indexBestIndTournament].fitness < minFitness) {
-                    minFitness = individuals[indexBestIndTournament].fitness;
+                meanFitness += bestFitTournament;
+                if (bestFitTournament < minFitness) {
+                    minFitness = bestFitTournament;
                 }
-                if (individuals[indexBestIndTournament].fitness > bestFit) {
-                    bestFit = individuals[indexBestIndTournament].fitness;
+                if (bestFitTournament > bestFit) {
+                    bestFit = bestFitTournament;
                 }
             }
             setElite(E, individuals, selection);
             individuals = std::move(selection);
             meanFitness /= individuals.size();
         }
-
         /**
          * @brief Identifies and preserves the elite individuals in the selection.
          * 
