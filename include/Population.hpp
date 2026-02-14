@@ -748,12 +748,12 @@ class Population {
                     std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size()); 
                     
                     // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
-                    if(successor1.size() - successor2.size() >= parent1.innerNodes.size() -2 ||
-                       successor2.size() - successor1.size() >= parent2.innerNodes.size() -2){
+                    if((int)successor1.size() - (int)successor2.size() >= (int)parent1.innerNodes.size() - 2 ||
+                       (int)successor2.size() - (int)successor1.size() >= (int)parent2.innerNodes.size() - 2) {
+                        std::cout << "crossover skipped for individual pair at indices " << inds[i] << " and " << inds[i+1] << " because of too small network size after crossover" << std::endl;
                         return;
                     }
 
-                    if(successor1.size() == 0 || successor2.size() == 0){ 
                         // node is unused TODO!
                         return;
                     } else { 
