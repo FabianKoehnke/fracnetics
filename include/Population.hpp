@@ -971,8 +971,12 @@ class Population {
                 subNodesStart = distributionUniform(*generator);
             }
             std::vector<int> nodeIndices = {subNodesStart};;
+            if (individual.innerNodes[subNodesStart].used == false){
+                return nodeIndices; // if the node is unused, no successor nodes can be found
+            }
+
             for(int i=0; i<individual.innerNodes.size(); i++){
-                if(individual.innerNodes[i].traverseCounter >= individual.innerNodes[subNodesStart].traverseCounter){
+                if(individual.innerNodes[i].traverseCounter > individual.innerNodes[subNodesStart].traverseCounter){
                     nodeIndices.push_back(i);
                 }
             }
