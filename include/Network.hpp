@@ -64,6 +64,9 @@ class Network {
         int nUsedNodes; /**< Number of nodes that have been used during network traversal */
         int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
+        int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
+        size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
+
         /** @endcond */
 
         /** @name Constructor */
@@ -215,6 +218,7 @@ class Network {
            clearUsedNodes();
            currentNodeID = startNode.edges[0];
            innerNodes[currentNodeID].used = true;
+           innerNodes[currentNodeID].traverseCounter += 1;
            nConsecutiveP = 0;
            invalid = false;
            int dec;
@@ -269,6 +273,8 @@ class Network {
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
                 innerNodes[currentNodeID].used = true;
+                traverseCounter ++;
+                innerNodes[currentNodeID].traverseCounter = traverseCounter;
                 nConsecutiveP ++;
 
             } else if (innerNodes[currentNodeID].type == "J"){
@@ -279,6 +285,8 @@ class Network {
                     int judgeResult = innerNodes[currentNodeID].judge(v);
                     currentNodeID = innerNodes[currentNodeID].edges[judgeResult];
                     innerNodes[currentNodeID].used = true;
+                    traverseCounter ++;
+                    innerNodes[currentNodeID].traverseCounter = traverseCounter;
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
@@ -289,6 +297,8 @@ class Network {
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
                 innerNodes[currentNodeID].used = true;
+                traverseCounter ++;
+                innerNodes[currentNodeID].traverseCounter = traverseCounter;
                 nConsecutiveP ++;
            }
             return dec;
@@ -338,6 +348,7 @@ class Network {
             clearUsedNodes();
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
             int dec;
             invalid = false;
             float correct = 0;
@@ -497,6 +508,7 @@ class Network {
             clearUsedNodes();
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
             int dec = 0;
             CartPole cp(generator);
             fitness = 0;
