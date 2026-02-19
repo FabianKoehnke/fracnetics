@@ -742,7 +742,6 @@ class Network {
                     }
 
                     innerNodes.erase(innerNodes.begin()+n);
-                    break; // TODO del this! 
                 }
             }
         }
