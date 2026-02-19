@@ -47,7 +47,7 @@
 class Network {
     private:
         std::shared_ptr<std::mt19937_64> generator; ///< Shared pointer to random number generator for stochastic operations
-    
+
     public:
         /** @cond INTERNAL */
         unsigned int jn; /**< Number of inital judgment nodes in the network */
@@ -531,17 +531,19 @@ class Network {
          * 2. For each node, examines all outgoing edges
          * 3. If an edge index exceeds the valid range (≥ innerNodes.size()), it indicates
          *    the edge points to a deleted or non-existent node
-         * 4. Calls the node's changeEdge() method to randomly select a new valid target node
+         * 4. If an edge points to the node itself (edge == node.id), creating a self-loop
+         * 5. Calls the node's changeEdge() method to randomly select a new valid target node
          * 
          * This ensures the network graph remains well-defined with all edges pointing
-         * to existing nodes, preventing runtime errors during network traversal.
+         * to existing nodes and preventing self-loops, which helps avoid runtime errors 
+         * during network traversal.
          * 
          * @note This function should be called after any operation that removes nodes
          */
         void changeFalseEdges(){
             for(auto& node : innerNodes){
                 for(auto& edge : node.edges){
-                    if(edge > innerNodes.size()-1){ // edge has no successor node -> set new one
+                    if(edge > innerNodes.size()-1 || edge == node.id){ // edge has no successor node or pointing to itself -> change edge to a random valid node
                         edge = node.changeEdge(innerNodes.size(), edge);
                     }
                 }
