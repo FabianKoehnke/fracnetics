@@ -642,7 +642,7 @@ class Network {
          * @post Node IDs are contiguous from 0 to innerNodes.size()-1
          * 
          */
-        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk, std::vector<int> nFeatureValues){ 
+        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk, std::vector<int>& nFeatureValues){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
             float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
@@ -679,21 +679,20 @@ class Network {
 
 
                         if(fractalJudgment == false || nOutgoingEdges != 0){ // fractal or categorical feature
-                            innerNodes.back().setEdges("J", pn+jn, nOutgoingEdges);
+                            innerNodes.back().setEdges("J", innerNodes.size(), nOutgoingEdges);
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
                         }
                         else if(fractalJudgment == true && nOutgoingEdges == 0){ 
-                            std::pair<int, int> k_d = random_k_d_combination(pn+jn, generator); // normaly pn+jn-1 but jn counter comes later
+                            std::pair<int, int> k_d = random_k_d_combination(innerNodes.size(), generator); // normaly pn+jn-1 but jn counter comes later
                             innerNodes.back().k_d.first = k_d.first;
                             innerNodes.back().k_d.second = k_d.second;
-                            innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+                            innerNodes.back().setEdges("J", innerNodes.size(), pow(k_d.first,k_d.second));
                             innerNodes.back().productionRuleParameter = randomParameterCuts(innerNodes.back().k_d.first-1, generator);
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
                         }
-
-                        jn += 1;
                     }
+
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
@@ -726,12 +725,6 @@ class Network {
                     // by a startnode ist always used. 
                     if(startNode.edges[0] > n){
                         startNode.edges[0] -= 1;
-                    }
-
-                    if(innerNodes[n].type == "J"){
-                        jn -= 1;
-                    }else if (innerNodes[n].type == "P") {
-                        pn -= 1;
                     }
 
                     innerNodes.erase(innerNodes.begin()+n);
