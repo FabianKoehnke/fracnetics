@@ -1005,13 +1005,6 @@ class Population {
                 }
                 parent1.remapNodeIdsAndEdges(map,indices,true);
 
-                if(parent1.innerNodes[nodeIndex].type == "J"){
-                    parent1.jn -= 1;
-                }else if (parent1.innerNodes[nodeIndex].type == "P") {
-                    parent1.pn -= 1;
-                }
-                // delete overhang nodes from parent1
-                parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
             }
         }
 
