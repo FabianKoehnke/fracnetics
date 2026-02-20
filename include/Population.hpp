@@ -985,15 +985,19 @@ class Population {
             int overhang = successor1.size() - successor2.size();
             for(int i=0; i<overhang; i++){
 
+                // delete overhang nodes from parent1
                 int nodeIndex = successor1[successor1.size()-1-i]; // node index for deletion
+
+                parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
+                //std::cout << "deleted node " << nodeIndex << " from parent1" << std::endl;
 
                 // initialize deletion map
                 std::unordered_map<int, int> map;
-                for(int i=nodeIndex; i<parent1.innerNodes.size(); i++){
+                for(int i=nodeIndex; i<parent1.innerNodes.size()+1; i++){
                     map[i+1] = i;
                 }
                 // random number for deleted node
-                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size()-1, nodeIndex);
+                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size(), nodeIndex);
                 // remap nodes
                 std::vector<int> indices; 
                 for(int k=0; k<parent1.innerNodes.size(); k++){// all node must be checked for remaping 
