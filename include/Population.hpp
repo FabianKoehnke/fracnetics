@@ -1019,13 +1019,17 @@ class Population {
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
                 subNodesStart = distributionUniform(*generator);
             }
-            std::vector<int> nodeIndices = {subNodesStart};;
+            std::vector<int> nodeIndices;
+            //std::cout << "first node used?: " << individual.innerNodes[subNodesStart].used << std::endl;
             if (individual.innerNodes[subNodesStart].used == false){
+                nodeIndices.push_back(subNodesStart);
                 return nodeIndices; // if the node is unused, no successor nodes can be found
             }
 
+            int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
             for(int i=0; i<individual.innerNodes.size(); i++){
-                if(individual.innerNodes[i].traverseCounter > individual.innerNodes[subNodesStart].traverseCounter){
+                int traverseCounterNode = individual.innerNodes[i].traverseCounter;
+                if(traverseCounterNode >= traverseCounterStart * 0.9 && traverseCounterNode <= traverseCounterStart * 1.1){ 
                     nodeIndices.push_back(i);
                 }
             }
