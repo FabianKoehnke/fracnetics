@@ -952,15 +952,9 @@ class Population {
 
             int overhang = successor1.size() - successor2.size();
             for(int i=0; i<overhang; i++){
-                int nodeIndex = successor1[successor1.size()-1+i];
+                int nodeIndex = successor1[successor2.size()+i];
                 parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
-
-                if(parent2.innerNodes.back().type == "J"){
-                    parent2.jn += 1;
-                }else if (parent2.innerNodes.back().type == "P") {
-                    parent2.pn += 1;
-                }
-
+                //std::cout << "added node " << nodeIndex << " from parent1 to parent2" << std::endl;
             }
         }
 
