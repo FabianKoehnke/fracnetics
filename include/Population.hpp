@@ -445,15 +445,23 @@ class Population {
          * 
          * @param probInnerNodes Probability (in [0.0, 1.0]) that each edge of inner nodes will be mutated
          * @param probStartNode Probability (in [0.0, 1.0]) that the start node's edge will be mutated
+         * @param justUsedNodes If true, only applies edge mutation to nodes that were used during traversal (node.used == true). 
+         * If false, applies to all nodes regardless of usage.
          * 
          * @warning tournamentSelection() must have been called to set indicesElite
          * 
          */
-        void callEdgeMutation(float probInnerNodes, float probStartNode){
+        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false){
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
+                        if(justUsedNodes == true){
+                            if(node.used == true){
+                                node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
+                            }
+                        } else {
                         node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
+                        }
                     }
                     individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size());
                  }
