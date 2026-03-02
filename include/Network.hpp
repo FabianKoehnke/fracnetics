@@ -532,6 +532,30 @@ class Network {
         }
 
         /**
+         * @brief Validates node indices and edge connections in the network.
+         * 
+         * @details
+         * This method performs integrity checks on the network's structure by:
+         * 1. Verifying that each node's ID matches its index in the innerNodes vector
+         * 2. Ensuring that all edges point to valid node indices within the bounds of innerNodes
+         * 
+         * If any inconsistencies are found (e.g., node ID mismatch or edge pointing to non-existent node), 
+         * error messages are printed to standard error output. 
+         */
+        void checkNodeIndicesAndEdges(std::string msg=""){
+            for(int n=0; n<innerNodes.size();n++){
+                if(innerNodes[n].id != n){
+                    std::cerr << "[ERROR] after" << msg << "Node index mismatch: node at index " << n << " has id " << innerNodes[n].id << std::endl;
+                }
+                for(auto& edge : innerNodes[n].edges){
+                    if(edge > innerNodes.size()-1){
+                        std::cerr << "[ERROR] after" << msg << "Edge index out of bounds: node " << n << " has edge pointing to " << edge << " but max index is " << innerNodes.size()-1 << std::endl;
+                    }
+                }
+            }
+        }
+
+        /**
          * @brief Corrects invalid edge connections that point to non-existent nodes.
          * 
          * @details
