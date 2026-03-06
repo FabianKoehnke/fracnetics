@@ -2,6 +2,7 @@
 #define NETWORK_HPP
 /// \cond INTERNAL
 #include <cmath>
+#include <iostream>
 #include <random>
 #include <utility>
 #include <vector>
@@ -415,21 +416,28 @@ class Network {
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
         void fitGymnasium(
-            GymEnvWrapper env,
+            GymEnvWrapper& env,
             int dMax,
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            int seed,
-            float gamma = 1
+            int seed
             ){
 
             auto reset_out = env.reset(seed=seed);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
             auto info = reset_out[1];
             clearUsedNodes();
+            // clearing traverseCounter for each node and network
+            for(auto& node : innerNodes){
+                node.traverseCounter = 0;
+            }
+            traverseCounter = 0;
+
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
+            traverseCounter ++;
             int dec;
             fitness = 0;
             nConsecutiveP = 0;
@@ -442,18 +450,17 @@ class Network {
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
                     fitness = worstFitness;
-                    break;
+                    return;
                 }
 
                 auto result = env.step(dec);
                 obs = result[0].cast<std::vector<double>>(); 
-                fitness += std::pow(gamma, steps) * result[1].cast<float>();
+                fitness += result[1].cast<float>();
                 steps ++;
                 if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
-          
             }
         }
-          
+                 
         /**
          * @brief Evaluates network fitness on the CartPole balancing problem.
          * 
