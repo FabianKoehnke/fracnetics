@@ -282,12 +282,19 @@ class Population {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            int seed,
-            float gamma=1
+            int seed
                 ){
-            applyFitness([=](Network& network){
-                    network.fitGymnasium(env,dMax,maxSteps,maxConsecutiveP,worstFitness,seed,gamma);
-            });
+
+            for(auto& network : individuals){
+                network.fitGymnasium(
+                        env,
+                        dMax,
+                        maxSteps,
+                        maxConsecutiveP,
+                        worstFitness,
+                        seed
+                        );
+            }
         }
 
         /**
