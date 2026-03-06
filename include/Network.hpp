@@ -65,6 +65,7 @@ class Network {
         int nUsedNodes; /**< Number of nodes that have been used during network traversal */
         int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
+        std::vector<float> fitnessValues = {}; /** placeholder for storing multiple fitness values */
         int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
         size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
 
