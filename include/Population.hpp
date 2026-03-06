@@ -4,7 +4,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <ranges>
 #include <random>
 #include <unordered_set>
 #include <utility>
@@ -770,17 +769,6 @@ class Population {
 
                     std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
                     std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
-                    // DEBUG print alles values of successor1 and successor2
-                    //for (int index : successor1) {
-                    //    std::cout << "successor1 index: " << index << std::endl;
-                    //}
-                    //std::cout << "-----------------" << std::endl;
-                    //for (int index : successor2) {
-                      //  std::cout << "successor2 index: " << index << std::endl;
-                    //}
-                    //std::cout << "-----------------" << std::endl;
-                    //std::cout << "successor1: " << successor1.size() << " successor2: " << successor2.size() << std::endl;
-                    //std::cout << "parent1 size: " << parent1.innerNodes.size() << " parent2 size: " << parent2.innerNodes.size() << std::endl;
                     // swap map from individual1 to individual2 (key is the old index and the value is the new index)
                     std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
                     // swap map from individual2 to individual1 (key is the old index and the value is the new index)
@@ -788,27 +776,19 @@ class Population {
                     
                     // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
                     if((int)successor1.size() - (int)successor2.size() >= (int)parent1.innerNodes.size() - 2 ||
-                       (int)successor2.size() - (int)successor1.size() >= (int)parent2.innerNodes.size() - 2) {
-                        //std::cout << "crossover skipped for individual pair at indices " << inds[i] << " and " << inds[i+1] << " because of too small network size after crossover" << std::endl;
+                       (int)successor2.size() - (int)successor1.size() >= (int)parent2.innerNodes.size() - 2 ||
+                       (successor1.size() == 1 && successor2.size() == 1) ) {
                         continue;
                     }
 
-                    //if(successor1.size() == 1){
-                      //  std::cout << "swap unused node " << successor1[0] << std::endl;
-                    //} else if(successor2.size() == 1){
-                      //  std::cout << "swap unused node " << successor2[0] << std::endl;
-                    //}
-
                     parent1.nCrossovers += 1;
                     parent2.nCrossovers += 1;
-                    std::cout << "crossover applied for individual pair at indices " << inds[i] << " and " << inds[i+1] << std::endl;
 
                     // exchange all nodes until same subnetwork size is reached 
                     int minSubNodes = std::min(successor1.size(), successor2.size());
                     for(int i=0; i<minSubNodes; i++){ 
 
                         std::swap(parent1.innerNodes[successor1[i]], parent2.innerNodes[successor2[i]]);
-                        //std::cout << "swapped node " << successor1[i] << " of parent1 with node " << successor2[i] << " of parent2" << std::endl;
                     }
 
                     // add overhang nodes
@@ -819,16 +799,6 @@ class Population {
                        addOverhangNodes(successor2, successor1, parent2, parent1);
                     }
 
-
-                    // print keys and values of swapMap1
-                    //for (const auto& [key, value] : swapMap1) {
-                        //std::cout << "swapMap1 - key: " << key << ", value: " << value << std::endl;
-                    //}
-                    //  print keys and values of swapMap2
-                    //for (const auto& [key, value] : swapMap2) {
-                        //std::cout << "swapMap2 - key: " << key << ", value: " << value << std::endl;
-                    //}
-
                     // initialize swap maps for remapping nodes and edges of both individuals
                     // TODO is this necessary? Could we use succesor vectors?
                     std::vector<int> indices1;
@@ -836,29 +806,17 @@ class Population {
                     for (auto const& [key, val] : swapMap1) {
                         indices1.push_back(val);
                     }
-                    // print all values in indices1
-                    //for (int index : indices1) {
-                     //   std::cout << "indices1 value: " << index << std::endl;
-                    //}
 
                     std::vector<int> indices2;
                     indices2.reserve(swapMap2.size()); 
                     for (auto const& [key, val] : swapMap2) {
                         indices2.push_back(val);
                     }
-                    // print all values in indices2
-                    //for (int index : indices2) {
-                      //  std::cout << "indices2 value: " << index << std::endl;
-                    //}
 
                     // remap nodes and edges of both individuals according to the swap maps 
                     parent1.remapNodeIdsAndEdges(swapMap2,indices2,false);
                     parent2.remapNodeIdsAndEdges(swapMap1,indices1,false);
 
-                    //parent1.checkNodeIdsAndEdges("crossover after remapping p1");
-                    //parent2.checkNodeIdsAndEdges("crossover after remapping p2");
-
-                   
                     // delete overhang nodesToExchange
                     if(successor1.size() > successor2.size()){
                         deleteOverhangNodes(successor1, successor2, parent1);
@@ -868,13 +826,8 @@ class Population {
                     }
 
                     // TODO necessary?
-                    //parent1.checkNodeIdsAndEdges("crossover after deletion p1");
-                    //parent2.checkNodeIdsAndEdges("crossover after deletion p2");
-
                     parent1.changeFalseEdges();
                     parent2.changeFalseEdges();
-
-
                    
                 } else{
                     for(int k : nodesToExchange){ // for each node
