@@ -611,29 +611,36 @@ class Network {
          * @param includeStartNode If true, remaps the first edge of the start node if it
          * exists in the mapping. Defaults to false.
          */
-        void remapNodeIdsAndEdges(std::unordered_map<int, int>& map, const std::vector<int>& nodeIndices, bool includeStartNode = false){
-            if(map.empty()) return; // Prevent segmentation fault on empty mapping
+        void remapNodeIdsAndEdges(
+                std::unordered_map<int, 
+                int>& map, 
+                const std::vector<int>& nodeIndices, 
+                bool includeStartNode = false){
+
+            if(map.empty()) {
+                return;
+            }
 
             if(includeStartNode){
                 if(map.contains(startNode.edges[0])){
                     startNode.edges[0] = map[startNode.edges[0]];
-                }
+                } 
             }
 
             for(int ni: nodeIndices){
 
                 if(map.contains(innerNodes[ni].id)){
                     innerNodes[ni].id = map[innerNodes[ni].id];
-                }
+                } 
 
-                for(auto& edge : innerNodes[ni].edges){
+                for(size_t edgeIdx = 0; edgeIdx < innerNodes[ni].edges.size(); ++edgeIdx){
+                    auto& edge = innerNodes[ni].edges[edgeIdx];
                     if(map.contains(edge)){
-                        edge = map[edge];
-                    }
+                           edge = map[edge];
+                    } 
                 }
             }
         }
-
         /**
          * @brief Performs network grow and shrink during the evolution.
          * 
