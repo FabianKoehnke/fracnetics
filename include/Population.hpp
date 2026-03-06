@@ -489,18 +489,25 @@ class Population {
          * 
          * @tparam FuncMutation Callable type that accepts (Node&, const additionalMutationParam&)
          * @param func Mutation function to apply to each judgment node
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note This is an internal template used by specialized boundary mutation methods
          */
         template <typename FuncMutation>
-        void applyBoundaryMutation(FuncMutation&& func) {
+        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false) {
             for (int i = 0; i < individuals.size(); ++i) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {
                     additionalMutationParam amp;
                     amp.networkSize = individuals[i].innerNodes.size();
                     for (auto& node : individuals[i].innerNodes) {
                         if (node.type == "J") {
-                           func(node, amp); 
+                           if (justUsedNodes == true) {
+                                if (node.used == true) {
+                                    func(node, amp, justUsedNodes);
+                                }
+                            } else { 
+                           func(node, amp, justUsedNodes); 
+                            }
                         }
                     }
                 }
@@ -518,10 +525,11 @@ class Population {
          * @see Node::boundaryMutationUniform()
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          */
-        void callBoundaryMutationUniform(const float probability){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){ 
+        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){ 
                 node.boundaryMutationUniform(probability);
             });
         }
@@ -540,11 +548,12 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Standard deviation of the normal distribution
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */
-        void callBoundaryMutationNormal(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 node.boundaryMutationNormal(probability, sigma);
             });
         }
@@ -567,12 +576,13 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Base standard deviation (will be scaled down based on network size)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Effective for problems where network size evolves during optimization
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp){
+        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes){
                 float sigmaNew = sigma * (1/log(amp.networkSize));
                 node.boundaryMutationNormal(probability, sigmaNew);
             });
@@ -597,12 +607,13 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Standard deviation (will be scaled down based on edge count)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Particularly useful when networks have heterogeneous judgment node structures
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 float sigmaNew = sigma * (1/log(node.edges.size()));
                 node.boundaryMutationNormal(probability, sigmaNew);
             });
@@ -625,12 +636,13 @@ class Population {
          * @param probability Probability (in [0.0, 1.0]) that each production parameter will be mutated
          * @param minF Vector of minimum values for all features (used for boundary recalculation)
          * @param maxF Vector of maximum values for all features (used for boundary recalculation)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @warning Only applicable if fractalJudgment is enabled (fractalJudgment = True)
          * @see Node::boundaryMutationFractal()
          */
-        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 node.boundaryMutationFractal(probability, minF, maxF);
             });
         }
