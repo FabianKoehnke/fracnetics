@@ -140,6 +140,7 @@ class Network {
             // network so that parallel CartPole episodes start from different initial states.
             individual_generator->seed(std::hash<uintptr_t>{}(reinterpret_cast<uintptr_t>(this)));
         }
+        /** @} */
 
         /** @name Member Functions */
         /** @{ */
