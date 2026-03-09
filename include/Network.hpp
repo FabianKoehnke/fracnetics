@@ -749,7 +749,7 @@ class Network {
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
-                        innerNodes.size() * (1-junk) - nUsedNodes > 1 &&
+                        innerNodes.size() * (1-junk) - nUsedNodes > 0 &&
                         innerNodes[n].used == false) // node is not used
                 {// deleting nodes
 
