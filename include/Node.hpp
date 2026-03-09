@@ -412,10 +412,6 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each interior boundary will be mutated
          * @param sigma standard deviation of the normal distribution (later scaled by mu)
-         * 
-         * @note The standard deviation `sigma` is scaled by the current boundary value (`mu`) 
-         * to maintain a consistent relative mutation strength. This ensures that boundaries with larger magnitude
-         * receive proportionally similar adjustments as smaller boundaries
          */
         void boundaryMutationNormal(float propability, float sigma){
             std::bernoulli_distribution distributionBernoulli(propability);
@@ -423,8 +419,7 @@ class Node {
                 bool result = distributionBernoulli(*generator);
                 if(result){
                     float mu = boundaries[i];
-                    float scaledSigma = sigma * mu;
-                    std::normal_distribution<float> distributionNormal(mu,scaledSigma);
+                    std::normal_distribution<float> distributionNormal(mu, sigma);
                     float newBoundary = distributionNormal(*generator);
                     if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){ // preventing overlapping boundaries
                         boundaries[i] = newBoundary; 
