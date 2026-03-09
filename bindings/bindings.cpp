@@ -222,7 +222,7 @@ PYBIND11_MODULE(_core, m) {
                 py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed")
             )
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
-        .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes"), py::arg("adaptToEdgeSize"))
+        .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("adaptToEdgeSize")=false)
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes"))
         .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform, py::arg("probability"), py::arg("justUsedNodes"))
         .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes"))
