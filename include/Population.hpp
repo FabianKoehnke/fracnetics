@@ -5,6 +5,9 @@
 #include <unordered_set>
 #include <utility>
 #include <cmath>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "Network.hpp"
 #include "GymnasiumWrapper.hpp"
 
@@ -182,8 +185,11 @@ class Population {
                 const std::vector<std::vector<float>>& X,
                 int dMax
                 ){
-            for (auto& network : individuals){
-                network.traversePath(X,dMax);
+            #ifdef _OPENMP
+            #pragma omp parallel for schedule(dynamic)
+            #endif
+            for (int i = 0; i < static_cast<int>(individuals.size()); ++i){
+                individuals[i].traversePath(X,dMax);
             }
         }
 
@@ -244,9 +250,12 @@ class Population {
                 int dMax,
                 int penalty
                 ){
-            applyFitness([=](Network& network){
-                    network.fitAccuracy(X,y,dMax,penalty);
-            });
+            #ifdef _OPENMP
+            #pragma omp parallel for schedule(dynamic)
+            #endif
+            for (int i = 0; i < static_cast<int>(individuals.size()); ++i){
+                individuals[i].fitAccuracy(X,y,dMax,penalty);
+            }
         }
         /** @endcond */
 
@@ -255,7 +264,9 @@ class Population {
          * 
          * @details
          * This method applies fitGymnasium() to the entire population as reinforcement learning agents in
-         * a Gymnasium environment. 
+         * a Gymnasium environment. Evaluation is performed sequentially because Gymnasium environments
+         * rely on Python objects whose access is serialised by the Python GIL, preventing true
+         * thread-level parallelism.
          * 
          * @param env GymEnvWrapper object providing interface to the Gymnasium environment
          * @param dMax Maximum consecutive judgment nodes per decision (prevents infinite loops in graph traversal)
@@ -299,9 +310,12 @@ class Population {
                 int maxSteps,
                 int maxConsecutiveP
                 ){
-            applyFitness([=](Network& network){
-                    network.fitCartpole(dMax,penalty,maxSteps,maxConsecutiveP);
-            });
+            #ifdef _OPENMP
+            #pragma omp parallel for schedule(dynamic)
+            #endif
+            for (int i = 0; i < static_cast<int>(individuals.size()); ++i){
+                individuals[i].fitCartpole(dMax,penalty,maxSteps,maxConsecutiveP);
+            }
         }
 
         /**
