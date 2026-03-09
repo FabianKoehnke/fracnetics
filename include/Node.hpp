@@ -251,12 +251,17 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each individual edge will be mutated
          * @param nn Total number of nodes in the network (used to determine valid mutation targets)
+         * @param adaptToEdgeSize If true, mutation probability is adapted to the number of edges (e.g., propability / edges.size()). 
+         * If false, the provided propability is used directly for each edge.
          * 
          * @note No self-loops are introduced by the mutation and 
          * the edges vector maintains its original size
          * 
          */
-        void edgeMutation(float propability, int nn){
+        void edgeMutation(float propability, int nn, bool adaptToEdgeSize = false){
+            if(adaptToEdgeSize){
+                propability = propability / edges.size();
+            }
             std::bernoulli_distribution distributionBernoulli(propability);
             for(auto& edge : edges){
                 bool result = distributionBernoulli(*generator);
