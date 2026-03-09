@@ -272,7 +272,7 @@ PYBIND11_MODULE(_core, m) {
             },
             py::arg("minF"),
             py::arg("maxF"),
-            py::arg("junk")
+            py::arg("junk")=0
         )
 
         // pickle support 
