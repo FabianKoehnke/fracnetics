@@ -453,20 +453,22 @@ class Population {
          * @param probStartNode Probability (in [0.0, 1.0]) that the start node's edge will be mutated
          * @param justUsedNodes If true, only applies edge mutation to nodes that were used during traversal (node.used == true). 
          * If false, applies to all nodes regardless of usage.
-         * 
+         * @param adaptToEdgeSize If true, mutation probability is adapted based on the number of edges (e.g., more edges → lower mutation probability) to prevent excessive disruption in highly connected nodes. 
+         * @note adaptToEdgeSize not holds for starnode, because it has only one edge and should be mutated with the same probability as nodes with few edges to allow topology changes.
+         *
          * @warning tournamentSelection() must have been called to set indicesElite
          * 
          */
-        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false){
+        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, bool adaptToEdgeSize = false){
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
                         if(justUsedNodes == true){
                             if(node.used == true){
-                                node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
+                                node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
                             }
                         } else {
-                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
+                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
                         }
                     }
                     individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size());
