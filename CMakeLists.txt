@@ -10,6 +10,9 @@ include_directories(include)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
+# OpenMP support for parallel fitness evaluation
+find_package(OpenMP)
+
 # Build the Python module
 pybind11_add_module(_core bindings/bindings.cpp)
 
@@ -20,4 +23,8 @@ set_target_properties(_core PROPERTIES
 install(TARGETS _core DESTINATION fracnetics)
 
 target_compile_features(_core PUBLIC cxx_std_20)
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(_core PRIVATE OpenMP::OpenMP_CXX)
+endif()
 

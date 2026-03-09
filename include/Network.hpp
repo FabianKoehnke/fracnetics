@@ -46,6 +46,7 @@
 class Network {
     private:
         std::shared_ptr<std::mt19937_64> generator; ///< Shared pointer to random number generator for stochastic operations
+        std::shared_ptr<std::mt19937_64> individual_generator; ///< Per-network RNG used exclusively during fitness evaluation; never shared between networks, enabling thread-safe parallel evaluation
     
     public:
         /** @cond INTERNAL */
@@ -95,6 +96,7 @@ class Network {
                 bool _fractalJudgment
                 ):
             generator(_generator),
+            individual_generator(std::make_shared<std::mt19937_64>(0)), ///< initially seeded with 0; reseeded uniquely from this-pointer after construction (see constructor body)
             jn(_jn),
             jnf(_jnf),
             pn(_pn),
@@ -133,6 +135,10 @@ class Network {
                             ));
                 innerNodes.back().setEdges("P", jn+pn);
             }
+            // Seed individual_generator uniquely per network object without consuming from the
+            // shared population generator.  The object address provides a distinct seed for each
+            // network so that parallel CartPole episodes start from different initial states.
+            individual_generator->seed(std::hash<uintptr_t>{}(reinterpret_cast<uintptr_t>(this)));
         }
         /** @} */
 
@@ -483,7 +489,7 @@ class Network {
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
             int dec = 0;
-            CartPole cp(generator);
+            CartPole cp(individual_generator);
             fitness = 0;
             nConsecutiveP = 0;
             invalid = false;
