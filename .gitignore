@@ -38,4 +38,5 @@ tests/iris
 # examples 
 examples/*.html
 examples/lib 
+tests/.ipynb_checkpoints
 
