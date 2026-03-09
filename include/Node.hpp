@@ -39,6 +39,7 @@ class Node {
         std::vector<float> productionRuleParameter = {}; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
+        unsigned int traverseCounter = 0; /** counter of the traversed path. Allow filter of successor nodes */
         /** @endcond */
         
         /** @name Constructor */
