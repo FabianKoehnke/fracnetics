@@ -223,10 +223,10 @@ PYBIND11_MODULE(_core, m) {
             )
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("adaptToEdgeSize")=false)
-        .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes"))
-        .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform, py::arg("probability"), py::arg("justUsedNodes"))
-        .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes"))
-        .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes"))
+        .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
+        .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform, py::arg("probability"), py::arg("justUsedNodes")=false)
+        .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
+        .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
         .def(
             "callBoundaryMutationFractal",
             [](Population &p, float probability, py::list minF_py, py::list maxF_py, bool justUsedNodes)
@@ -248,7 +248,7 @@ PYBIND11_MODULE(_core, m) {
             py::arg("probability"),
             py::arg("minF"),
             py::arg("maxF"),
-            py::arg("justUsedNodes")
+            py::arg("justUsedNodes")=false
         )
 
         .def("crossover", &Population::crossover, py::arg("probability"), py::arg("type"))
