@@ -923,6 +923,7 @@ class Population {
          * @param parent1 The parent network from which overhang nodes are extracted
          * @param parent2 The parent network to which overhang nodes are added
          *
+         * @warning successor1 and successor2 must be sorted in ascending order
          * @note The added node IDs and edges may need further adjustment to maintain graph validity.
          */
         void addOverhangNodes(
@@ -957,6 +958,8 @@ class Population {
         * @param successor1 Vector of successor node indices from the larger parent subnetwork
         * @param successor2 Vector of successor node indices from the smaller parent subnetwork
         * @param parent1 The larger parent subnetwork from which overhang nodes will be deleted (modified in-place)
+        *
+         * @warning successor1 and successor2 must be sorted in ascending order
         */
         void deleteOverhangNodes(
                 const std::vector<int>& successor1,// larger subnetwork 
