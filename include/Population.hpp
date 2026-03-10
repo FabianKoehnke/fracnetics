@@ -991,30 +991,52 @@ class Population {
         }
 
         /**
-         * @brief Find all succesor nodes after path traversal 
-         * @details 
-         * @param individual (network)
-         * @param subNodesStart (node index) start of the subnetwork. If -1, a random node index will be selected. 
+         * @brief Find all successor nodes reachable after path traversal from a given start node.
+         *
+         * @details Starting from @p subNodesStart, this method collects successor nodes by
+         * comparing traverse counters. Nodes whose traverse counter is greater than that of the
+         * start node are considered successors. If the start node is unused, only the start node
+         * itself is returned. The resulting indices are sorted in ascending order.
+         *
+         * @param individual The individual (network) whose inner nodes are traversed.
+         * @param subNodesStart Index of the starting node in @c individual.innerNodes.
+         *                      If -1, a random index is selected uniformly from the available inner nodes.
+         * @param nSelectedNodes Maximum number of successor nodes to collect (excluding the start node).
+         *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
+         * @return A sorted vector of node indices comprising the start node and up to
+         *         @p nSelectedNodes successors.
          */
-        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1){
+        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1){
+
             if(subNodesStart == -1){
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
                 subNodesStart = distributionUniform(*generator);
             }
+
+            if(nSelectedNodes == -1){
+                std::uniform_int_distribution<int> distributionUniform(1, individual.innerNodes.size()-1);
+                nSelectedNodes = distributionUniform(*generator);
+            }
+
             std::vector<int> nodeIndices;
-            //std::cout << "first node used?: " << individual.innerNodes[subNodesStart].used << std::endl;
             if (individual.innerNodes[subNodesStart].used == false){
                 nodeIndices.push_back(subNodesStart);
                 return nodeIndices; // if the node is unused, no successor nodes can be found
             }
 
+            nodeIndices.push_back(subNodesStart);
             int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
             for(int i=0; i<individual.innerNodes.size(); i++){
                 int traverseCounterNode = individual.innerNodes[i].traverseCounter;
-                if(traverseCounterNode >= traverseCounterStart * 0.9 && traverseCounterNode <= traverseCounterStart * 1.1){ 
+                if(traverseCounterNode > traverseCounterStart){
                     nodeIndices.push_back(i);
+                    nSelectedNodes --;
+                    if (nSelectedNodes == 0){
+                        break;
+                    }
                 }
             }
+            std::sort(nodeIndices.begin(), nodeIndices.end());
             return nodeIndices;
         }
 
