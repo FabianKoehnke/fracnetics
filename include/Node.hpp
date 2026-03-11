@@ -36,9 +36,10 @@ class Node {
         unsigned int f; /**< Node function: feature index for judgment nodes or output value for processing nodes */
         std::vector<int> edges; /**< Indices of successor nodes (outgoing edges) */
         std::vector<double> boundaries; /**< Decision boundaries for judgment nodes (divides feature space into intervals) */
-        std::vector<float> productionRuleParameter; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
+        std::vector<float> productionRuleParameter = {}; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
+        unsigned int traverseCounter = 0; /** counter of the traversed path. Allow filter of successor nodes */
         /** @endcond */
         
         /** @name Constructor */
@@ -251,12 +252,17 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each individual edge will be mutated
          * @param nn Total number of nodes in the network (used to determine valid mutation targets)
+         * @param adaptToEdgeSize If true, mutation probability is adapted to the number of edges (e.g., propability / edges.size()). 
+         * If false, the provided propability is used directly for each edge.
          * 
          * @note No self-loops are introduced by the mutation and 
          * the edges vector maintains its original size
          * 
          */
-        void edgeMutation(float propability, int nn){
+        void edgeMutation(float propability, int nn, bool adaptToEdgeSize = false){
+            if(adaptToEdgeSize){
+                propability = propability / edges.size();
+            }
             std::bernoulli_distribution distributionBernoulli(propability);
             for(auto& edge : edges){
                 bool result = distributionBernoulli(*generator);
@@ -368,17 +374,19 @@ class Node {
          */
         void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
-                bool result = distributionBernoulli(*generator);
-                if(result){
-                    std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
-                    productionRuleParameter[i] = distributionUniform(*generator); 
-                    boundaries.clear();
-                    std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
-                    setEdgesBoundaries(minf[f], maxf[f], fractals);
-                }
+            if(productionRuleParameter.size() > 0){ // some node are not fractals, e.g., categorical features
+                for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
+                    bool result = distributionBernoulli(*generator);
+                    if(result){
+                        std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
+                        productionRuleParameter[i] = distributionUniform(*generator); 
+                        boundaries.clear();
+                        std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
+                        setEdgesBoundaries(minf[f], maxf[f], fractals);
+                    }
                 }
             }
+        }
 
         /**
          * @brief Mutates decision boundaries by shifting them using a normal (Gaussian) distribution.
@@ -410,10 +418,6 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each interior boundary will be mutated
          * @param sigma standard deviation of the normal distribution (later scaled by mu)
-         * 
-         * @note The standard deviation `sigma` is scaled by the current boundary value (`mu`) 
-         * to maintain a consistent relative mutation strength. This ensures that boundaries with larger magnitude
-         * receive proportionally similar adjustments as smaller boundaries
          */
         void boundaryMutationNormal(float propability, float sigma){
             std::bernoulli_distribution distributionBernoulli(propability);
@@ -421,8 +425,7 @@ class Node {
                 bool result = distributionBernoulli(*generator);
                 if(result){
                     float mu = boundaries[i];
-                    float scaledSigma = sigma * mu;
-                    std::normal_distribution<float> distributionNormal(mu,scaledSigma);
+                    std::normal_distribution<float> distributionNormal(mu, sigma);
                     float newBoundary = distributionNormal(*generator);
                     if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){ // preventing overlapping boundaries
                         boundaries[i] = newBoundary; 

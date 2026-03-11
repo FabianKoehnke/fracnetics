@@ -25,16 +25,16 @@ int main(){
     float sigmaBoundaryMutationNormal = 0.01;
     std::string boundaryMutationType = "normal"; // uniform, networkSigma, normal, edgeSigma, edgeFractal
     bool fractalJudgment = false;
-    float probCrossOver = 0.05;
+    float probCrossOver = 1;
     int generations = 200;
     int generationsNoImprovementLimit = 500;
-    int nIndividuals = 3000;
+    int nIndividuals = 10000;
     int tournamentSize = 2;
     int nElite = 1;
-    int jn = 1;
+    int jn = 2;
     int jnf = 4;
     int pn = 2;
-    int pnf = 3;
+    int pnf = 5;
     int dMax = 10;
     int penalty = 2;
     int maxConsecutiveP = 2;
@@ -92,10 +92,10 @@ int main(){
         //}
         population.tournamentSelection(tournamentSize,nElite);
        
-        population.crossover(probCrossOver);
         if(addDel == 1){
-            population.callAddDelNodes(data.minX, data.maxX);
+            population.callAddDelNodes(data.minX, data.maxX, 0.9);
         }
+        population.crossover(probCrossOver, "randomWidth");
         population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
 
         std::cout << 

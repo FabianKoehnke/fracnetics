@@ -7,6 +7,7 @@ venv
 dist
 videos
 gui
+build
 
 # files
 src/main
@@ -35,6 +36,7 @@ tests/test
 tests/iris
 
 # examples 
-examples/cartpole_solution.html
+examples/*.html
 examples/lib 
+tests/.ipynb_checkpoints
 
