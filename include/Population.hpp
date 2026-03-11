@@ -1,5 +1,8 @@
 #ifndef POPULATION_HPP
 #define POPULATION_HPP
+#include <algorithm>
+#include <string>
+#include <unordered_map>
 #include <vector>
 #include <random>
 #include <unordered_set>
@@ -55,6 +58,7 @@ class Population {
         std::vector<int> indicesElite; /**< Indices of elite individuals (protected from mutation) */
         float meanFitness = 0; /**< Mean fitness across all individuals in the population */
         float minFitness; /**< Minimum fitness value in the current population */
+        std::vector<int> nFeatureValues; /** stores the number of feature values */
         /** @endcond */
 
         /** @name Constructor */
@@ -82,7 +86,10 @@ class Population {
          * @param _pnf Number of processing node function types (determines action/output)
          * @param _fractalJudgment If true, judgment nodes use fractal-based edge patterns; if false, standard edge patterns 
          * (see boundaryMutationFractal() for more informations on fractal boundaries)
-         * 
+         * @param _nFeatureValues set the number of features values to distinguish between numerical and categorical data
+                - for numerical features: set 0 at the i-th feature 
+                - for categorical features: set the numbers of categories at feature position i. This will be the amount of outgoing edges of a judgment node 
+                - default is an empty vector and all features are treated as numerical
          */
         Population(
                 int seed,
@@ -91,7 +98,8 @@ class Population {
                 unsigned int _jnf,
                 unsigned int _pn,
                 unsigned int _pnf,
-                bool _fractalJudgment
+                bool _fractalJudgment,
+                std::vector<int> _nFeatureValues = {}
                 ):
             generator(std::make_shared<std::mt19937_64>(seed)),
             ni(_ni),
@@ -99,11 +107,12 @@ class Population {
             jnf(_jnf),
             pn(_pn),
             pnf(_pnf),
-            fractalJudgment(_fractalJudgment)
+            fractalJudgment(_fractalJudgment),
+            nFeatureValues(_nFeatureValues)
 
     {
         for(int i=0; i<ni; i++){
-            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment));
+            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment,nFeatureValues));
         }
     }
         /** @} */
@@ -274,9 +283,17 @@ class Population {
             int worstFitness,
             int seed
                 ){
-            applyFitness([=](Network& network){
-                    network.fitGymnasium(env,dMax,maxSteps,maxConsecutiveP,worstFitness,seed);
-            });
+
+            for(auto& network : individuals){
+                network.fitGymnasium(
+                        env,
+                        dMax,
+                        maxSteps,
+                        maxConsecutiveP,
+                        worstFitness,
+                        seed
+                        );
+            }
         }
 
         /**
@@ -339,7 +356,9 @@ class Population {
          */
         void tournamentSelection(int N, int E){
             std::vector<Network> selection;
+            selection.reserve(individuals.size()); 
             std::unordered_set<int> tournament;
+            tournament.reserve(N);
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
             meanFitness = 0;
             minFitness = individuals[0].fitness;
@@ -361,19 +380,18 @@ class Population {
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
-                meanFitness += individuals[indexBestIndTournament].fitness;
-                if (individuals[indexBestIndTournament].fitness < minFitness) {
-                    minFitness = individuals[indexBestIndTournament].fitness;
+                meanFitness += bestFitTournament;
+                if (bestFitTournament < minFitness) {
+                    minFitness = bestFitTournament;
                 }
-                if (individuals[indexBestIndTournament].fitness > bestFit) {
-                    bestFit = individuals[indexBestIndTournament].fitness;
+                if (bestFitTournament > bestFit) {
+                    bestFit = bestFitTournament;
                 }
             }
             setElite(E, individuals, selection);
             individuals = std::move(selection);
             meanFitness /= individuals.size();
         }
-
         /**
          * @brief Identifies and preserves the elite individuals in the selection.
          * 
@@ -433,15 +451,25 @@ class Population {
          * 
          * @param probInnerNodes Probability (in [0.0, 1.0]) that each edge of inner nodes will be mutated
          * @param probStartNode Probability (in [0.0, 1.0]) that the start node's edge will be mutated
-         * 
+         * @param justUsedNodes If true, only applies edge mutation to nodes that were used during traversal (node.used == true). 
+         * If false, applies to all nodes regardless of usage.
+         * @param adaptToEdgeSize If true, mutation probability is adapted based on the number of edges (e.g., more edges → lower mutation probability) to prevent excessive disruption in highly connected nodes. 
+         * @note adaptToEdgeSize not holds for starnode, because it has only one edge and should be mutated with the same probability as nodes with few edges to allow topology changes.
+         *
          * @warning tournamentSelection() must have been called to set indicesElite
          * 
          */
-        void callEdgeMutation(float probInnerNodes, float probStartNode){
+        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, bool adaptToEdgeSize = false){
             for(int i=0; i<individuals.size(); i++){
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
-                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size());
+                        if(justUsedNodes == true){
+                            if(node.used == true){
+                                node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
+                            }
+                        } else {
+                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
+                        }
                     }
                     individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size());
                  }
@@ -469,18 +497,25 @@ class Population {
          * 
          * @tparam FuncMutation Callable type that accepts (Node&, const additionalMutationParam&)
          * @param func Mutation function to apply to each judgment node
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note This is an internal template used by specialized boundary mutation methods
          */
         template <typename FuncMutation>
-        void applyBoundaryMutation(FuncMutation&& func) {
+        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false) {
             for (int i = 0; i < individuals.size(); ++i) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {
                     additionalMutationParam amp;
                     amp.networkSize = individuals[i].innerNodes.size();
                     for (auto& node : individuals[i].innerNodes) {
                         if (node.type == "J") {
-                           func(node, amp); 
+                           if (justUsedNodes == true) {
+                                if (node.used == true) {
+                                    func(node, amp, justUsedNodes);
+                                }
+                            } else { 
+                           func(node, amp, justUsedNodes); 
+                            }
                         }
                     }
                 }
@@ -498,10 +533,11 @@ class Population {
          * @see Node::boundaryMutationUniform()
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          */
-        void callBoundaryMutationUniform(const float probability){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){ 
+        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){ 
                 node.boundaryMutationUniform(probability);
             });
         }
@@ -520,11 +556,12 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Standard deviation of the normal distribution
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */
-        void callBoundaryMutationNormal(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 node.boundaryMutationNormal(probability, sigma);
             });
         }
@@ -547,12 +584,13 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Base standard deviation (will be scaled down based on network size)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Effective for problems where network size evolves during optimization
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp){
+        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes){
                 float sigmaNew = sigma * (1/log(amp.networkSize));
                 node.boundaryMutationNormal(probability, sigmaNew);
             });
@@ -577,12 +615,13 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Standard deviation (will be scaled down based on edge count)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @note Particularly useful when networks have heterogeneous judgment node structures
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 float sigmaNew = sigma * (1/log(node.edges.size()));
                 node.boundaryMutationNormal(probability, sigmaNew);
             });
@@ -605,12 +644,13 @@ class Population {
          * @param probability Probability (in [0.0, 1.0]) that each production parameter will be mutated
          * @param minF Vector of minimum values for all features (used for boundary recalculation)
          * @param maxF Vector of maximum values for all features (used for boundary recalculation)
+         * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          * @warning Only applicable if fractalJudgment is enabled (fractalJudgment = True)
          * @see Node::boundaryMutationFractal()
          */
-        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&){
+        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
                 node.boundaryMutationFractal(probability, minF, maxF);
             });
         }
@@ -630,53 +670,377 @@ class Population {
          * **Node exchange**:
          * 1. Determines maximum exchangeable nodes: min(parent1.size, parent2.size). This is only 
          * needed if parents have different network sizes caused by applying callAddDelNodes().
-         * 2. For each node (up to max exchangeable nodes):
+         * 2. For each node (up to max exchangeable nodes) given type:
+         *  "uniform":
          *    - With passed probability: swaps nodes at that position
          *    - After swap: repairs any invalid edges (edges pointing to non-existent nodes)
+         *  "onepoint": draw a random number from the genotype and exchange all nodes until this point
+         *  "randomWidth": exchanges subnetworks of potentially different widths between parents:
+         *    1. Identifies successor nodes (active subnetwork) in both parents using findSuccessorNodes()
+         *    2. Creates swap maps (old index -> new index) for remapping nodes between parents
+         *    3. Validates that exchanging subnetworks won't reduce networks below 2 inner nodes (invalid network)
+         *    4. Swaps nodes up to min(successor1.size, successor2.size) between the subnetworks
+         *    5. Handles overhang nodes (extra nodes in larger subnetwork):
+         *       - Adds overhang nodes from larger to smaller parent (addOverhangNodes)
+         *       - Remaps all node IDs and edges in both parents to maintain consistency
+         *       - Deletes overhang nodes from the larger parent (deleteOverhangNodes)
+         *    6. This allows crossover between networks of different effective widths while preserving structure and modularity.
          * 
          * **Edge repair rules**:
-         * - Only check edges for the smaller parent (edges may become invalid after receiving nodes)
+         * - For "uniform" and "onepoint": Only check edges for the smaller parent (edges may become invalid after receiving nodes)
+         * - For "randomWidth": Check edges for the larger parent (due to node deletion creating potential dangling edges)
          * - changeFalseEdges() redirects any dangling edges to valid random nodes
          * - Prevents graph structure corruption after recombination
          * 
-         * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged
+         * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged (used for "uniform" type only). Default is 1.
+         * @param type Type of the crossover:
+         *  - "uniform": selects each node and exchanges them with given probability
+         *  - "onepoint": draws a random cutpoint from the genotype and exchanges all nodes until this point
+         *  - "randomWidth": exchanges subnetworks of different widths where all succesor nodes of a randomly selected node are exchanged
          * 
          * @note tournamentSelection() must have been called to set indicesElite
-         * @note Only nodes up to min(size1, size2) can be exchanged due to position-based matching
+         * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
+         * @note For "randomWidth", parent networks must have more than 2 inner nodes to safely use changeFalseEdges()
          */
-        void crossover(float propability){
+        void crossover(float propability = 1, std::string type = ""){
+
             std::bernoulli_distribution distributionBernoulli(propability);
+            int nNodesToExchange;
             std::vector<unsigned int> inds;
             for(int i=0; i<individuals.size(); i++){
                 inds.push_back(i);
             }
             std::shuffle(inds.begin(), inds.end(), *generator);
-            for(int i=0; i<inds.size()-1; i+=2){ // for each individual
+            for(int i=0; i<inds.size()-1; i+=2){ // for each individual pair 
+                
+                // preventing crossover for elite
+                std::vector<int> nodesToExchange;
                 if(std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end() ||
                     std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end()
-                    ){ // preventing crossover for elite
+                    ){ 
+                    //std::cout << "crossover skipped for elite individual at index " << inds[i] << " or " << inds[i+1] << std::endl;
                     continue;
                 }
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
-                int maxNodeNumbers = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
 
-                for(int k=0; k<maxNodeNumbers-1; k++){ // for each node
-                    bool result = distributionBernoulli(*generator);
-                    if(result){
-                        std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
-                        // just check for "false edges" if parent is the smaller one (expensive)
-                        if(parent1.innerNodes.size() < parent2.innerNodes.size()){
-                            parent1.changeFalseEdges();
-                        } else if (parent2.innerNodes.size() < parent1.innerNodes.size()) {
-                            parent2.changeFalseEdges(); 
-                        }
-                    }
- 
+                // check parent sizes 
+                bool parent1IsLarger;
+                bool parent2IsLarger;
+                if(parent1.innerNodes.size() > parent2.innerNodes.size()){
+                    parent1IsLarger = true;
+                    parent2IsLarger = false;
+                } else if (parent2.innerNodes.size() > parent1.innerNodes.size()){
+                    parent1IsLarger = false;
+                    parent2IsLarger = true;
+                } else {
+                    parent1IsLarger = false;
+                    parent2IsLarger = false;
                 }
 
+                if(type == "uniform"){
+                    nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
+                    // set nodesToExchange
+                    for(int i=0; i<nNodesToExchange; i++){
+                        bool result = distributionBernoulli(*generator);
+                        if(result == true){
+                            nodesToExchange.push_back(i);
+                        }
+                    }
+
+                } else if (type == "onepoint") {
+                    int maxNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
+                    std::uniform_int_distribution<int> distributionUniform(0, maxNodesToExchange-1);
+                    nNodesToExchange = distributionUniform(*generator);
+                    // set nodesToExchange
+                    for(int i=0; i<nNodesToExchange; i++){
+                        nodesToExchange.push_back(i);
+                    }
+
+                } else {
+                    nNodesToExchange = 0;
+                }
+
+                // exchange nodes
+                if(type == "randomWidth"){
+
+                    bool result = distributionBernoulli(*generator);
+                    if(result == false){
+                        continue; // random width crossover should not be applied, skip to next pair
+                    }
+
+                    std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
+                    std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
+                    // swap map from individual1 to individual2 (key is the old index and the value is the new index)
+                    std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
+                    // swap map from individual2 to individual1 (key is the old index and the value is the new index)
+                    std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size()); 
+                    
+                    // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
+                    if((int)successor1.size() - (int)successor2.size() >= (int)parent1.innerNodes.size() - 2 ||
+                       (int)successor2.size() - (int)successor1.size() >= (int)parent2.innerNodes.size() - 2 ||
+                       (successor1.size() == 1 && successor2.size() == 1) ) {
+                        continue;
+                    }
+
+                    parent1.nCrossovers += 1;
+                    parent2.nCrossovers += 1;
+
+                    // exchange all nodes until same subnetwork size is reached 
+                    int minSubNodes = std::min(successor1.size(), successor2.size());
+                    for(int i=0; i<minSubNodes; i++){ 
+
+                        std::swap(parent1.innerNodes[successor1[i]], parent2.innerNodes[successor2[i]]);
+                    }
+
+                    // add overhang nodes
+                    if(successor1.size() > successor2.size()){
+                       addOverhangNodes(successor1, successor2, parent1, parent2);
+                                                
+                    } else if (successor1.size() < successor2.size()) {
+                       addOverhangNodes(successor2, successor1, parent2, parent1);
+                    }
+
+                    // initialize swap maps for remapping nodes and edges of both individuals
+                    // TODO is this necessary? Could we use succesor vectors?
+                    std::vector<int> indices1;
+                    indices1.reserve(swapMap1.size()); 
+                    for (auto const& [key, val] : swapMap1) {
+                        indices1.push_back(val);
+                    }
+
+                    std::vector<int> indices2;
+                    indices2.reserve(swapMap2.size()); 
+                    for (auto const& [key, val] : swapMap2) {
+                        indices2.push_back(val);
+                    }
+
+                    // remap nodes and edges of both individuals according to the swap maps 
+                    parent1.remapNodeIdsAndEdges(swapMap2,indices2,false);
+                    parent2.remapNodeIdsAndEdges(swapMap1,indices1,false);
+
+                    // delete overhang nodesToExchange
+                    if(successor1.size() > successor2.size()){
+                        deleteOverhangNodes(successor1, successor2, parent1);
+                                                
+                    } else if (successor1.size() < successor2.size()) {
+                        deleteOverhangNodes(successor2, successor1, parent2);
+                    }
+
+                    // TODO necessary?
+                    parent1.changeFalseEdges();
+                    parent2.changeFalseEdges();
+                   
+                } else{
+                    for(int k : nodesToExchange){ // for each node
+                        std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
+                    }
+                }
+
+                // repare node edges
+                if(parent2IsLarger){
+                    parent1.changeFalseEdges();
+                } else if (parent1IsLarger) {
+                    parent2.changeFalseEdges(); 
+                }
+            }
+        }
+
+        /**
+         * @brief Initializes a node index mapping between two subnode vectors for crossover operations.
+         * 
+         * @details Creates a mapping from subnodes1 indices to subnodes2 indices. If subnodes1 is longer,
+         * the excess nodes are mapped to new indices starting from sizeNetwork2. This ensures proper node
+         * index translation when combining networks during genetic crossover.
+         * 
+         * @param subnodes1 Vector of node indices from the first network
+         * @param subnodes2 Vector of node indices from the second network
+         * @param sizeNetwork2 The current size of the second network, used as base for new indices
+         * @return std::unordered_map<int, int> Mapping from subnodes1 indices to corresponding target indices
+         */
+        std::unordered_map<int , int>initNodeSwapMap(
+                const std::vector<int>& subnodes1, 
+                const std::vector<int>& subnodes2,
+                int sizeNetwork2
+                ){
+            // initialize swap map
+            std::unordered_map<int, int> map;
+            int minSubNodes = std::min(subnodes1.size(), subnodes2.size());
+            for(int i=0; i<minSubNodes; i++){
+                map[subnodes1[i]] = subnodes2[i];
             }
 
+            if(subnodes1.size() <= minSubNodes){
+                return map;
+            } else { // adding overhang as appended indices
+                for(int i = subnodes2.size(); i<subnodes1.size(); i++){
+                    map[subnodes1[i]] = sizeNetwork2;
+                    sizeNetwork2 ++;
+                }
+                return map;
+            }
+        }
+
+       /**
+         * @brief Remaps node indices in individual's edges according to the provided mapping.
+         * 
+         * @param map A mapping from old node indices to new node indices
+         * @param individual The network whose edge references need to be remapped
+         */
+        void remapIndividualsNodesEdges(std::unordered_map<int, int>& map, Network& individual){
+            for(auto& node: individual.innerNodes){
+                for(auto& edge : node.edges){
+                    if(map.contains(edge)){
+                        edge = map[edge];
+                    }
+                }
+            }
+        }
+        /**
+         * @brief Remaps the IDs of inner nodes in an individual network according to the provided mapping.
+         * 
+         * @param map Unordered map containing the mapping from old node IDs to new node IDs
+         * @param individual The network whose inner node IDs will be remapped
+         */
+        void remapIndividualsNodesIds(std::unordered_map<int, int>& map, Network& individual){
+            for(auto& node : individual.innerNodes){
+                if(map.contains(node.id)){
+                    node.id = map[node.id];
+                }
+            }
+        }
+        
+
+         /**
+         * @brief Adds overhang nodes from the larger parent subnetwork to the smaller parent subnetwork during crossover.
+         * 
+         * @details When two parents have different numbers of successor nodes, this method transfers
+         * the excess nodes (overhang) from the larger parent's network to the smaller parent's network.
+         * The overhang nodes are moved from parent1 to parent2's innerNodes vector.
+         * 
+         * @param successor1 Vector of successor node indices from the larger parent subnetwork
+         * @param successor2 Vector of successor node indices from the smaller parent subnetwork
+         * @param parent1 The parent network from which overhang nodes are extracted
+         * @param parent2 The parent network to which overhang nodes are added
+         *
+         * @warning successor1 and successor2 must be sorted in ascending order
+         * @note The added node IDs and edges may need further adjustment to maintain graph validity.
+         */
+        void addOverhangNodes(
+                const std::vector<int>& successor1,// larger subnetwork 
+                const std::vector<int>& successor2,
+                Network& parent1, 
+                Network& parent2
+                ){
+
+            int overhang = successor1.size() - successor2.size();
+            for(int i=0; i<overhang; i++){
+                int nodeIndex = successor1[successor2.size()+i];
+                parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
+                //std::cout << "added node " << nodeIndex << " from parent1 to parent2" << std::endl;
+            }
+        }
+
+         /**
+        * @brief Deletes overhang nodes from the larger parent subnetwork.
+        * 
+        * @details Removes excess nodes from parent1 when it has more successor subnodes than parent2.
+        * For each overhang node to be deleted, this method:
+        * 1. Creates a deletion map that remaps indices of nodes after the deleted node (shifting them down by one)
+        * 2. Assigns the deleted node index a random valid edge 
+        * 3. Remaps all node IDs and edges in the network to maintain consistency after deletion
+        * 4. Erases the node from the innerNodes vector
+        * This process ensures that all references remain valid after node removal, preventing dangling references.
+        * 
+        * @note The parent1 network must have more than 2 inner nodes, otherwise changeEdge() will cause an error
+        *       when trying to assign a random valid edge for the deleted node.
+        * 
+        * @param successor1 Vector of successor node indices from the larger parent subnetwork
+        * @param successor2 Vector of successor node indices from the smaller parent subnetwork
+        * @param parent1 The larger parent subnetwork from which overhang nodes will be deleted (modified in-place)
+        *
+         * @warning successor1 and successor2 must be sorted in ascending order
+        */
+        void deleteOverhangNodes(
+                const std::vector<int>& successor1,// larger subnetwork 
+                const std::vector<int>& successor2,
+                Network& parent1 
+                ){
+
+            int overhang = successor1.size() - successor2.size();
+            for(int i=0; i<overhang; i++){
+
+                // delete overhang nodes from parent1
+                int nodeIndex = successor1[successor1.size()-1-i]; // node index for deletion
+
+                parent1.innerNodes.erase(parent1.innerNodes.begin() + nodeIndex);
+                //std::cout << "deleted node " << nodeIndex << " from parent1" << std::endl;
+
+                // initialize deletion map
+                std::unordered_map<int, int> map;
+                for(int i=nodeIndex; i<parent1.innerNodes.size()+1; i++){
+                    map[i+1] = i;
+                }
+                // random number for deleted node
+                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size(), nodeIndex);
+                // remap nodes
+                std::vector<int> indices; 
+                for(int k=0; k<parent1.innerNodes.size(); k++){// all node must be checked for remaping 
+                    indices.push_back(k);
+                }
+                parent1.remapNodeIdsAndEdges(map,indices,true);
+
+            }
+        }
+
+        /**
+         * @brief Find all successor nodes reachable after path traversal from a given start node.
+         *
+         * @details Starting from @p subNodesStart, this method collects successor nodes by
+         * comparing traverse counters. Nodes whose traverse counter is greater than that of the
+         * start node are considered successors. If the start node is unused, only the start node
+         * itself is returned. The resulting indices are sorted in ascending order.
+         *
+         * @param individual The individual (network) whose inner nodes are traversed.
+         * @param subNodesStart Index of the starting node in @c individual.innerNodes.
+         *                      If -1, a random index is selected uniformly from the available inner nodes.
+         * @param nSelectedNodes Maximum number of successor nodes to collect (excluding the start node).
+         *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
+         * @return A sorted vector of node indices comprising the start node and up to
+         *         @p nSelectedNodes successors.
+         */
+        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1){
+
+            if(subNodesStart == -1){
+                std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
+                subNodesStart = distributionUniform(*generator);
+            }
+
+            if(nSelectedNodes == -1){
+                std::uniform_int_distribution<int> distributionUniform(1, individual.innerNodes.size()-1);
+                nSelectedNodes = distributionUniform(*generator);
+            }
+
+            std::vector<int> nodeIndices;
+            if (individual.innerNodes[subNodesStart].used == false){
+                nodeIndices.push_back(subNodesStart);
+                return nodeIndices; // if the node is unused, no successor nodes can be found
+            }
+
+            nodeIndices.push_back(subNodesStart);
+            int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
+            for(int i=0; i<individual.innerNodes.size(); i++){
+                int traverseCounterNode = individual.innerNodes[i].traverseCounter;
+                if(traverseCounterNode > traverseCounterStart){
+                    nodeIndices.push_back(i);
+                    nSelectedNodes --;
+                    if (nSelectedNodes == 0){
+                        break;
+                    }
+                }
+            }
+            std::sort(nodeIndices.begin(), nodeIndices.end());
+            return nodeIndices;
         }
 
         /**
@@ -709,13 +1073,15 @@ class Population {
          * 
          * @param minF Vector of minimum values for all features (for new judgment node initialization)
          * @param maxF Vector of maximum values for all features (for new judgment node initialization)
+         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes 
+         * and at least one node is always protected. 
          * 
          * @note This operator has not influence on the individuals fitness  
          * @see Network::addDelNodes()
          */
-        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF){
+        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk=0){
             for(auto& ind : individuals){
-                ind.addDelNodes(minF, maxF);
+                ind.addDelNodes(minF, maxF, junk, nFeatureValues);
 
             }
         }

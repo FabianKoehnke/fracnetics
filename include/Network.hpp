@@ -1,6 +1,8 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 /// \cond INTERNAL
+#include <cmath>
+#include <iostream>
 #include <random>
 #include <utility>
 #include <vector>
@@ -46,7 +48,7 @@
 class Network {
     private:
         std::shared_ptr<std::mt19937_64> generator; ///< Shared pointer to random number generator for stochastic operations
-    
+
     public:
         /** @cond INTERNAL */
         unsigned int jn; /**< Number of inital judgment nodes in the network */
@@ -61,7 +63,12 @@ class Network {
         int currentNodeID; /**< ID of the currently active node during network traversal */
         int nConsecutiveP; /**< Counter for consecutive processing nodes encountered */
         int nUsedNodes; /**< Number of nodes that have been used during network traversal */
+        int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
+        std::vector<float> fitnessValues = {}; /** placeholder for storing multiple fitness values */
+        int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
+        size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
+
         /** @endcond */
 
         /** @name Constructor */
@@ -85,6 +92,10 @@ class Network {
          * @param _pn Number of initial processing nodes in the network
          * @param _pnf Number of processing node function types available (determines random function assignment range)
          * @param _fractalJudgment If true, judgment nodes use fractal-based edge patterns; if false, standard edge patterns are used
+         * @param _nFeatureValues set the number of features values to distinguish between numerical and categorical data
+         *          - for numerical features: set 0 at the i-th feature 
+         *          - for categorical features: set the numbers of categories at feature position i. This will be the amount of outgoing edges of a judgment node 
+         *          - default is an empty vector and all features are treated as numerical
          */
         Network(
                 std::shared_ptr<std::mt19937_64> _generator,
@@ -92,7 +103,8 @@ class Network {
                 unsigned int _jnf,
                 unsigned int _pn,
                 unsigned int _pnf,
-                bool _fractalJudgment
+                bool _fractalJudgment,
+                std::vector<int> _nFeatureValues = {}
                 ):
             generator(_generator),
             jn(_jn),
@@ -105,6 +117,7 @@ class Network {
         {
             startNode.setEdges("S", jn+pn);
             std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
+            int nOutgoingEdges;
             for(int i=0; i<jn; i++){ // init judgment nodes 
                 int randomInt = distributionJNF(*generator);
                 innerNodes.push_back(Node(
@@ -113,8 +126,13 @@ class Network {
                             "J", // node type 
                             randomInt // node function
                             ));
-                if(fractalJudgment == false){
-                    innerNodes.back().setEdges("J", pn+jn);
+
+                if(_nFeatureValues.size()>0){
+                     nOutgoingEdges = _nFeatureValues[randomInt];
+                } else {nOutgoingEdges = 0;}
+
+                if(fractalJudgment == false || nOutgoingEdges != 0){
+                    innerNodes.back().setEdges("J", pn+jn, nOutgoingEdges);
                 }else{
                     std::pair<int, int> k_d = random_k_d_combination(pn+jn-1, generator);
                     innerNodes.back().k_d.first = k_d.first;
@@ -202,6 +220,7 @@ class Network {
            clearUsedNodes();
            currentNodeID = startNode.edges[0];
            innerNodes[currentNodeID].used = true;
+           innerNodes[currentNodeID].traverseCounter += 1;
            nConsecutiveP = 0;
            invalid = false;
            int dec;
@@ -256,6 +275,8 @@ class Network {
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
                 innerNodes[currentNodeID].used = true;
+                traverseCounter ++;
+                innerNodes[currentNodeID].traverseCounter = traverseCounter;
                 nConsecutiveP ++;
 
             } else if (innerNodes[currentNodeID].type == "J"){
@@ -266,6 +287,8 @@ class Network {
                     int judgeResult = innerNodes[currentNodeID].judge(v);
                     currentNodeID = innerNodes[currentNodeID].edges[judgeResult];
                     innerNodes[currentNodeID].used = true;
+                    traverseCounter ++;
+                    innerNodes[currentNodeID].traverseCounter = traverseCounter;
                     dSum ++;
                     if (dSum >= dMax){
                         invalid = true;
@@ -276,6 +299,8 @@ class Network {
                 // update currentNodeID to next node
                 currentNodeID = innerNodes[currentNodeID].edges[0]; 
                 innerNodes[currentNodeID].used = true;
+                traverseCounter ++;
+                innerNodes[currentNodeID].traverseCounter = traverseCounter;
                 nConsecutiveP ++;
            }
             return dec;
@@ -325,6 +350,7 @@ class Network {
             clearUsedNodes();
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
             int dec;
             invalid = false;
             float correct = 0;
@@ -386,11 +412,12 @@ class Network {
          *  Here we can control the number of possible actions after using the observation data again.  
          * @param worstFitness Fitness value assigned when network violates constraints
          * @param seed Random seed for environment initialization 
+         * @param gamma discount factor of the rewards
          * 
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
         void fitGymnasium(
-            GymEnvWrapper env,
+            GymEnvWrapper& env,
             int dMax,
             int maxSteps,
             int maxConsecutiveP,
@@ -398,12 +425,20 @@ class Network {
             int seed
             ){
 
-            auto reset_out = env.reset();// Initial observation for the episode
+            auto reset_out = env.reset(seed=seed);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
             auto info = reset_out[1];
             clearUsedNodes();
+            // clearing traverseCounter for each node and network
+            for(auto& node : innerNodes){
+                node.traverseCounter = 0;
+            }
+            traverseCounter = 0;
+
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
+            traverseCounter ++;
             int dec;
             fitness = 0;
             nConsecutiveP = 0;
@@ -416,18 +451,17 @@ class Network {
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
                     fitness = worstFitness;
-                    break;
+                    return;
                 }
 
                 auto result = env.step(dec);
                 obs = result[0].cast<std::vector<double>>(); 
                 fitness += result[1].cast<float>();
                 steps ++;
-                if(result[2].cast<bool>() || steps >= maxSteps) done = true; 
-
+                if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
             }
         }
-          
+                 
         /**
          * @brief Evaluates network fitness on the CartPole balancing problem.
          * 
@@ -482,6 +516,7 @@ class Network {
             clearUsedNodes();
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
             int dec = 0;
             CartPole cp(generator);
             fitness = 0;
@@ -505,6 +540,30 @@ class Network {
         }
 
         /**
+         * @brief Validates node indices and edge connections in the network.
+         * 
+         * @details
+         * This method performs integrity checks on the network's structure by:
+         * 1. Verifying that each node's ID matches its index in the innerNodes vector
+         * 2. Ensuring that all edges point to valid node indices within the bounds of innerNodes
+         * 
+         * If any inconsistencies are found (e.g., node ID mismatch or edge pointing to non-existent node), 
+         * error messages are printed to standard error output. 
+         */
+        void checkNodeIndicesAndEdges(std::string msg=""){
+            for(int n=0; n<innerNodes.size();n++){
+                if(innerNodes[n].id != n){
+                    std::cerr << "[ERROR] after" << msg << "Node index mismatch: node at index " << n << " has id " << innerNodes[n].id << std::endl;
+                }
+                for(auto& edge : innerNodes[n].edges){
+                    if(edge > innerNodes.size()-1){
+                        std::cerr << "[ERROR] after" << msg << "Edge index out of bounds: node " << n << " has edge pointing to " << edge << " but max index is " << innerNodes.size()-1 << std::endl;
+                    }
+                }
+            }
+        }
+
+        /**
          * @brief Corrects invalid edge connections that point to non-existent nodes.
          * 
          * @details
@@ -516,23 +575,72 @@ class Network {
          * 2. For each node, examines all outgoing edges
          * 3. If an edge index exceeds the valid range (≥ innerNodes.size()), it indicates
          *    the edge points to a deleted or non-existent node
-         * 4. Calls the node's changeEdge() method to randomly select a new valid target node
+         * 4. If an edge points to the node itself (edge == node.id), creating a self-loop
+         * 5. Calls the node's changeEdge() method to randomly select a new valid target node
          * 
          * This ensures the network graph remains well-defined with all edges pointing
-         * to existing nodes, preventing runtime errors during network traversal.
+         * to existing nodes and preventing self-loops, which helps avoid runtime errors 
+         * during network traversal.
          * 
          * @note This function should be called after any operation that removes nodes
          */
         void changeFalseEdges(){
             for(auto& node : innerNodes){
                 for(auto& edge : node.edges){
-                    if(edge > innerNodes.size()-1){ // edge has no successor node -> set new one
+                    if(edge > innerNodes.size()-1 || edge == node.id){ // edge has no successor node or pointing to itself -> change edge to a random valid node
                         edge = node.changeEdge(innerNodes.size(), edge);
                     }
                 }
             }
         }
 
+        /**
+         * @brief Remaps node IDs and their associated edges using a provided mapping.
+         * 
+         * @details This method updates node IDs and edge references for a subset of nodes
+         * specified by their indices. For each node in the given indices, if its ID exists
+         * in the mapping, it is replaced with the mapped value. Similarly, all edges of
+         * these nodes are updated if they exist in the mapping. This is useful for
+         * renumbering or consolidating node identifiers while maintaining 
+         * graph connectivity. 
+         * 
+         * @param map A reference to an unordered map where keys are old node IDs and values
+         * are new node IDs to remap to.
+         * @param nodeIndices A vector of indices specifying which nodes in the innerNodes
+         * collection should be processed for remapping.
+         * @param includeStartNode If true, remaps the first edge of the start node if it
+         * exists in the mapping. Defaults to false.
+         */
+        void remapNodeIdsAndEdges(
+                std::unordered_map<int, 
+                int>& map, 
+                const std::vector<int>& nodeIndices, 
+                bool includeStartNode = false){
+
+            if(map.empty()) {
+                return;
+            }
+
+            if(includeStartNode){
+                if(map.contains(startNode.edges[0])){
+                    startNode.edges[0] = map[startNode.edges[0]];
+                } 
+            }
+
+            for(int ni: nodeIndices){
+
+                if(map.contains(innerNodes[ni].id)){
+                    innerNodes[ni].id = map[innerNodes[ni].id];
+                } 
+
+                for(size_t edgeIdx = 0; edgeIdx < innerNodes[ni].edges.size(); ++edgeIdx){
+                    auto& edge = innerNodes[ni].edges[edgeIdx];
+                    if(map.contains(edge)){
+                           edge = map[edge];
+                    } 
+                }
+            }
+        }
         /**
          * @brief Performs network grow and shrink during the evolution.
          * 
@@ -578,6 +686,7 @@ class Network {
          * 
          * @param minF Vector of minimum feature values for each feature dimension (used for judgment node boundary initialization)
          * @param maxF Vector of maximum feature values for each feature dimension (used for judgment node boundary initialization)
+         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes.
          * 
          * @warning This method must be called bevore edgeMutation()! Reason: if edges are change 
          * by edgeMutation(), the node flag "used" is not guaranteed to be correct.
@@ -586,14 +695,14 @@ class Network {
          * @post Node IDs are contiguous from 0 to innerNodes.size()-1
          * 
          */
-        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF){ 
+        void addDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk, std::vector<int>& nFeatureValues){ 
             std::bernoulli_distribution distributionBernoulliAdd(0.5);
             float pnRatio = static_cast<float>(pnf) / static_cast<float>(pnf+jnf);
             std::bernoulli_distribution distributionBernoulliProcessingNode(pnRatio);
             bool resultAdd = distributionBernoulliAdd(*generator);
             countUsedNodes();
             for(int n=0; n<innerNodes.size(); n++){
-                if(resultAdd && nUsedNodes >= innerNodes.size() * 1){// adding node hint 0.5 for more nodes in network
+                if(resultAdd && nUsedNodes >= innerNodes.size() * (1-junk)){// adding node 
                     bool resultProcessingNode = distributionBernoulliProcessingNode(*generator);
                     if(resultProcessingNode){ // add processing node
                         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
@@ -609,32 +718,38 @@ class Network {
                     }else{ // add judgment node 
                         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
                         int randomInt = distributionJNF(*generator);
+                        int nOutgoingEdges;
                         innerNodes.push_back(Node(
                                     generator, 
                                     innerNodes.size(), // node id 
                                     "J", // node type 
                                     randomInt // node function
                                     ));
-                       
-                        if(fractalJudgment == true){
-                            std::pair<int, int> k_d = random_k_d_combination(pn+jn, generator); // normaly pn+jn-1 but jn counter comes later
+
+                        if(nFeatureValues.size() > 0){ // feature is categorical
+                             nOutgoingEdges = nFeatureValues[randomInt];
+                        } else {nOutgoingEdges = 0;}
+
+
+                        if(fractalJudgment == false || nOutgoingEdges != 0){ // fractal or categorical feature
+                            innerNodes.back().setEdges("J", innerNodes.size(), nOutgoingEdges);
+                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
+                        }
+                        else if(fractalJudgment == true && nOutgoingEdges == 0){ 
+                            std::pair<int, int> k_d = random_k_d_combination(innerNodes.size(), generator); // normaly pn+jn-1 but jn counter comes later
                             innerNodes.back().k_d.first = k_d.first;
                             innerNodes.back().k_d.second = k_d.second;
-                            innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
+                            innerNodes.back().setEdges("J", innerNodes.size(), pow(k_d.first,k_d.second));
                             innerNodes.back().productionRuleParameter = randomParameterCuts(innerNodes.back().k_d.first-1, generator);
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
-                        }else {
-                            innerNodes.back().setEdges("J", innerNodes.size());
-                            innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
                         }
-
-                        jn += 1;
                     }
+
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
-                        innerNodes.size()-nUsedNodes > 1 &&
+                        innerNodes.size() * (1-junk) - nUsedNodes > 0 &&
                         innerNodes[n].used == false) // node is not used
                 {// deleting nodes
 
@@ -665,14 +780,7 @@ class Network {
                         startNode.edges[0] -= 1;
                     }
 
-                    if(innerNodes[n].type == "J"){
-                        jn -= 1;
-                    }else if (innerNodes[n].type == "P") {
-                        pn -= 1;
-                    }
-
                     innerNodes.erase(innerNodes.begin()+n);
-                    break; // TODO del this! 
                 }
             }
         }
