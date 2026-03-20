@@ -85,6 +85,8 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
     .def_readwrite("fitnessValues", &Network::fitnessValues)
+    .def_readwrite("objectives", &Network::objectives)       // NEW: Pareto objectives
+    .def_readwrite("lastStepRewards", &Network::lastStepRewards)
     .def_readwrite("decisions", &Network::decisions)
     .def_readwrite("currentNodeID", &Network::currentNodeID)
     .def_readwrite("invalid", &Network::invalid)
@@ -112,15 +114,16 @@ PYBIND11_MODULE(_core, m) {
         [](const Network &n) { // __getstate__
             return py::make_tuple(
                 n.jn, n.jnf, n.pn, n.pnf, n.fractalJudgment,
-                n.innerNodes, n.startNode, n.fitness, n.decisions
+                n.innerNodes, n.startNode, n.fitness, n.decisions,
+                n.fitnessValues, n.objectives, n.lastStepRewards  
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 9)
+            if (t.size() != 13)
                 throw std::runtime_error("Invalid state for Network!");
 
             Network net(
-                std::make_shared<std::mt19937_64>(std::random_device{}()), // new generator 
+                std::make_shared<std::mt19937_64>(std::random_device{}()),
                 t[0].cast<unsigned int>(),
                 t[1].cast<unsigned int>(),
                 t[2].cast<unsigned int>(),
@@ -132,11 +135,14 @@ PYBIND11_MODULE(_core, m) {
             net.startNode = t[6].cast<Node>(); 
             net.fitness = t[7].cast<float>();
             net.decisions = t[8].cast<std::vector<int>>();
+            net.fitnessValues = t[9].cast<std::vector<float>>();
+            net.objectives = t[10].cast<std::vector<float>>();
+            net.lastStepRewards = t[12].cast<std::vector<float>>();
 
             return net;
         }
     ));
-
+   
     // Population
     py::class_<Population>(m, "Population", py::dynamic_attr())
         // Member 
@@ -221,6 +227,27 @@ PYBIND11_MODULE(_core, m) {
                     },
                 py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed")
             )
+
+        .def("gymnasiumMultiSeed",
+                [](Population &self,
+                    py::object env,
+                    int dMax,
+                    int maxSteps,
+                    int maxConsecutiveP,
+                    int worstFitness,
+                    std::vector<int> seeds
+                    ) {
+                        GymEnvWrapper wrapper(env);
+                        self.gymnasiumMultiSeed(wrapper,dMax,maxSteps,maxConsecutiveP,worstFitness,seeds);
+                    },
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds")
+            )
+
+        .def("calculateParetoObjectives", &Population::calculateParetoObjectives, py::arg("landingThreshold")=100.0f)
+
+        .def("paretoTournamentSelection", &Population::paretoTournamentSelection,
+             py::arg("N"), py::arg("E_reward"), py::arg("E_landing"))
+
         .def("tournamentSelection", &Population::tournamentSelection, py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation, py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("adaptToEdgeSize")=false)
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal, py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
