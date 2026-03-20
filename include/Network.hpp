@@ -788,6 +788,7 @@ class Network {
                     innerNodes.erase(innerNodes.begin()+n);
                 }
             }
+            innerNodes.shrink_to_fit();
         }
         /** @} */
 
