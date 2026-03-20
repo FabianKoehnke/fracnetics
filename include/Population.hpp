@@ -702,6 +702,7 @@ class Population {
          * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
          * @note For "randomWidth", parent networks must have more than 2 inner nodes to safely use changeFalseEdges()
          */
+
         void crossover(float propability = 1, std::string type = ""){
 
             std::bernoulli_distribution distributionBernoulli(propability);
@@ -713,14 +714,16 @@ class Population {
             std::shuffle(inds.begin(), inds.end(), *generator);
             for(int i=0; i<inds.size()-1; i+=2){ // for each individual pair 
                 
-                // preventing crossover for elite
                 std::vector<int> nodesToExchange;
-                if(std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end() ||
-                    std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end()
-                    ){ 
-                    //std::cout << "crossover skipped for elite individual at index " << inds[i] << " or " << inds[i+1] << std::endl;
+
+                bool parent1IsElite = std::find(indicesElite.begin(), indicesElite.end(), inds[i]) != indicesElite.end();
+                bool parent2IsElite = std::find(indicesElite.begin(), indicesElite.end(), inds[i+1]) != indicesElite.end();
+
+                // Both elite → skip entirely (no crossover between two elites)
+                if(parent1IsElite && parent2IsElite){
                     continue;
                 }
+
                 auto& parent1 = individuals[inds[i]];
                 auto& parent2 = individuals[inds[i+1]];
 
@@ -741,10 +744,10 @@ class Population {
                 if(type == "uniform"){
                     nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
                     // set nodesToExchange
-                    for(int i=0; i<nNodesToExchange; i++){
+                    for(int k=0; k<nNodesToExchange; k++){
                         bool result = distributionBernoulli(*generator);
                         if(result == true){
-                            nodesToExchange.push_back(i);
+                            nodesToExchange.push_back(k);
                         }
                     }
 
@@ -753,8 +756,8 @@ class Population {
                     std::uniform_int_distribution<int> distributionUniform(0, maxNodesToExchange-1);
                     nNodesToExchange = distributionUniform(*generator);
                     // set nodesToExchange
-                    for(int i=0; i<nNodesToExchange; i++){
-                        nodesToExchange.push_back(i);
+                    for(int k=0; k<nNodesToExchange; k++){
+                        nodesToExchange.push_back(k);
                     }
 
                 } else {
@@ -771,11 +774,7 @@ class Population {
 
                     std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
                     std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
-                    // swap map from individual1 to individual2 (key is the old index and the value is the new index)
-                    std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
-                    // swap map from individual2 to individual1 (key is the old index and the value is the new index)
-                    std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size()); 
-                    
+
                     // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
                     if((int)successor1.size() - (int)successor2.size() >= (int)parent1.innerNodes.size() - 2 ||
                        (int)successor2.size() - (int)successor1.size() >= (int)parent2.innerNodes.size() - 2 ||
@@ -783,65 +782,132 @@ class Population {
                         continue;
                     }
 
-                    parent1.nCrossovers += 1;
-                    parent2.nCrossovers += 1;
+                    if(parent1IsElite){
+                        // parent1 is elite → only parent2 receives genes
+                        parent2.nCrossovers += 1;
 
-                    // exchange all nodes until same subnetwork size is reached 
-                    int minSubNodes = std::min(successor1.size(), successor2.size());
-                    for(int i=0; i<minSubNodes; i++){ 
+                        int minSubNodes = std::min(successor1.size(), successor2.size());
 
-                        std::swap(parent1.innerNodes[successor1[i]], parent2.innerNodes[successor2[i]]);
+                        // Build remap: successor1[i] → successor2[i] (for edges in copied nodes)
+                        std::unordered_map<int, int> remapForCopied;
+                        for(int j=0; j<minSubNodes; j++){
+                            remapForCopied[successor1[j]] = successor2[j];
+                        }
+
+                        // Copy nodes from parent1 to parent2
+                        for(int j=0; j<minSubNodes; j++){
+                            parent2.innerNodes[successor2[j]] = parent1.innerNodes[successor1[j]];
+                            parent2.innerNodes[successor2[j]].id = successor2[j];
+                        }
+
+                        // Remap edges in the copied nodes
+                        std::vector<int> copiedIndices(successor2.begin(), successor2.begin() + minSubNodes);
+                        parent2.remapNodeIdsAndEdges(remapForCopied, copiedIndices, false);
+
+                        // Fix edges pointing to invalid nodes
+                        parent2.changeFalseEdges();
+
+                    } else if(parent2IsElite){
+                        // parent2 is elite → only parent1 receives genes
+                        parent1.nCrossovers += 1;
+
+                        int minSubNodes = std::min(successor1.size(), successor2.size());
+
+                        // Build remap: successor2[i] → successor1[i] (for edges in copied nodes)
+                        std::unordered_map<int, int> remapForCopied;
+                        for(int j=0; j<minSubNodes; j++){
+                            remapForCopied[successor2[j]] = successor1[j];
+                        }
+
+                        // Copy nodes from parent2 to parent1
+                        for(int j=0; j<minSubNodes; j++){
+                            parent1.innerNodes[successor1[j]] = parent2.innerNodes[successor2[j]];
+                            parent1.innerNodes[successor1[j]].id = successor1[j];
+                        }
+
+                        // Remap edges in the copied nodes
+                        std::vector<int> copiedIndices(successor1.begin(), successor1.begin() + minSubNodes);
+                        parent1.remapNodeIdsAndEdges(remapForCopied, copiedIndices, false);
+
+                        // Fix edges pointing to invalid nodes
+                        parent1.changeFalseEdges();
+
+                    } else { // no elite --> bidirectional swap
+
+                        // swap map from individual1 to individual2
+                        std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
+                        // swap map from individual2 to individual1
+                        std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size()); 
+
+                        parent1.nCrossovers += 1;
+                        parent2.nCrossovers += 1;
+
+                        // exchange all nodes until same subnetwork size is reached 
+                        int minSubNodes = std::min(successor1.size(), successor2.size());
+                        for(int j=0; j<minSubNodes; j++){ 
+                            std::swap(parent1.innerNodes[successor1[j]], parent2.innerNodes[successor2[j]]);
+                        }
+
+                        // add overhang nodes
+                        if(successor1.size() > successor2.size()){
+                           addOverhangNodes(successor1, successor2, parent1, parent2);
+                        } else if (successor1.size() < successor2.size()) {
+                           addOverhangNodes(successor2, successor1, parent2, parent1);
+                        }
+
+                        // initialize swap maps for remapping nodes and edges of both individuals
+                        std::vector<int> indices1;
+                        indices1.reserve(swapMap1.size()); 
+                        for (auto const& [key, val] : swapMap1) {
+                            indices1.push_back(val);
+                        }
+
+                        std::vector<int> indices2;
+                        indices2.reserve(swapMap2.size()); 
+                        for (auto const& [key, val] : swapMap2) {
+                            indices2.push_back(val);
+                        }
+
+                        // remap nodes and edges of both individuals according to the swap maps 
+                        parent1.remapNodeIdsAndEdges(swapMap2, indices2, false);
+                        parent2.remapNodeIdsAndEdges(swapMap1, indices1, false);
+
+                        // delete overhang nodes
+                        if(successor1.size() > successor2.size()){
+                            deleteOverhangNodes(successor1, successor2, parent1);
+                        } else if (successor1.size() < successor2.size()) {
+                            deleteOverhangNodes(successor2, successor1, parent2);
+                        }
+
+                        parent1.changeFalseEdges();
+                        parent2.changeFalseEdges();
                     }
-
-                    // add overhang nodes
-                    if(successor1.size() > successor2.size()){
-                       addOverhangNodes(successor1, successor2, parent1, parent2);
-                                                
-                    } else if (successor1.size() < successor2.size()) {
-                       addOverhangNodes(successor2, successor1, parent2, parent1);
-                    }
-
-                    // initialize swap maps for remapping nodes and edges of both individuals
-                    // TODO is this necessary? Could we use succesor vectors?
-                    std::vector<int> indices1;
-                    indices1.reserve(swapMap1.size()); 
-                    for (auto const& [key, val] : swapMap1) {
-                        indices1.push_back(val);
-                    }
-
-                    std::vector<int> indices2;
-                    indices2.reserve(swapMap2.size()); 
-                    for (auto const& [key, val] : swapMap2) {
-                        indices2.push_back(val);
-                    }
-
-                    // remap nodes and edges of both individuals according to the swap maps 
-                    parent1.remapNodeIdsAndEdges(swapMap2,indices2,false);
-                    parent2.remapNodeIdsAndEdges(swapMap1,indices1,false);
-
-                    // delete overhang nodesToExchange
-                    if(successor1.size() > successor2.size()){
-                        deleteOverhangNodes(successor1, successor2, parent1);
-                                                
-                    } else if (successor1.size() < successor2.size()) {
-                        deleteOverhangNodes(successor2, successor1, parent2);
-                    }
-
-                    // TODO necessary?
-                    parent1.changeFalseEdges();
-                    parent2.changeFalseEdges();
                    
-                } else{
-                    for(int k : nodesToExchange){ // for each node
-                        std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
-                    }
-                }
+                } else {
 
-                // repare node edges
-                if(parent2IsLarger){
-                    parent1.changeFalseEdges();
-                } else if (parent1IsLarger) {
-                    parent2.changeFalseEdges(); 
+                    for(int k : nodesToExchange){
+                        if(parent1IsElite){
+                            // Elite donates: only parent2 receives genes from parent1
+                            parent2.innerNodes[k] = parent1.innerNodes[k];
+                        } else if(parent2IsElite){
+                            // Elite donates: only parent1 receives genes from parent2
+                            parent1.innerNodes[k] = parent2.innerNodes[k];
+                        } else {
+                            // Neither elite → normal bidirectional swap
+                            std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
+                        }
+                    }
+
+                    // repair node edges (only for the non-elite recipient or larger parent, as they may have received nodes that create invalid edges)
+                    if(parent1IsElite){
+                        parent2.changeFalseEdges();
+                    } else if(parent2IsElite){
+                        parent1.changeFalseEdges();
+                    } else if(parent2IsLarger){
+                        parent1.changeFalseEdges();
+                    } else if (parent1IsLarger) {
+                        parent2.changeFalseEdges(); 
+                    }
                 }
             }
         }
@@ -989,8 +1055,8 @@ class Population {
                     indices.push_back(k);
                 }
                 parent1.remapNodeIdsAndEdges(map,indices,true);
-
             }
+            parent1.innerNodes.shrink_to_fit(); // release excess capacity to prevent memory bloat
         }
 
         /**
@@ -1085,7 +1151,243 @@ class Population {
 
             }
         }
-        /** @} */
+
+        /**
+         * @brief Evaluates all individuals across multiple seeds and stores per-seed rewards.
+         * 
+         * @details
+         * Runs fitGymnasium() for each individual on each seed. The per-seed rewards
+         * are stored in network.fitnessValues. The aggregated fitness is stored in
+         * network.fitness as the mean reward across all seeds.
+         *
+         * @param env GymEnvWrapper object providing interface to the Gymnasium environment
+         * @param dMax Maximum consecutive judgment nodes per decision
+         * @param maxSteps Maximum episode length
+         * @param maxConsecutiveP Maximum consecutive processing nodes allowed
+         * @param worstFitness Fitness value assigned when networks violate constraints
+         * @param seeds Vector of random seeds for environment initialization
+         */
+        void gymnasiumMultiSeed(
+            GymEnvWrapper& env,
+            int dMax,
+            int maxSteps,
+            int maxConsecutiveP,
+            int worstFitness,
+            const std::vector<int>& seeds
+                ){
+
+            for(auto& network : individuals){
+                network.fitnessValues.clear();
+                network.lastStepRewards.clear();
+                float totalReward = 0.0f;
+
+                for(int s : seeds){
+                    network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s);
+                    network.fitnessValues.push_back(network.fitness);
+                    network.lastStepRewards.push_back(network.lastFitness);
+                    totalReward += network.fitness;
+                }
+
+                // Default aggregation: mean reward
+                network.fitness = totalReward / static_cast<float>(seeds.size());
+            }
+        }
+
+        /**
+         * @brief Calculates Pareto objectives (landing rate, mean reward) from fitnessValues.
+         * 
+         * @details
+         * For each individual, extracts two objectives from the per-seed rewards 
+         * stored in fitnessValues:
+         *   - objectives[0] = landing rate (fraction of seeds with reward > landingThreshold)
+         *   - objectives[1] = mean reward across all seeds
+         *
+         * The scalar fitness is set as: landingRate * 1000 + meanReward
+         * This two-stage fitness ensures landing rate has priority while mean reward
+         * breaks ties.
+         *
+         * @param landingThreshold Reward threshold above which a run counts as a landing (default: 100)
+         *
+         * @pre gymnasiumMultiSeed() must have been called to populate fitnessValues
+         */
+        void calculateParetoObjectives(float landingThreshold = 100.0f){
+            for(auto& network : individuals){
+                if(network.fitnessValues.empty()) continue;
+
+                float totalReward = 0.0f;
+                int landings = 0;
+
+                for(size_t i = 0; i < network.fitnessValues.size(); i++){
+                    totalReward += network.fitnessValues[i];
+                    if(network.lastStepRewards[i] >= landingThreshold){  // ← EXAKT: letzter Step ≥ 100
+                        landings++;
+                    }
+                }
+              
+                float meanReward = totalReward / static_cast<float>(network.fitnessValues.size());
+                float landingRate = static_cast<float>(landings) / static_cast<float>(network.fitnessValues.size());
+
+                // Store objectives: [0] = landing rate, [1] = mean reward
+                network.objectives = {landingRate, meanReward};
+
+                // Two-stage scalar fitness for elitism sorting
+                network.fitness = landingRate * 10000.0f + meanReward;
+            }
+        }
+
+        /**
+         * @brief Checks if objectives A dominate objectives B (Pareto dominance).
+         * 
+         * @details
+         * A dominates B if A is >= B in ALL objectives AND strictly > in at least one.
+         *
+         * @param a First objective vector
+         * @param b Second objective vector
+         * @return true if a dominates b
+         */
+        static bool dominates(const std::vector<float>& a, const std::vector<float>& b){
+            bool strictlyBetter = false;
+            for(size_t i = 0; i < a.size(); i++){
+                if(a[i] < b[i]) return false;
+                if(a[i] > b[i]) strictlyBetter = true;
+            }
+            return strictlyBetter;
+        }
+
+        /**
+         * @brief Performs Pareto-based tournament selection with dual elitism.
+         *
+         * @details
+         * Extends paretoTournamentSelection with two elite groups:
+         * - E_reward best individuals by mean reward (exploitation)
+         * - E_landing best individuals by landing rate (exploration)
+         * This ensures that landing behavior is never lost through mutation.
+         *
+         * @param N Tournament size
+         * @param E_reward Number of elite individuals by mean reward
+         * @param E_landing Number of elite individuals by landing rate
+         */
+        void paretoTournamentSelection(int N, int E_reward, int E_landing){
+            std::vector<Network> selection;
+            selection.reserve(individuals.size());
+            std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
+            meanFitness = 0;
+            minFitness = individuals[0].fitness;
+            bestFit = individuals[0].fitness;
+
+            int E = E_reward + E_landing;
+
+            for(size_t i = 0; i < individuals.size() - E; i++){
+                // Build tournament
+                std::unordered_set<int> tournament;
+                tournament.reserve(N);
+                while(static_cast<int>(tournament.size()) < N){
+                    tournament.insert(distribution(*generator));
+                }
+
+                // Find non-dominated individuals in tournament
+                std::vector<int> nonDominated;
+                for(int idx : tournament){
+                    bool isDominated = false;
+                    for(int other : tournament){
+                        if(other != idx &&
+                           !individuals[idx].objectives.empty() &&
+                           !individuals[other].objectives.empty() &&
+                           dominates(individuals[other].objectives, individuals[idx].objectives)){
+                            isDominated = true;
+                            break;
+                        }
+                    }
+                    if(!isDominated){
+                        nonDominated.push_back(idx);
+                    }
+                }
+
+                // Select random non-dominated individual
+                std::uniform_int_distribution<int> ndDist(0, nonDominated.size()-1);
+                int winner = nonDominated[ndDist(*generator)];
+
+                selection.push_back(individuals[winner]);
+                meanFitness += individuals[winner].fitness;
+                if(individuals[winner].fitness < minFitness){
+                    minFitness = individuals[winner].fitness;
+                }
+                if(individuals[winner].fitness > bestFit){
+                    bestFit = individuals[winner].fitness;
+                }
+            }
+
+            // Dual elitism
+            setEliteDual(E_reward, E_landing, individuals, selection);
+            individuals = std::move(selection);
+            meanFitness /= individuals.size();
+        }
+
+        /**
+         * @brief Identifies elite individuals by two criteria: mean reward AND landing rate.
+         *
+         * @param E_reward Number of elite by best fitness (mean reward)
+         * @param E_landing Number of elite by best landing rate
+         * @param individuals Copy of current population
+         * @param selection Reference to new population being constructed
+         */
+        void setEliteDual(int E_reward, int E_landing,
+                          std::vector<Network> individuals,
+                          std::vector<Network>& selection){
+            indicesElite.clear();
+
+            // Track already selected indices to avoid duplicates
+            std::unordered_set<int> alreadySelected;
+
+            // Elite by best mean reward (fitness)
+            for(int e = 0; e < E_reward; e++){
+                float bestVal = std::numeric_limits<float>::lowest();
+                int bestIdx = 0;
+                for(int i = 0; i < individuals.size(); i++){
+                    if(alreadySelected.count(i) == 0 && individuals[i].fitness > bestVal){
+                        bestVal = individuals[i].fitness;
+                        bestIdx = i;
+                    }
+                }
+                indicesElite.push_back(selection.size());
+                selection.push_back(individuals[bestIdx]);
+                alreadySelected.insert(bestIdx);
+                if(bestVal > bestFit) bestFit = bestVal;
+            }
+
+            // Elite by best landing rate (objectives[0])
+            for(int e = 0; e < E_landing; e++){
+                float bestVal = std::numeric_limits<float>::lowest();
+                int bestIdx = 0;
+                for(int i = 0; i < individuals.size(); i++){
+                    if(alreadySelected.count(i) == 0 &&
+                       !individuals[i].objectives.empty() &&
+                       individuals[i].objectives[0] > bestVal){
+                        bestVal = individuals[i].objectives[0];
+                        bestIdx = i;
+                    }
+                }
+                // Only add if actually has landings
+                if(bestVal > 0.0f){
+                    indicesElite.push_back(selection.size());
+                    selection.push_back(individuals[bestIdx]);
+                    alreadySelected.insert(bestIdx);
+                } else {
+                    // No lander found, fill with next best by fitness
+                    float bestFitVal = std::numeric_limits<float>::lowest();
+                    int bestFitIdx = 0;
+                    for(int i = 0; i < individuals.size(); i++){
+                        if(alreadySelected.count(i) == 0 && individuals[i].fitness > bestFitVal){
+                            bestFitVal = individuals[i].fitness;
+                            bestFitIdx = i;
+                        }
+                    }
+                    indicesElite.push_back(selection.size());
+                    selection.push_back(individuals[bestFitIdx]);
+                    alreadySelected.insert(bestFitIdx);
+                }
+            }
+        }
 
 };
 
