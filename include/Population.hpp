@@ -408,23 +408,28 @@ class Population {
          * 
          * @note Elite indices are used to protect elite from mutation operations
          */
-        void setElite(int E, std::vector<Network> individuals, std::vector<Network>& selection){
-            unsigned int counter = 0;
+        void setElite(int E, const std::vector<Network>& individuals, std::vector<Network>& selection){
             indicesElite.clear();
-            while(counter<E){
-                float eliteFit = individuals[0].fitness;
-                unsigned int eliteIndex = 0;
-                for(int i=1; i<individuals.size(); i++){
-                    if(individuals[i].fitness > eliteFit){
-                        eliteFit = individuals[i].fitness;
-                        eliteIndex = i;
+            
+            std::vector<unsigned int> candidateIndices(individuals.size());
+            std::iota(candidateIndices.begin(), candidateIndices.end(), 0);
+
+            for(int counter = 0; counter < E; ++counter){
+                float eliteFit = std::numeric_limits<float>::lowest();
+                unsigned int bestCandIdx = 0;
+                for(unsigned int c = 0; c < candidateIndices.size(); ++c){
+                    unsigned int idx = candidateIndices[c];
+                    if(individuals[idx].fitness > eliteFit){
+                        eliteFit = individuals[idx].fitness;
+                        bestCandIdx = c;
                     }
                 }
-                indicesElite.push_back(selection.size()); // because auf push_back of elite the index is the old size
+                unsigned int eliteIndex = candidateIndices[bestCandIdx];
+                candidateIndices.erase(candidateIndices.begin() + bestCandIdx); // erase on small int-vector, not Network-vector
+
+                indicesElite.push_back(selection.size()); // because of push_back of elite the index is the old size
                 selection.push_back(individuals[eliteIndex]);
-                individuals.erase(individuals.begin()+eliteIndex);
-                counter += 1;
-                if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will forgotten in bestFit calculation
+                if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will be forgotten in bestFit calculation
             }
         }
 
