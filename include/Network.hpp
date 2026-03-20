@@ -59,6 +59,7 @@ class Network {
         std::vector<Node> innerNodes; /**< Collection of all judgment and processing nodes in the network */
         Node startNode; /**< Initial entry point for network execution */
         float fitness = std::numeric_limits<float>::lowest(); /**< Fitness value of the network (initialized to lowest possible value) */
+        float lastFitness = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
         bool invalid = false; /**< Flag to indicate invalid individuals (e.g., exceeding judgment limits) */
         int currentNodeID; /**< ID of the currently active node during network traversal */
         int nConsecutiveP; /**< Counter for consecutive processing nodes encountered */
@@ -68,6 +69,8 @@ class Network {
         std::vector<float> fitnessValues = {}; /** placeholder for storing multiple fitness values */
         int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
         size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
+        std::vector<float> objectives = {}; 
+        std::vector<float> lastStepRewards = {};
 
         /** @endcond */
 
@@ -451,6 +454,7 @@ class Network {
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
                     fitness = worstFitness;
+                    lastFitness = worstFitness;
                     return;
                 }
 
@@ -459,6 +463,7 @@ class Network {
                 fitness += result[1].cast<float>();
                 steps ++;
                 if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
+                lastFitness = result[1].cast<float>();
             }
         }
                  
