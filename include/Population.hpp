@@ -1332,7 +1332,7 @@ class Population {
          * @param selection Reference to new population being constructed
          */
         void setEliteDual(int E_reward, int E_landing,
-                          std::vector<Network> individuals,
+                          const std::vector<Network>& individuals,
                           std::vector<Network>& selection){
             indicesElite.clear();
 
