@@ -93,6 +93,12 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("nBest", &Network::nBest)
     .def_readwrite("nConsecutiveP", &Network::nConsecutiveP)
     .def_readwrite("nCrossovers", &Network::nCrossovers)
+    .def("initEpisode", &Network::initEpisode, py::arg("startingFitness")=0.0f)
+    .def("decisionAndNextNode", 
+        [](Network &self, std::vector<double> obs, int dMax) -> int {
+            return self.decisionAndNextNode(obs, dMax);
+        },
+    py::arg("obs"), py::arg("dMax"))
     .def("traversePath", 
         [](Network &self, py::array_t<float, py::array::c_style | py::array::forcecast> X, int dMax) {
             py::buffer_info buf = X.request();
