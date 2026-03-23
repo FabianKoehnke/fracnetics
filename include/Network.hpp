@@ -325,7 +325,7 @@ class Network {
          *
          * @param startingFitness Optional initial fitness value to set before traversal (default is 0)
          */
-        void initEpisode(double startingFitness = 0){
+        void initPathTraversal(double startingFitness = 0){
             clearUsedNodes();
             for(auto& node : innerNodes){
                 node.traverseCounter = 0;
