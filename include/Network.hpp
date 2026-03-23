@@ -309,6 +309,37 @@ class Network {
             return dec;
         }
 
+
+        /**
+         * @brief Initializes the network state for a new path traversal. 
+         * 
+         * @details
+         * Prepares the network for sequential decision-making by:
+         * 1. Clearing all node usage flags
+         * 2. Resetting traverse counters for all nodes and the network
+         * 3. Setting the current node to the start node's target
+         * 4. Resetting fitness, validity, and consecutive processing node counters
+         * 
+         * After calling this method, the network is ready to receive observations
+         * via decisionAndNextNode() one step at a time.
+         *
+         * @param startingFitness Optional initial fitness value to set before traversal (default is 0)
+         */
+        void initEpisode(double startingFitness = 0){
+            clearUsedNodes();
+            for(auto& node : innerNodes){
+                node.traverseCounter = 0;
+            }
+            traverseCounter = 0;
+            currentNodeID = startNode.edges[0];
+            innerNodes[currentNodeID].used = true;
+            innerNodes[currentNodeID].traverseCounter += 1;
+            traverseCounter++;
+            fitness = startingFitness;
+            nConsecutiveP = 0;
+            invalid = false;
+        }
+
         /** @cond INTERNAL */
 
         /**
