@@ -461,7 +461,6 @@ class Network {
 
             auto reset_out = env.reset(seed=seed);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
-            auto info = reset_out[1];
             clearUsedNodes();
             // clearing traverseCounter for each node and network
             for(auto& node : innerNodes){
