@@ -66,7 +66,7 @@ PYBIND11_MODULE(_core, m) {
         }
     ));
     // Network 
-    py::class_<Network>(m, "Network", py::dynamic_attr())
+    py::class_<Network>(m, "Network")
     .def(py::init<
             std::shared_ptr<std::mt19937_64>,
             unsigned int,
@@ -150,7 +150,7 @@ PYBIND11_MODULE(_core, m) {
     ));
    
     // Population
-    py::class_<Population>(m, "Population", py::dynamic_attr())
+    py::class_<Population>(m, "Population") 
         // Member 
         .def(py::init<
                 int,
