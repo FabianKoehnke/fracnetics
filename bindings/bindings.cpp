@@ -125,6 +125,10 @@ PYBIND11_MODULE(_core, m) {
             );
         },
         [](py::tuple t) { // __setstate__
+            // Tuple layout (12 elements):
+            // [0] jn, [1] jnf, [2] pn, [3] pnf, [4] fractalJudgment,
+            // [5] innerNodes, [6] startNode, [7] fitness, [8] decisions,
+            // [9] fitnessValues, [10] objectives, [11] lastStepRewards
             if (t.size() != 12)
                 throw std::runtime_error("Invalid state for Network!");
 

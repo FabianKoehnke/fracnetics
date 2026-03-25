@@ -460,12 +460,14 @@ class Network {
             ){
 
             // Use a scope block so reset_out and obs_init are destroyed immediately
-            // after the initial observation is copied into obs, freeing the gymnasium
+            // after the initial observation is copied into obs, freeing the Gymnasium
             // info dict and obs numpy array well before the episode loop begins.
-            std::vector<double> obs;
+            // obs uses float (not double) so that cast<float32> on the typical float32
+            // Gymnasium observation is zero-copy (no temporary array allocation per step).
+            std::vector<float> obs;
             {
                 auto reset_out = env.reset(seed=seed);
-                auto obs_init = reset_out[0].cast<py::array_t<double, py::array::c_style | py::array::forcecast>>();
+                auto obs_init = reset_out[0].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
                 obs.assign(obs_init.data(), obs_init.data() + obs_init.size());
             }
 
@@ -497,10 +499,10 @@ class Network {
                 }
 
                 auto result = env.step(dec);
-                // Use buffer protocol to copy observation data directly into the
-                // pre-allocated obs vector, avoiding per-element numpy scalar
-                // object creation and repeated malloc/free of the vector storage.
-                auto obs_arr = result[0].cast<py::array_t<double, py::array::c_style | py::array::forcecast>>();
+                // Use buffer protocol with float32 to match the typical Gymnasium observation
+                // dtype: for float32 envs this is a zero-copy view (no new allocation),
+                // eliminating the per-step heap churn that caused RSS fragmentation.
+                auto obs_arr = result[0].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
                 obs.assign(obs_arr.data(), obs_arr.data() + obs_arr.size());
                 float reward = result[1].cast<float>();
                 fitness += reward;
