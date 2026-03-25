@@ -4,6 +4,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <cstring>
 #include <pybind11/numpy.h>
 #include "../include/Network.hpp"
 #include "../include/Population.hpp"
@@ -107,10 +108,13 @@ PYBIND11_MODULE(_core, m) {
             size_t nrows = buf.shape[0];
             size_t ncols = buf.shape[1];
             float* ptr = static_cast<float*>(buf.ptr);
-            std::vector<std::vector<float>> vec2d(nrows, std::vector<float>(ncols));
-            for (size_t i = 0; i < nrows; ++i)
-                for (size_t j = 0; j < ncols; ++j)
-                    vec2d[i][j] = ptr[i * ncols + j];
+            // Reuse a static buffer across calls to avoid per-call C++ heap allocation.
+            static std::vector<std::vector<float>> vec2d;
+            vec2d.resize(nrows);
+            for (size_t i = 0; i < nrows; ++i) {
+                vec2d[i].resize(ncols);
+                std::memcpy(vec2d[i].data(), ptr + i * ncols, ncols * sizeof(float));
+            }
             return self.traversePath(vec2d, dMax);
         }, 
         py::arg("X"), py::arg("dMax"))
@@ -209,10 +213,15 @@ PYBIND11_MODULE(_core, m) {
                 size_t nrows = buf.shape[0];
                 size_t ncols = buf.shape[1];
                 float* ptr = static_cast<float*>(buf.ptr);
-                std::vector<std::vector<float>> vec2d(nrows, std::vector<float>(ncols));
-                for (size_t i = 0; i < nrows; ++i)
-                    for (size_t j = 0; j < ncols; ++j)
-                        vec2d[i][j] = ptr[i * ncols + j];
+                // Reuse a static buffer across calls (safe: Python GIL ensures single-threaded
+                // access). Rows/columns that match the previous call reuse existing allocations,
+                // eliminating per-call C++ heap fragmentation when the dataset shape is constant.
+                static std::vector<std::vector<float>> vec2d;
+                vec2d.resize(nrows);
+                for (size_t i = 0; i < nrows; ++i) {
+                    vec2d[i].resize(ncols);
+                    std::memcpy(vec2d[i].data(), ptr + i * ncols, ncols * sizeof(float));
+                }
                 return self.callTraversePath(vec2d, dMax);
             }, 
             py::arg("X"), py::arg("dMax"))
