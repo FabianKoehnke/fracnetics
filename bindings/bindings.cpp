@@ -125,7 +125,7 @@ PYBIND11_MODULE(_core, m) {
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 13)
+            if (t.size() != 12)
                 throw std::runtime_error("Invalid state for Network!");
 
             Network net(
@@ -143,7 +143,7 @@ PYBIND11_MODULE(_core, m) {
             net.decisions = t[8].cast<std::vector<int>>();
             net.fitnessValues = t[9].cast<std::vector<float>>();
             net.objectives = t[10].cast<std::vector<float>>();
-            net.lastStepRewards = t[12].cast<std::vector<float>>();
+            net.lastStepRewards = t[11].cast<std::vector<float>>();
 
             return net;
         }
@@ -163,7 +163,7 @@ PYBIND11_MODULE(_core, m) {
                 std::vector<int>
                 >(),
              py::arg("seed"), py::arg("ni"), py::arg("jn"), py::arg("jnf"),
-             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("nFeatureValues"))
+             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("nFeatureValues") = std::vector<int>{})
         .def_readonly("ni", &Population::ni)
         .def_readwrite("jn", &Population::jn)
         .def_readwrite("jnf", &Population::jnf)
@@ -223,11 +223,6 @@ PYBIND11_MODULE(_core, m) {
                     int worstFitness,
                     int seed
                     ) {
-
-                        std::vector<float> minF;
-                        std::vector<float> maxF;
-                        std::vector<int> nBins;
-
                         GymEnvWrapper wrapper(env);
                         self.gymnasium(wrapper,dMax,maxSteps,maxConsecutiveP,worstFitness,seed);
                     },
@@ -284,7 +279,7 @@ PYBIND11_MODULE(_core, m) {
             py::arg("justUsedNodes")=false
         )
 
-        .def("crossover", &Population::crossover, py::arg("probability"), py::arg("type"))
+        .def("crossover", &Population::crossover, py::arg("probability") = 1.0f, py::arg("type") = "")
         .def(
             "callAddDelNodes",
             [](Population &p, py::list minF_py, py::list maxF_py, float junk)

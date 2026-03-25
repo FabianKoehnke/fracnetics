@@ -459,8 +459,16 @@ class Network {
             int seed
             ){
 
-            auto reset_out = env.reset(seed=seed);// Initial observation for the episode
-            auto obs = reset_out[0].cast<std::vector<double>>();   
+            // Use a scope block so reset_out and obs_init are destroyed immediately
+            // after the initial observation is copied into obs, freeing the gymnasium
+            // info dict and obs numpy array well before the episode loop begins.
+            std::vector<double> obs;
+            {
+                auto reset_out = env.reset(seed=seed);
+                auto obs_init = reset_out[0].cast<py::array_t<double, py::array::c_style | py::array::forcecast>>();
+                obs.assign(obs_init.data(), obs_init.data() + obs_init.size());
+            }
+
             clearUsedNodes();
             // clearing traverseCounter for each node and network
             for(auto& node : innerNodes){
@@ -489,13 +497,19 @@ class Network {
                 }
 
                 auto result = env.step(dec);
-                obs = result[0].cast<std::vector<double>>(); 
-                fitness += result[1].cast<float>();
+                // Use buffer protocol to copy observation data directly into the
+                // pre-allocated obs vector, avoiding per-element numpy scalar
+                // object creation and repeated malloc/free of the vector storage.
+                auto obs_arr = result[0].cast<py::array_t<double, py::array::c_style | py::array::forcecast>>();
+                obs.assign(obs_arr.data(), obs_arr.data() + obs_arr.size());
+                float reward = result[1].cast<float>();
+                fitness += reward;
                 steps ++;
                 if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
-                lastFitness = result[1].cast<float>();
+                lastFitness = reward;
             }
         }
+
                  
         /**
          * @brief Evaluates network fitness on the CartPole balancing problem.
