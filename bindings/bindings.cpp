@@ -20,6 +20,32 @@ namespace py = pybind11;
 // their node trees, edges, boundaries, decisions …).
 PYBIND11_MAKE_OPAQUE(std::vector<Network>)
 
+// Helper: fill a reusable vec2d buffer from a numpy float32 array.
+// Uses a thread_local static buffer to avoid heap allocation/deallocation
+// churn that contributes to memory fragmentation over many generations.
+static void fill_vec2d_from_numpy(
+        py::array_t<float, py::array::c_style | py::array::forcecast> &X,
+        std::vector<std::vector<float>> &vec2d) {
+    py::buffer_info buf = X.request();
+    if (buf.ndim != 2)
+        throw std::runtime_error("X must be a 2D array");
+    size_t nrows = static_cast<size_t>(buf.shape[0]);
+    size_t ncols = static_cast<size_t>(buf.shape[1]);
+    float* ptr = static_cast<float*>(buf.ptr);
+    vec2d.resize(nrows);
+    for (size_t i = 0; i < nrows; ++i) {
+        vec2d[i].assign(ptr + i * ncols, ptr + (i + 1) * ncols);
+    }
+}
+
+// Helper: invoke Python's gc.collect() to reclaim cyclic garbage.
+// Called after heavy operations that create many temporary Python objects
+// (gymnasium env.step/reset, data conversion, etc.) to prevent memory
+// accumulation across generations.
+static void force_gc_collect() {
+    py::module_::import("gc").attr("collect")();
+}
+
 PYBIND11_MODULE(_core, m) {
 
     // Node
@@ -110,16 +136,8 @@ PYBIND11_MODULE(_core, m) {
     py::arg("obs"), py::arg("dMax"))
     .def("traversePath",
         [](Network &self, py::array_t<float, py::array::c_style | py::array::forcecast> X, int dMax) {
-            py::buffer_info buf = X.request();
-            if (buf.ndim != 2)
-                throw std::runtime_error("X must be a 2D array");
-            size_t nrows = buf.shape[0];
-            size_t ncols = buf.shape[1];
-            float* ptr = static_cast<float*>(buf.ptr);
-            std::vector<std::vector<float>> vec2d(nrows, std::vector<float>(ncols));
-            for (size_t i = 0; i < nrows; ++i)
-                for (size_t j = 0; j < ncols; ++j)
-                    vec2d[i][j] = ptr[i * ncols + j];
+            thread_local std::vector<std::vector<float>> vec2d;
+            fill_vec2d_from_numpy(X, vec2d);
             {
                 py::gil_scoped_release release;
                 self.traversePath(vec2d, dMax);
@@ -206,7 +224,20 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("indicesElite", &Population::indicesElite)
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
-        .def_readwrite("individuals", &Population::individuals)
+        // Use def_property with return_value_policy::reference instead of
+        // def_readwrite (which uses reference_internal / keep_alive).
+        // reference_internal calls add_patient() on every property access,
+        // accumulating Py_INCREF entries in pybind11's internals.patients map.
+        // With plain reference, the wrapper simply points to the member
+        // without adding keep_alive bookkeeping each time.
+        .def_property("individuals",
+            [](Population &self) -> std::vector<Network>& {
+                return self.individuals;
+            },
+            [](Population &self, const std::vector<Network> &v) {
+                self.individuals = v;
+            },
+            py::return_value_policy::reference)
         .def_readwrite("nFeatureValues", &Population::nFeatureValues)
 
         // Functions
@@ -234,16 +265,8 @@ PYBIND11_MODULE(_core, m) {
 
         .def("callTraversePath",
             [](Population &self, py::array_t<float, py::array::c_style | py::array::forcecast> X, int dMax) {
-                py::buffer_info buf = X.request();
-                if (buf.ndim != 2)
-                    throw std::runtime_error("X must be a 2D array");
-                size_t nrows = buf.shape[0];
-                size_t ncols = buf.shape[1];
-                float* ptr = static_cast<float*>(buf.ptr);
-                std::vector<std::vector<float>> vec2d(nrows, std::vector<float>(ncols));
-                for (size_t i = 0; i < nrows; ++i)
-                    for (size_t j = 0; j < ncols; ++j)
-                        vec2d[i][j] = ptr[i * ncols + j];
+                thread_local std::vector<std::vector<float>> vec2d;
+                fill_vec2d_from_numpy(X, vec2d);
                 {
                     py::gil_scoped_release release;
                     self.callTraversePath(vec2d, dMax);
@@ -256,21 +279,13 @@ PYBIND11_MODULE(_core, m) {
                py::array_t<float, py::array::c_style | py::array::forcecast> X,
                py::array_t<int, py::array::c_style | py::array::forcecast> y,
                int dMax, int penalty) {
-                py::buffer_info xbuf = X.request();
+                thread_local std::vector<std::vector<float>> vec2d;
+                fill_vec2d_from_numpy(X, vec2d);
+
                 py::buffer_info ybuf = y.request();
-                if (xbuf.ndim != 2)
-                    throw std::runtime_error("X must be a 2D array");
                 if (ybuf.ndim != 1)
                     throw std::runtime_error("y must be a 1D array");
-
-                size_t nrows = xbuf.shape[0], ncols = xbuf.shape[1];
-                float* xptr = static_cast<float*>(xbuf.ptr);
                 int* yptr = static_cast<int*>(ybuf.ptr);
-
-                std::vector<std::vector<float>> vec2d(nrows, std::vector<float>(ncols));
-                for (size_t i = 0; i < nrows; ++i)
-                    for (size_t j = 0; j < ncols; ++j)
-                        vec2d[i][j] = xptr[i * ncols + j];
                 std::vector<int> y_vec(yptr, yptr + ybuf.shape[0]);
 
                 {
@@ -291,6 +306,9 @@ PYBIND11_MODULE(_core, m) {
                     ) {
                         GymEnvWrapper wrapper(env);
                         self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed);
+                        // Force GC to reclaim cyclic garbage from env.step()/env.reset()
+                        // calls that accumulate over the population loop.
+                        force_gc_collect();
                     },
                 py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed")
             )
@@ -306,6 +324,9 @@ PYBIND11_MODULE(_core, m) {
                     ) {
                         GymEnvWrapper wrapper(env);
                         self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
+                        // Force GC to reclaim cyclic garbage from env.step()/env.reset()
+                        // calls that accumulate over population × seeds loops.
+                        force_gc_collect();
                     },
                 py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds")
             )
