@@ -458,11 +458,30 @@ class Network {
             int worstFitness,
             int seed
             ){
+            namespace py = pybind11;
 
-            auto reset_out = env.reset(seed=seed);// Initial observation for the episode
-            auto obs = reset_out[0].cast<std::vector<double>>();   
+            // --- Helper: extract observation via numpy buffer protocol.
+            // Uses assign() to reuse the vector's existing allocation when
+            // the size stays the same (avoids per-step heap alloc/dealloc).
+            // py::array_t with forcecast handles float32→float64 at the
+            // C level (no individual Python float objects created).
+            std::vector<double> obs;
+            auto extract_obs = [&obs](py::handle src) {
+                auto arr = py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(src);
+                if (!arr)
+                    throw std::runtime_error("Cannot convert observation to numpy array");
+                auto buf = arr.request();
+                const double* ptr = static_cast<const double*>(buf.ptr);
+                obs.assign(ptr, ptr + buf.shape[0]);
+            };
+
+            // --- Reset: extract obs and release the reset tuple immediately.
+            {
+                py::tuple reset_out = env.reset(seed);
+                extract_obs(reset_out[0]);
+            } // reset_out released here
+
             clearUsedNodes();
-            // clearing traverseCounter for each node and network
             for(auto& node : innerNodes){
                 node.traverseCounter = 0;
             }
@@ -479,7 +498,7 @@ class Network {
             bool done = false;
             int steps = 0;
 
-            while(done == false){
+            while(!done){
                 dec = decisionAndNextNode(obs, dMax);
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
@@ -488,12 +507,18 @@ class Network {
                     return;
                 }
 
-                auto result = env.step(dec);
-                obs = result[0].cast<std::vector<double>>(); 
-                fitness += result[1].cast<float>();
-                steps ++;
-                if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
-                lastFitness = result[1].cast<float>();
+                // --- Step: extract all data, then release the result tuple.
+                {
+                    py::tuple result = env.step(dec);
+                    extract_obs(result[0]);
+                    float reward = result[1].cast<float>();
+                    fitness += reward;
+                    lastFitness = reward;
+                    steps++;
+                    done = result[2].cast<bool>()
+                        || result[3].cast<bool>()
+                        || steps >= maxSteps;
+                } // result released here – frees obs array, reward, info dict etc.
             }
         }
                  
