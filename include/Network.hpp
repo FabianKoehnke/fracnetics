@@ -510,14 +510,14 @@ class Network {
                 // --- Step: extract all data, then release the result tuple.
                 {
                     py::tuple result = env.step(dec);
-                    extract_obs(result[0]);
+                    extract_obs(result[0]);           // obs array
                     float reward = result[1].cast<float>();
+                    bool terminated = result[2].cast<bool>();
+                    bool truncated  = result[3].cast<bool>();
                     fitness += reward;
                     lastFitness = reward;
                     steps++;
-                    done = result[2].cast<bool>()
-                        || result[3].cast<bool>()
-                        || steps >= maxSteps;
+                    done = terminated || truncated || steps >= maxSteps;
                 } // result released here – frees obs array, reward, info dict etc.
             }
         }

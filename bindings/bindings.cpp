@@ -279,6 +279,12 @@ PYBIND11_MODULE(_core, m) {
             [](const Population &p) { return p.indicesElite; },
             [](Population &p, const std::vector<int> &v) { p.indicesElite = v; })
         // --- individuals: reference to opaque vector (no deep copy) -------
+        // The getter returns a reference-wrapped NetworkVector so that
+        // `for ind in pop.individuals` yields references to the C++ Network
+        // objects (no copying).  The setter performs a full copy of the
+        // supplied vector into the C++ member.  This asymmetry is intentional:
+        // reads should be cheap (reference), writes rarely happen and need
+        // value semantics for safety.
         .def_property("individuals",
             [](Population &self) -> std::vector<Network>& {
                 return self.individuals;
