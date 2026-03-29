@@ -290,8 +290,10 @@ PYBIND11_MODULE(_core, m) {
             },
             [](Population &self, py::object v) {
                 if (py::isinstance<std::vector<Network>>(v)) {
-                    // Direct assignment from NetworkVector
-                    self.individuals = v.cast<std::vector<Network>&>();
+                    // Direct copy from NetworkVector.  The const-ref is safe
+                    // because v (py::object) keeps the underlying C++ vector
+                    // alive for the duration of the assignment.
+                    self.individuals = v.cast<const std::vector<Network>&>();
                 } else {
                     // Accept any Python sequence of Network objects (e.g. list)
                     py::sequence seq = v.cast<py::sequence>();
