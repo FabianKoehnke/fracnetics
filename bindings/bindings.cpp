@@ -281,16 +281,26 @@ PYBIND11_MODULE(_core, m) {
         // --- individuals: reference to opaque vector (no deep copy) -------
         // The getter returns a reference-wrapped NetworkVector so that
         // `for ind in pop.individuals` yields references to the C++ Network
-        // objects (no copying).  The setter performs a full copy of the
-        // supplied vector into the C++ member.  This asymmetry is intentional:
-        // reads should be cheap (reference), writes rarely happen and need
-        // value semantics for safety.
+        // objects (no copying).  The setter accepts both a NetworkVector
+        // (opaque std::vector<Network>) and a plain Python list of Network
+        // objects, so that `pop.individuals = [pop.individuals[-1]]` works.
         .def_property("individuals",
             [](Population &self) -> std::vector<Network>& {
                 return self.individuals;
             },
-            [](Population &self, const std::vector<Network> &v) {
-                self.individuals = v;
+            [](Population &self, py::object v) {
+                if (py::isinstance<std::vector<Network>>(v)) {
+                    // Direct assignment from NetworkVector
+                    self.individuals = v.cast<std::vector<Network>&>();
+                } else {
+                    // Accept any Python sequence of Network objects (e.g. list)
+                    py::sequence seq = v.cast<py::sequence>();
+                    std::vector<Network> tmp;
+                    tmp.reserve(py::len(seq));
+                    for (auto item : seq)
+                        tmp.push_back(item.cast<Network>());
+                    self.individuals = std::move(tmp);
+                }
             },
             py::return_value_policy::reference)
         .def_readwrite("nFeatureValues", &Population::nFeatureValues)
