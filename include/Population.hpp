@@ -58,6 +58,7 @@ class Population {
         std::vector<int> indicesElite; /**< Indices of elite individuals (protected from mutation) */
         float meanFitness = 0; /**< Mean fitness across all individuals in the population */
         float minFitness; /**< Minimum fitness value in the current population */
+        int maxNetworkSize; 
         std::vector<int> nFeatureValues; /** stores the number of feature values */
         /** @endcond */
 
@@ -363,8 +364,12 @@ class Population {
             meanFitness = 0;
             minFitness = individuals[0].fitness;
             bestFit = individuals[0].fitness;
+            maxNetworkSize = individuals[0].innerNodes.size();
 
             for(int i=0; i<individuals.size()-E; i++){
+                if(individuals[i].innerNodes.size() > maxNetworkSize){
+                    maxNetworkSize = individuals[i].innerNodes.size();
+                }
                 float bestFitTournament = std::numeric_limits<float>::lowest();
                 int indexBestIndTournament = 0;
                 tournament.clear();
@@ -1279,10 +1284,14 @@ class Population {
             meanFitness = 0;
             minFitness = individuals[0].fitness;
             bestFit = individuals[0].fitness;
+            maxNetworkSize = 0;
 
             int E = E_reward + E_landing;
 
             for(size_t i = 0; i < individuals.size() - E; i++){
+                if (individuals[i].innerNodes.size() > maxNetworkSize){
+                    maxNetworkSize = individuals[i].innerNodes.size();
+                }
                 // Build tournament
                 std::unordered_set<int> tournament;
                 tournament.reserve(N);
