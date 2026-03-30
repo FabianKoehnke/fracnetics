@@ -259,9 +259,9 @@ class Node {
          * the edges vector maintains its original size
          * 
          */
-        void edgeMutation(float propability, int nn, bool adaptToEdgeSize = false){
-            if(adaptToEdgeSize){
-                propability = propability / edges.size();
+        void edgeMutation(float propability, int nn, int k, int N){
+            if(k > 0){
+                propability = (float)k / (float)N;
             }
             std::bernoulli_distribution distributionBernoulli(propability);
             for(auto& edge : edges){
