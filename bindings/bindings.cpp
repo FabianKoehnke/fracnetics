@@ -224,6 +224,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("indicesElite", &Population::indicesElite)
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
+        .def_readwrite("maxNetworkSize", &Population::maxNetworkSize)
         // Use def_property with return_value_policy::reference instead of
         // def_readwrite (which uses reference_internal / keep_alive).
         // reference_internal calls add_patient() on every property access,
@@ -234,9 +235,21 @@ PYBIND11_MODULE(_core, m) {
             [](Population &self) -> std::vector<Network>& {
                 return self.individuals;
             },
-            [](Population &self, const std::vector<Network> &v) {
-                self.individuals = v;
+            [](Population &self, py::object v) {
+                if (py::isinstance<std::vector<Network>>(v)) {
+                    // Direct assignment from NetworkVector
+                    self.individuals = v.cast<std::vector<Network>&>();
+                } else {
+                    // Accept any Python sequence of Network objects (e.g. list)
+                    py::sequence seq = v.cast<py::sequence>();
+                    std::vector<Network> tmp;
+                    tmp.reserve(py::len(seq));
+                    for (auto item : seq)
+                        tmp.push_back(item.cast<Network>());
+                    self.individuals = std::move(tmp);
+                }
             },
+
             py::return_value_policy::reference)
         .def_readwrite("nFeatureValues", &Population::nFeatureValues)
 
