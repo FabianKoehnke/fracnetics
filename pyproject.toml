@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "fracnetics" 
-version = "0.7.11"
+version = "1.0.0"
 description = "Genetic Network Programming with Fractal Expansion"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Fabian Köhnke", email = "fabian.koehnke@googlemail.com" }]
