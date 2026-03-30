@@ -737,7 +737,7 @@ class Network {
             bool resultAdd = distributionBernoulliAdd(*generator);
             countUsedNodes();
             for(int n=0; n<innerNodes.size(); n++){
-                if(resultAdd && nUsedNodes >= innerNodes.size() * (1-junk)){// adding node 
+                if(resultAdd && innerNodes.size() - nUsedNodes <= innerNodes.size() * junk){// adding node 
                     bool resultProcessingNode = distributionBernoulliProcessingNode(*generator);
                     if(resultProcessingNode){ // add processing node
                         std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
@@ -784,7 +784,7 @@ class Network {
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
-                        innerNodes.size() * (1-junk) > nUsedNodes + 1 &&
+                        innerNodes.size() * junk > innerNodes.size() - nUsedNodes + 1 &&
                         innerNodes[n].used == false) // node is not used
                 {// deleting nodes
 
