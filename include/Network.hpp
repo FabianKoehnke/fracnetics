@@ -820,7 +820,27 @@ class Network {
             }
             innerNodes.shrink_to_fit();
         }
-        /** @} */
+        
+        /**
+         * @brief Counts the total number of edges in the network, optionally filtering by used nodes.
+         * 
+         * @details
+         * This method iterates through all inner nodes and sums the number of outgoing edges. If the
+         * justUsedNodes parameter is set to true, only nodes that are currently marked as used (used == true) are included in the count. 
+         * 
+         * @param justUsedNodes If true, only counts edges from nodes that are currently used. If false, counts edges from all nodes regardless of usage status.
+         * @return The total count of edges in the network, filtered by usage if specified.
+         */
+        int countEdges(bool justUsedNodes = false){
+            int count = 0;
+            for(const auto& node : innerNodes){
+                if(justUsedNodes && node.used == false){
+                    continue; // skip unused nodes if justUsedNodes is true
+                }
+                count += node.edges.size();
+            }
+            return count;
+        }
 
 };
 #endif
