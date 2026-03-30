@@ -469,19 +469,26 @@ class Population {
          * @warning tournamentSelection() must have been called to set indicesElite
          * 
          */
-        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, bool adaptToEdgeSize = false){
+        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, int k = 0){
             for(int i=0; i<individuals.size(); i++){
+
+                int N;
+                if(k > 0){
+                    N = individuals[i].countEdges(justUsedNodes);
+                }
+                else {
+                    N = 0;
+                }
+
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
                     for(auto& node : individuals[i].innerNodes){
-                        if(justUsedNodes == true){
-                            if(node.used == true){
-                                node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
-                            }
+                        if(justUsedNodes == true && node.used == false){
+                            continue;
                         } else {
-                        node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), adaptToEdgeSize);
+                            node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), k, N);
                         }
                     }
-                    individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size());
+                    individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size(), k, N);
                  }
              }
         }
