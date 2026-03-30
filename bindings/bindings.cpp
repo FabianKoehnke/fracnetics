@@ -357,7 +357,7 @@ PYBIND11_MODULE(_core, m) {
              py::arg("N"), py::arg("E"))
         .def("callEdgeMutation", &Population::callEdgeMutation,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("adaptToEdgeSize")=false)
+             py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("k")=0)
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
