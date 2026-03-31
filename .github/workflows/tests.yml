@@ -2,7 +2,7 @@ name: Run Tests
 on: [push, pull_request]
 
 jobs:
-  build:
+  python-tests:
     runs-on: ubuntu-latest
 
     strategy:
@@ -11,6 +11,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: true
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -22,3 +24,18 @@ jobs:
     - name: Run tests
       run: pytest tests/
 
+  cpp-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install GTest
+      run: sudo apt-get install -y libgtest-dev
+    - name: Build with tests
+      run: |
+        mkdir build && cd build
+        cmake -DBUILD_TESTS=ON ..
+        cmake --build .
+    - name: Run C++ tests
+      run: cd build && ctest --output-on-failure
