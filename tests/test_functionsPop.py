@@ -14,7 +14,8 @@ def test_population_function():
         jnf=3,
         pn=3,
         pnf=2,
-        fractalJudgment=True
+        fractalJudgment=True,
+        nFeatureValues=[0,0,0,0,0,0,2,2]
     )
     
     try:
@@ -111,7 +112,7 @@ def test_population_function():
         edges = []
         for i in range(len(pop.individuals[0].innerNodes)):
             edges.append(pop.individuals[0].innerNodes[i].edges) 
-        pop.crossover(0.5)
+        pop.crossover(0.5, type = "uniform")
         counter = 0
         for i in range(len(pop.individuals[0].innerNodes)):
             if edges[i] != pop.individuals[0].innerNodes[i].edges:
