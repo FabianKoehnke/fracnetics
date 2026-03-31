@@ -28,7 +28,7 @@ int main(){
     float probCrossOver = 1;
     int generations = 200;
     int generationsNoImprovementLimit = 500;
-    int nIndividuals = 10000;
+    int nIndividuals = 100;
     int tournamentSize = 2;
     int nElite = 1;
     int jn = 2;
