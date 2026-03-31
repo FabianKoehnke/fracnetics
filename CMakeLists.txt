@@ -31,36 +31,39 @@ target_compile_features(_core PUBLIC cxx_std_20)
 # -------------------
 # Tests
 # -------------------
-find_package(GTest REQUIRED)
+option(BUILD_TESTS "Build C++ unit tests" OFF)
 
-add_library(test_lib
-    tests/crossover.cpp
-    tests/network.cpp
-    tests/population.cpp
-)
+if(BUILD_TESTS)
+    find_package(GTest REQUIRED)
 
-target_link_libraries(test_lib
-    PRIVATE
-        pybind11::module
-        Python::Python
-        GTest::gtest
-)
+    add_library(test_lib
+        tests/crossover.cpp
+        tests/network.cpp
+        tests/population.cpp
+    )
 
-add_executable(runTests
-    tests/crossover.cpp
-    tests/network.cpp
-    tests/population.cpp
-)
+    target_link_libraries(test_lib
+        PRIVATE
+            pybind11::module
+            Python::Python
+            GTest::gtest
+    )
 
-target_link_libraries(runTests
-    PRIVATE
-        test_lib
-        GTest::gtest_main
-        pybind11::module
-        Python::Python
-)
+    add_executable(runTests
+        tests/crossover.cpp
+        tests/network.cpp
+        tests/population.cpp
+    )
 
-enable_testing()
-include(GoogleTest)
-gtest_discover_tests(runTests)
+    target_link_libraries(runTests
+        PRIVATE
+            test_lib
+            GTest::gtest_main
+            pybind11::module
+            Python::Python
+    )
 
+    enable_testing()
+    include(GoogleTest)
+    gtest_discover_tests(runTests)
+endif()
