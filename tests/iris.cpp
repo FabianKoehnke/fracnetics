@@ -26,7 +26,7 @@ int main(){
     std::string boundaryMutationType = "normal"; // uniform, networkSigma, normal, edgeSigma, edgeFractal
     bool fractalJudgment = false;
     float probCrossOver = 1;
-    int generations = 200;
+    int generations = 100;
     int generationsNoImprovementLimit = 500;
     int nIndividuals = 100;
     int tournamentSize = 2;
