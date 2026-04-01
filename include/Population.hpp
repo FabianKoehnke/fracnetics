@@ -983,14 +983,18 @@ class Population {
                 const std::vector<int>& successor1,// larger subnetwork 
                 const std::vector<int>& successor2,
                 Network& parent1, 
-                Network& parent2
+                Network& parent2,
+                bool copy = false
                 ){
 
             int overhang = successor1.size() - successor2.size();
             for(int i=0; i<overhang; i++){
                 int nodeIndex = successor1[successor2.size()+i];
-                parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
-                //std::cout << "added node " << nodeIndex << " from parent1 to parent2" << std::endl;
+                if(copy == false){
+                    parent2.innerNodes.push_back(std::move(parent1.innerNodes[nodeIndex]));
+                } else {
+                    parent2.innerNodes.push_back(parent1.innerNodes[nodeIndex]);
+                }
             }
         }
 
