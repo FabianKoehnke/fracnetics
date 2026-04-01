@@ -396,7 +396,11 @@ PYBIND11_MODULE(_core, m) {
 
         .def("crossover", &Population::crossover,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("type"))
+             py::arg("probability"), 
+             py::arg("type"), 
+             py::arg("traversalNeighbor")=false, 
+             py::arg("lowerBoundTraversalCounter")=0.9,
+             py::arg("upperBoundTraversalCounter")=1.1)
         .def(
             "callAddDelNodes",
             [](Population &p, py::list minF_py, py::list maxF_py, float junk)

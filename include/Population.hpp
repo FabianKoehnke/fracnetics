@@ -714,13 +714,17 @@ class Population {
          *  - "uniform": selects each node and exchanges them with given probability
          *  - "onepoint": draws a random cutpoint from the genotype and exchanges all nodes until this point
          *  - "randomWidth": exchanges subnetworks of different widths where all succesor nodes of a randomly selected node are exchanged
+         *  @param traversalNeighbor If true, the crossover is only applied to pairs of individuals that are neighbors in the traversal space 
+         *  calculated by traverseCounter.
+         *  @param lowerBoundTraversalCounter Lower bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
+         *  @param upperBoundTraversalCounter Upper bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
          * 
          * @note tournamentSelection() must have been called to set indicesElite
          * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
          * @note For "randomWidth", parent networks must have more than 2 inner nodes to safely use changeFalseEdges()
          */
 
-        void crossover(float propability = 1, std::string type = ""){
+        void crossover(float propability = 1, std::string type = "", bool traversalNeighbor = false, float lowerBoundTraversalCounter = 0.9, float upperBoundTraversalCounter = 1.1){
 
             std::bernoulli_distribution distributionBernoulli(propability);
             int nNodesToExchange;
@@ -1075,10 +1079,11 @@ class Population {
          *                      If -1, a random index is selected uniformly from the available inner nodes.
          * @param nSelectedNodes Maximum number of successor nodes to collect (excluding the start node).
          *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
+         * @param traversalNeighbor If true, collects nodes with traverse counters within ±10% of the start node's counter, instead of strictly greater.
          * @return A sorted vector of node indices comprising the start node and up to
          *         @p nSelectedNodes successors.
          */
-        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1){
+        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1, bool traversalNeighbor = false){
 
             if(subNodesStart == -1){
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
@@ -1100,11 +1105,17 @@ class Population {
             int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
             for(int i=0; i<individual.innerNodes.size(); i++){
                 int traverseCounterNode = individual.innerNodes[i].traverseCounter;
-                if(traverseCounterNode > traverseCounterStart){
-                    nodeIndices.push_back(i);
-                    nSelectedNodes --;
-                    if (nSelectedNodes == 0){
-                        break;
+                if(traversalNeighbor == false){
+                    if(traverseCounterNode > traverseCounterStart){
+                        nodeIndices.push_back(i);
+                        nSelectedNodes --;
+                        if (nSelectedNodes == 0){
+                            break;
+                        }
+                    }
+                } else {
+                    if(traverseCounterStart * 0.9 <= traverseCounterNode && traverseCounterNode <= traverseCounterStart * 1.1){
+                        nodeIndices.push_back(i);
                     }
                 }
             }
