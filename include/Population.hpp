@@ -805,23 +805,29 @@ class Population {
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
 
-                        // Build remap: successor1[i] → successor2[i] (for edges in copied nodes)
-                        std::unordered_map<int, int> remapForCopied;
-                        for(int j=0; j<minSubNodes; j++){
-                            remapForCopied[successor1[j]] = successor2[j];
-                        }
+                        std::unordered_map<int, int> swapMap1 = initNodeSwapMap(successor1, successor2, parent2.innerNodes.size());
 
                         // Copy nodes from parent1 to parent2
                         for(int j=0; j<minSubNodes; j++){
                             parent2.innerNodes[successor2[j]] = parent1.innerNodes[successor1[j]];
-                            parent2.innerNodes[successor2[j]].id = successor2[j];
                         }
 
-                        // Remap edges in the copied nodes
-                        std::vector<int> copiedIndices(successor2.begin(), successor2.begin() + minSubNodes);
-                        parent2.remapNodeIdsAndEdges(remapForCopied, copiedIndices, false);
+                        std::vector<int> indices1;
+                        indices1.reserve(swapMap1.size()); 
+                        for (auto const& [key, val] : swapMap1) {
+                            indices1.push_back(val);
+                        }
 
-                        // Fix edges pointing to invalid nodes
+                        if(successor1.size() > successor2.size()){
+                            addOverhangNodes(successor1, successor2, parent1, parent2, true);
+                        }
+
+                        parent2.remapNodeIdsAndEdges(swapMap1, indices1, false);
+                        
+                        if (successor1.size() < successor2.size()) {
+                            deleteOverhangNodes(successor2, successor1, parent2);
+                        }
+
                         parent2.changeFalseEdges();
 
                     } else if(parent2IsElite){
@@ -830,23 +836,29 @@ class Population {
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
 
-                        // Build remap: successor2[i] → successor1[i] (for edges in copied nodes)
-                        std::unordered_map<int, int> remapForCopied;
-                        for(int j=0; j<minSubNodes; j++){
-                            remapForCopied[successor2[j]] = successor1[j];
-                        }
+                        std::unordered_map<int, int> swapMap2 = initNodeSwapMap(successor2, successor1, parent1.innerNodes.size());
 
                         // Copy nodes from parent2 to parent1
                         for(int j=0; j<minSubNodes; j++){
                             parent1.innerNodes[successor1[j]] = parent2.innerNodes[successor2[j]];
-                            parent1.innerNodes[successor1[j]].id = successor1[j];
                         }
 
-                        // Remap edges in the copied nodes
-                        std::vector<int> copiedIndices(successor1.begin(), successor1.begin() + minSubNodes);
-                        parent1.remapNodeIdsAndEdges(remapForCopied, copiedIndices, false);
+                        std::vector<int> indices2;
+                        indices2.reserve(swapMap2.size()); 
+                        for (auto const& [key, val] : swapMap2) {
+                            indices2.push_back(val);
+                        }
 
-                        // Fix edges pointing to invalid nodes
+                        if(successor2.size() > successor1.size()){
+                           addOverhangNodes(successor2, successor1, parent2, parent1, true);
+                        }
+
+                        parent1.remapNodeIdsAndEdges(swapMap2, indices2, false);
+
+                        if (successor2.size() < successor1.size()) {
+                            deleteOverhangNodes(successor1, successor2, parent1);
+                        }
+                       
                         parent1.changeFalseEdges();
 
                     } else { // no elite --> bidirectional swap
