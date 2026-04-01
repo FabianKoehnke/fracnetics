@@ -964,36 +964,6 @@ class Population {
             }
         }
 
-       /**
-         * @brief Remaps node indices in individual's edges according to the provided mapping.
-         * 
-         * @param map A mapping from old node indices to new node indices
-         * @param individual The network whose edge references need to be remapped
-         */
-        void remapIndividualsNodesEdges(std::unordered_map<int, int>& map, Network& individual){
-            for(auto& node: individual.innerNodes){
-                for(auto& edge : node.edges){
-                    if(map.contains(edge)){
-                        edge = map[edge];
-                    }
-                }
-            }
-        }
-        /**
-         * @brief Remaps the IDs of inner nodes in an individual network according to the provided mapping.
-         * 
-         * @param map Unordered map containing the mapping from old node IDs to new node IDs
-         * @param individual The network whose inner node IDs will be remapped
-         */
-        void remapIndividualsNodesIds(std::unordered_map<int, int>& map, Network& individual){
-            for(auto& node : individual.innerNodes){
-                if(map.contains(node.id)){
-                    node.id = map[node.id];
-                }
-            }
-        }
-        
-
          /**
          * @brief Adds overhang nodes from the larger parent subnetwork to the smaller parent subnetwork during crossover.
          * 
