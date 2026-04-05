@@ -1202,12 +1202,20 @@ class Population {
                 network.fitnessValues.clear();
                 network.lastStepRewards.clear();
                 float totalReward = 0.0f;
+                bool firstSeed = true;
 
                 for(int s : seeds){
-                    network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s);
+
+                    if(firstSeed == true){
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true);
+                    } else {
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false);
+                    }
+
                     network.fitnessValues.push_back(network.fitness);
                     network.lastStepRewards.push_back(network.lastFitness);
                     totalReward += network.fitness;
+                    firstSeed = false;
                 }
 
                 // Default aggregation: mean reward
