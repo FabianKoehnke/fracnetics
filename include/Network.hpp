@@ -447,6 +447,7 @@ class Network {
          * @param worstFitness Fitness value assigned when network violates constraints
          * @param seed Random seed for environment initialization 
          * @param gamma discount factor of the rewards
+         * @param newRun If true, resets network state for a new episode; if false, continues from current state (useful for multi-episode evaluation)
          * 
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
@@ -456,17 +457,21 @@ class Network {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            int seed
+            int seed,
+            bool newRun = true
             ){
 
             auto reset_out = env.reset(seed=seed);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
-            clearUsedNodes();
-            // clearing traverseCounter for each node and network
-            for(auto& node : innerNodes){
-                node.traverseCounter = 0;
+
+            if(newRun == true){
+                clearUsedNodes();
+                // clearing traverseCounter for each node and network
+                for(auto& node : innerNodes){
+                    node.traverseCounter = 0;
+                }
+                traverseCounter = 0;
             }
-            traverseCounter = 0;
 
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
