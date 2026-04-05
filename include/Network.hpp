@@ -844,5 +844,24 @@ class Network {
             return count;
         }
 
+        /**
+         * @brief Calculates the ratio of processing nodes to total nodes in the network.
+         * 
+         * @details
+         * This method iterates through all inner nodes and counts the number of processing nodes (pn) and judgment nodes (jn). 
+         * 
+         * @return The ratio of processing nodes to total nodes, calculated as pn / (pn + jn). If there are no nodes, returns 0 to avoid division by zero.
+         */
+        float pnRatio(){
+            for(auto& node : innerNodes){
+                if(node.type == "P"){
+                    pn += 1;
+                } else if(node.type == "J"){
+                    jn += 1;
+                }
+            }
+            return static_cast<float>(pn) / static_cast<float>(pn+jn);
+        }
+
 };
 #endif
