@@ -1153,15 +1153,23 @@ class Population {
          * 
          * @param minF Vector of minimum values for all features (for new judgment node initialization)
          * @param maxF Vector of maximum values for all features (for new judgment node initialization)
-         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes 
+         * @param junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes 
          * and at least one node is always protected. 
+         * @param noElite If true, elite individuals are protected 
+         *  normaly this is not necessary because the operator addDelNodes() is fitness neutral. But because of 
+         *  the fitness neutraly is given by used nodes it just protects node of the last traversal path. 
+         *  If you use multiple traversal path per generation, e.g. using multiple seeds for evaluation a elite protection is not garanteed and 
+         *  noElite should be set to true. Default is false.
          * 
          * @note This operator has not influence on the individuals fitness  
          * @see Network::addDelNodes()
          */
-        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk=0){
-            for(auto& ind : individuals){
-                ind.addDelNodes(minF, maxF, junk, nFeatureValues);
+        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk=0, bool noElite = false){
+
+            for(int i=0; i<individuals.size(); i++){
+
+                if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {continue;} // skip elite individuals if noElite is true
+                individuals[i].addDelNodes(minF, maxF, junk, nFeatureValues);
 
             }
         }
