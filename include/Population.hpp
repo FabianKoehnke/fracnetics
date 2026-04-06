@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <utility>
 #include <cmath>
+#include <thread>
 #include "Network.hpp"
 #include "GymnasiumWrapper.hpp"
 
@@ -1220,6 +1221,85 @@ class Population {
 
                 // Default aggregation: mean reward
                 network.fitness = totalReward / static_cast<float>(seeds.size());
+            }
+        }
+
+        /**
+         * @brief Evaluates all individuals across multiple seeds in parallel using N cores.
+         *
+         * @details
+         * Parallelized version of gymnasiumMultiSeed(). Each core receives its own
+         * environment instance to avoid thread-safety issues.  The population is split
+         * into roughly equal chunks and each chunk is evaluated in its own thread.
+         *
+         * Because fitGymnasium() calls Python (env.reset / env.step), each worker
+         * thread acquires the GIL before evaluating an individual and releases it
+         * afterwards, allowing other threads to interleave.  For Gymnasium
+         * environments backed by C extensions (MuJoCo, Atari, Box2D …), the
+         * extension typically releases the GIL during step(), enabling true parallel
+         * execution.
+         *
+         * @param envs  Vector of GymEnvWrapper objects, one per core.  envs.size()
+         *              determines the number of threads.
+         * @param dMax  Maximum consecutive judgment nodes per decision
+         * @param maxSteps Maximum episode length
+         * @param maxConsecutiveP Maximum consecutive processing nodes allowed
+         * @param worstFitness Fitness value assigned when networks violate constraints
+         * @param seeds Vector of random seeds for environment initialization
+         */
+        void gymnasiumMultiSeed(
+            std::vector<GymEnvWrapper>& envs,
+            int dMax,
+            int maxSteps,
+            int maxConsecutiveP,
+            int worstFitness,
+            const std::vector<int>& seeds
+                ){
+
+            int nCores = static_cast<int>(envs.size());
+            int nInd   = static_cast<int>(individuals.size());
+
+            // Worker lambda: evaluate individuals[start..end) using envs[threadIdx].
+            // The GIL is acquired only around fitGymnasium (which calls Python via
+            // env.reset / env.step) and released for the surrounding bookkeeping
+            // (vector ops, arithmetic) to maximise parallel overlap.
+            auto worker = [&](int start, int end, int threadIdx) {
+                for (int i = start; i < end; i++) {
+                    auto& network = individuals[i];
+                    network.fitnessValues.clear();
+                    network.lastStepRewards.clear();
+                    float totalReward = 0.0f;
+                    bool firstSeed = true;
+
+                    for (int s : seeds) {
+                        {
+                            py::gil_scoped_acquire acquire;
+                            network.fitGymnasium(
+                                envs[threadIdx], dMax, maxSteps,
+                                maxConsecutiveP, worstFitness, s, firstSeed);
+                        }
+                        network.fitnessValues.push_back(network.fitness);
+                        network.lastStepRewards.push_back(network.lastFitness);
+                        totalReward += network.fitness;
+                        firstSeed = false;
+                    }
+
+                    network.fitness = totalReward / static_cast<float>(seeds.size());
+                }
+            };
+
+            std::vector<std::thread> threads;
+            threads.reserve(nCores);
+
+            for (int t = 0; t < nCores; t++) {
+                int start = t * nInd / nCores;
+                int end   = (t + 1) * nInd / nCores;
+                if (start == end) continue;          // skip empty chunks
+                threads.emplace_back(worker, start, end, t);
+            }
+
+            for (auto& th : threads) {
+                th.join();
             }
         }
 
