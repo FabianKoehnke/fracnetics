@@ -403,7 +403,7 @@ PYBIND11_MODULE(_core, m) {
              py::arg("upperBoundTraversalCounter")=1.1)
         .def(
             "callAddDelNodes",
-            [](Population &p, py::list minF_py, py::list maxF_py, float junk)
+            [](Population &p, py::list minF_py, py::list maxF_py, float junk, bool noElite)
             {
                 std::vector<float> minF;
                 std::vector<float> maxF;
@@ -416,12 +416,13 @@ PYBIND11_MODULE(_core, m) {
 
                 {
                     py::gil_scoped_release release;
-                    p.callAddDelNodes(minF, maxF, junk);
+                    p.callAddDelNodes(minF, maxF, junk, noElite);
                 }
             },
             py::arg("minF"),
             py::arg("maxF"),
-            py::arg("junk")=0
+            py::arg("junk")=0,
+            py::arg("noElite")=false
         )
 
         // pickle support – serialise individuals as a plain Python list
