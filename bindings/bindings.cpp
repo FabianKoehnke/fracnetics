@@ -328,17 +328,30 @@ PYBIND11_MODULE(_core, m) {
 
         .def("gymnasiumMultiSeed",
                 [](Population &self,
-                    py::object env,
+                    py::object env_or_envs,
                     int dMax,
                     int maxSteps,
                     int maxConsecutiveP,
                     int worstFitness,
                     std::vector<int> seeds
                     ) {
-                        GymEnvWrapper wrapper(env);
-                        self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
-                        // Force GC to reclaim cyclic garbage from env.step()/env.reset()
-                        // calls that accumulate over population × seeds loops.
+                        if (py::isinstance<py::list>(env_or_envs)) {
+                            // Parallel path: list of environments, one per core.
+                            py::list env_list = env_or_envs.cast<py::list>();
+                            std::vector<GymEnvWrapper> wrappers;
+                            wrappers.reserve(py::len(env_list));
+                            for (auto item : env_list) {
+                                wrappers.emplace_back(item.cast<py::object>());
+                            }
+                            {
+                                py::gil_scoped_release release;
+                                self.gymnasiumMultiSeed(wrappers, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
+                            }
+                        } else {
+                            // Single-env path (backward compatible).
+                            GymEnvWrapper wrapper(env_or_envs);
+                            self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
+                        }
                         force_gc_collect();
                     },
                 py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds")
