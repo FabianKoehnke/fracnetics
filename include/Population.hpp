@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include <random>
+#include <queue>
 #include <unordered_set>
 #include <utility>
 #include <cmath>
@@ -1080,10 +1081,14 @@ class Population {
          * @param nSelectedNodes Maximum number of successor nodes to collect (excluding the start node).
          *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
          * @param traversalNeighbor If true, collects nodes with traverse counters within ±10% of the start node's counter, instead of strictly greater.
+         * @param graphDepth If >= 0, performs a BFS through @c individual.innerNodes[i].edges starting at
+         *                   @p subNodesStart, collecting all nodes reachable within exactly @p graphDepth hops.
+         *                   @p nSelectedNodes still acts as an upper-bound cap on the result size (excluding the
+         *                   start node). When -1 (default), the existing @c traverseCounter-based logic is used.
          * @return A sorted vector of node indices comprising the start node and up to
          *         @p nSelectedNodes successors.
          */
-        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1, bool traversalNeighbor = false){
+        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1, bool traversalNeighbor = false, int graphDepth = -1){
 
             if(subNodesStart == -1){
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
@@ -1102,6 +1107,39 @@ class Population {
             }
 
             nodeIndices.push_back(subNodesStart);
+
+            // Graph-depth-based BFS traversal through actual node edges
+            if (graphDepth != -1) {
+                std::unordered_set<int> visited;
+                std::queue<std::pair<int, int>> bfsQueue; // {node_index, current_depth}
+                bfsQueue.push({subNodesStart, 0});
+                visited.insert(subNodesStart);
+
+                while (!bfsQueue.empty()) {
+                    auto [nodeIdx, currentDepth] = bfsQueue.front();
+                    bfsQueue.pop();
+
+                    if (nodeIdx != subNodesStart) {
+                        nodeIndices.push_back(nodeIdx);
+                        // respect nSelectedNodes as an upper bound (start node excluded from count)
+                        if ((int)nodeIndices.size() - 1 >= nSelectedNodes) {
+                            break;
+                        }
+                    }
+
+                    if (currentDepth < graphDepth) {
+                        for (int edgeTarget : individual.innerNodes[nodeIdx].edges) {
+                            if (visited.find(edgeTarget) == visited.end()) {
+                                visited.insert(edgeTarget);
+                                bfsQueue.push({edgeTarget, currentDepth + 1});
+                            }
+                        }
+                    }
+                }
+                std::sort(nodeIndices.begin(), nodeIndices.end());
+                return nodeIndices;
+            }
+
             int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
             for(int i=0; i<individual.innerNodes.size(); i++){
                 int traverseCounterNode = individual.innerNodes[i].traverseCounter;
