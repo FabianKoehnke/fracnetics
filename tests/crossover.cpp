@@ -84,3 +84,58 @@ TEST(PopulationTest, BasicAssertions) {
     EXPECT_EQ(testMapValues, subnodes2);
 
 }
+
+TEST(PopulationTest, BFSGraphDepthTraversal) {
+    // Create a small population with processing nodes only (no judgment nodes)
+    Population pop(
+        42,  // seed
+        2,   // number of networks
+        0,   // number of judgment nodes
+        0,   // number of jn functions
+        10,  // number of processing nodes
+        2,   // number of pn functions
+        false
+    );
+
+    Network ind = pop.individuals[0];
+
+    // Mark all nodes as used so findSuccessorNodes does not early-return
+    for (auto& node : ind.innerNodes) {
+        node.used = true;
+    }
+
+    // Wire a linear chain: 0 → 2 → 5 → 7
+    // Clear existing edges first, then set desired edges
+    for (auto& node : ind.innerNodes) {
+        node.edges.clear();
+    }
+    ind.innerNodes[0].edges = {2};
+    ind.innerNodes[2].edges = {5};
+    ind.innerNodes[5].edges = {7};
+
+    // graphDepth = 0: only the start node
+    std::vector<int> result = pop.findSuccessorNodes(ind, 0, 10, false, 0);
+    EXPECT_EQ(result, (std::vector<int>{0}));
+
+    // graphDepth = 1: start node + direct neighbour
+    result = pop.findSuccessorNodes(ind, 0, 10, false, 1);
+    EXPECT_EQ(result, (std::vector<int>{0, 2}));
+
+    // graphDepth = 2: two hops
+    result = pop.findSuccessorNodes(ind, 0, 10, false, 2);
+    EXPECT_EQ(result, (std::vector<int>{0, 2, 5}));
+
+    // graphDepth = 3: full chain
+    result = pop.findSuccessorNodes(ind, 0, 10, false, 3);
+    EXPECT_EQ(result, (std::vector<int>{0, 2, 5, 7}));
+
+    // Test cycle: node 7 → 0 (back edge); BFS should not infinite-loop
+    ind.innerNodes[7].edges = {0};
+    result = pop.findSuccessorNodes(ind, 0, 10, false, 3);
+    EXPECT_EQ(result, (std::vector<int>{0, 2, 5, 7}));
+
+    // Test nSelectedNodes cap: limit to 2 additional successors beyond the start node (total 3 nodes)
+    ind.innerNodes[7].edges.clear();
+    result = pop.findSuccessorNodes(ind, 0, 2, false, 3);
+    EXPECT_EQ(result, (std::vector<int>{0, 2, 5}));
+}
