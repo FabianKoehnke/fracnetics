@@ -134,7 +134,7 @@ TEST(PopulationTest, BFSGraphDepthTraversal) {
     result = pop.findSuccessorNodes(ind, 0, 10, false, 3);
     EXPECT_EQ(result, (std::vector<int>{0, 2, 5, 7}));
 
-    // Test nSelectedNodes cap: limit to 2 successors (start node + 2 more)
+    // Test nSelectedNodes cap: limit to 2 additional successors beyond the start node (total 3 nodes)
     ind.innerNodes[7].edges.clear();
     result = pop.findSuccessorNodes(ind, 0, 2, false, 3);
     EXPECT_EQ(result, (std::vector<int>{0, 2, 5}));

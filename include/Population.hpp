@@ -1082,7 +1082,7 @@ class Population {
          *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
          * @param traversalNeighbor If true, collects nodes with traverse counters within ±10% of the start node's counter, instead of strictly greater.
          * @param graphDepth If >= 0, performs a BFS through @c individual.innerNodes[i].edges starting at
-         *                   @p subNodesStart, collecting all nodes reachable within exactly @p graphDepth hops.
+         *                   @p subNodesStart, collecting all nodes reachable within at most @p graphDepth hops.
          *                   @p nSelectedNodes still acts as an upper-bound cap on the result size (excluding the
          *                   start node). When -1 (default), the existing @c traverseCounter-based logic is used.
          * @return A sorted vector of node indices comprising the start node and up to
