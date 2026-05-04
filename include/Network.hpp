@@ -56,10 +56,12 @@ class Network {
         unsigned int pn; /**< Number of inital processing nodes in the network */
         unsigned int pnf; /**< Number of processing node function types available */
         bool fractalJudgment; /**< Flag indicating whether outgoing edges follow a fractal pattern */
+        bool useExperience; ///< If true, judgment nodes are created as "JE" (experience-weighted)
         std::vector<Node> innerNodes; /**< Collection of all judgment and processing nodes in the network */
         Node startNode; /**< Initial entry point for network execution */
         float fitness = std::numeric_limits<float>::lowest(); /**< Fitness value of the network (initialized to lowest possible value) */
         float lastFitness = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
+        float lastFitnessII = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
         bool invalid = false; /**< Flag to indicate invalid individuals (e.g., exceeding judgment limits) */
         int currentNodeID; /**< ID of the currently active node during network traversal */
         int nConsecutiveP; /**< Counter for consecutive processing nodes encountered */
@@ -71,6 +73,31 @@ class Network {
         size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
         std::vector<float> objectives = {}; 
         std::vector<float> lastStepRewards = {};
+        std::vector<float> lastStepRewardsII = {};
+        bool frozenExperience = false;
+
+        // ─── Experience Episode Logging (für JE-Nodes) ────────────────────────
+
+        /**
+         * @brief Records one JE-node activation within a single env step.
+         */
+        struct JEVisit {
+            int   nodeID;    ///< Which JE node was active
+            int   edgeIndex; ///< Which edge was chosen by judgeWithExperience()
+            float obsF;      ///< obs[node.f] at the time of the decision
+        };
+
+        /**
+         * @brief Stores all JE activations and the resulting step reward for one env step.
+         */
+        struct StepLog {
+            std::vector<JEVisit> jeVisits; ///< All JE nodes visited during this step
+            float reward;                  ///< Reward received after env.step()
+        };
+
+        std::vector<StepLog> episodeLog;         ///< Accumulated per-step log; cleared after backward pass
+        std::vector<JEVisit> currentStepJEVisits; ///< Populated during decisionAndNextNode(); flushed per step
+
 
         /** @endcond */
 
@@ -107,6 +134,7 @@ class Network {
                 unsigned int _pn,
                 unsigned int _pnf,
                 bool _fractalJudgment,
+                bool _useExperience = false,
                 std::vector<int> _nFeatureValues = {}
                 ):
             generator(_generator),
@@ -115,19 +143,20 @@ class Network {
             pn(_pn),
             pnf(_pnf),
             fractalJudgment(_fractalJudgment),
-            startNode(generator,0,"S",0) // init start node
-            
+            useExperience(_useExperience),
+            startNode(generator,0,"S",0)
         {
             startNode.setEdges("S", jn+pn);
             std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
             int nOutgoingEdges;
-            for(int i=0; i<jn; i++){ // init judgment nodes 
+            std::string jNodeType = useExperience ? "JE" : "J";
+            for(int i=0; i<jn; i++){
                 int randomInt = distributionJNF(*generator);
                 innerNodes.push_back(Node(
-                            generator, 
-                            i, // node id 
-                            "J", // node type 
-                            randomInt // node function
+                            generator,
+                            i,
+                            jNodeType,
+                            randomInt
                             ));
 
                 if(_nFeatureValues.size()>0){
@@ -142,16 +171,12 @@ class Network {
                     innerNodes.back().k_d.second = k_d.second;
                     innerNodes.back().setEdges("J", pn+jn, pow(k_d.first,k_d.second));
                 }
+                if(useExperience) innerNodes.back().initEdgeExperience();
             }
             std::uniform_int_distribution<int> distributionPNF(0, pnf-1);
-            for(int i=jn; i<jn+pn; i++){ // init procesing nodes 
+            for(int i=jn; i<jn+pn; i++){
                 int randomInt = distributionPNF(*generator);
-                innerNodes.push_back(Node(
-                            generator, 
-                            i, // node id 
-                            "P", // node type 
-                            randomInt // node function
-                            ));
+                innerNodes.push_back(Node(generator, i, "P", randomInt));
                 innerNodes.back().setEdges("P", jn+pn);
             }
         }
@@ -268,47 +293,68 @@ class Network {
          * @note Only works correctly for one-dimensional data access patterns (single data sample)
          * @warning Exceeding dMax sets the invalid flag to true and returns an error value
          */
-        template <typename dataContainer> /** template for passing std::vector, std::array ...*/
+        template <typename dataContainer>
         int decisionAndNextNode(const dataContainer& data, int dMax){
             int dec;
             int dSum = 0;
             double v;
+
+            currentStepJEVisits.clear(); // reset JE visit log for this step
+
             if(innerNodes[currentNodeID].type == "P"){
                 dec = innerNodes[currentNodeID].f;
-                // update currentNodeID to next node
-                currentNodeID = innerNodes[currentNodeID].edges[0]; 
+                currentNodeID = innerNodes[currentNodeID].edges[0];
                 innerNodes[currentNodeID].used = true;
-                traverseCounter ++;
+                traverseCounter++;
                 innerNodes[currentNodeID].traverseCounter = traverseCounter;
-                nConsecutiveP ++;
+                nConsecutiveP++;
 
-            } else if (innerNodes[currentNodeID].type == "J"){
+            } else if (innerNodes[currentNodeID].type == "J"
+                    || innerNodes[currentNodeID].type == "JE") {
+
                 nConsecutiveP = 0;
-                while(innerNodes[currentNodeID].type == "J"){
-                    // update currentNodeID to next node
+
+                while(innerNodes[currentNodeID].type == "J"
+                   || innerNodes[currentNodeID].type == "JE") {
+
                     v = data[innerNodes[currentNodeID].f];
-                    int judgeResult = innerNodes[currentNodeID].judge(v);
+                    int judgeResult;
+
+                    if (innerNodes[currentNodeID].type == "JE") {
+                        // Experience-weighted decision 
+                        judgeResult = innerNodes[currentNodeID].judgeWithExperience(
+                                          static_cast<float>(v));
+                        // Log visit for backward return pass
+                        currentStepJEVisits.push_back({
+                            static_cast<int>(currentNodeID),
+                            judgeResult,
+                            static_cast<float>(v)
+                        });
+                    } else {
+                        // Standard reactive decision
+                        judgeResult = innerNodes[currentNodeID].judge(v);
+                    }
+
                     currentNodeID = innerNodes[currentNodeID].edges[judgeResult];
                     innerNodes[currentNodeID].used = true;
-                    traverseCounter ++;
+                    traverseCounter++;
                     innerNodes[currentNodeID].traverseCounter = traverseCounter;
-                    dSum ++;
+                    dSum++;
                     if (dSum >= dMax){
                         invalid = true;
-                        return std::numeric_limits<int>::lowest(); 
+                        return std::numeric_limits<int>::lowest();
                     }
                 }
+
                 dec = innerNodes[currentNodeID].f;
-                // update currentNodeID to next node
-                currentNodeID = innerNodes[currentNodeID].edges[0]; 
+                currentNodeID = innerNodes[currentNodeID].edges[0];
                 innerNodes[currentNodeID].used = true;
-                traverseCounter ++;
+                traverseCounter++;
                 innerNodes[currentNodeID].traverseCounter = traverseCounter;
-                nConsecutiveP ++;
-           }
+                nConsecutiveP++;
+            }
             return dec;
         }
-
 
         /**
          * @brief Initializes the network state for a new path traversal. 
@@ -338,6 +384,60 @@ class Network {
             fitness = startingFitness;
             nConsecutiveP = 0;
             invalid = false;
+        }
+
+                /**
+         * @brief Backward return pass: updates EdgeExperience for all JE nodes after an episode.
+         *
+         * @details
+         * Iterates through episodeLog in reverse, computing the per-node discounted
+         * return G_t = r_t + gamma_i * G_{t+1} independently for each JE node
+         * (each node uses its own evolvable gamma).
+         *
+         * Complexity: O(T * |JE nodes|), where T = episode length.
+         * The episodeLog is cleared after the update.
+         *
+         * Credit assignment note: G_t naturally attributes positive downstream
+         * rewards (e.g., soft landing) back to earlier costly actions (e.g.,
+         * fuel burn), weighted by gamma. A node with gamma ≈ 1 is long-sighted;
+         * gamma ≈ 0 is purely myopic.
+         */
+        void updateExperienceFromEpisode() {
+            if (episodeLog.empty()) return;
+
+            std::vector<int> jeIDs;
+            jeIDs.reserve(innerNodes.size());
+            for (int i = 0; i < static_cast<int>(innerNodes.size()); i++) {
+                if (innerNodes[i].type == "JE") jeIDs.push_back(i);
+            }
+            if (jeIDs.empty()) {
+                episodeLog.clear();
+                return;
+            }
+
+            const int T = static_cast<int>(episodeLog.size());  // ← Gesamtlänge
+            std::vector<float> G(innerNodes.size(), 0.0f);
+
+            for (int t = T - 1; t >= 0; t--) {
+                float r = episodeLog[t].reward;
+
+                for (int id : jeIDs) {
+                    G[id] = r + innerNodes[id].gamma * G[id];
+                }
+
+                const int remainingSteps = T - t;  // ← Steps ab t bis Episodenende
+
+                for (const auto& visit : episodeLog[t].jeVisits) {
+                    innerNodes[visit.nodeID].updateEdgeExperience(
+                        visit.edgeIndex,
+                        G[visit.nodeID],
+                        visit.obsF,
+                        remainingSteps
+                    );
+                }
+            }
+
+            episodeLog.clear();
         }
 
         /** @cond INTERNAL */
@@ -458,7 +558,8 @@ class Network {
             int maxConsecutiveP,
             int worstFitness,
             int seed,
-            bool newRun = true
+            bool newRun = true,
+            bool updateExperience = true
             ){
 
             auto reset_out = env.reset(seed=seed);// Initial observation for the episode
@@ -473,33 +574,46 @@ class Network {
                 traverseCounter = 0;
             }
 
+            nConsecutiveP = 0;
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
             innerNodes[currentNodeID].traverseCounter += 1;
             traverseCounter ++;
             int dec;
             fitness = 0;
+            lastFitness = 0;
+            lastFitnessII = 20;
             nConsecutiveP = 0;
             invalid = false;
             bool done = false;
             int steps = 0;
 
             while(done == false){
+
                 dec = decisionAndNextNode(obs, dMax);
 
                 if (invalid || nConsecutiveP > maxConsecutiveP){
-                    fitness = worstFitness;
-                    lastFitness = worstFitness;
+
+                    episodeLog.clear();
                     return;
                 }
 
                 auto result = env.step(dec);
                 obs = result[0].cast<std::vector<double>>(); 
+                float stepReward = result[1].cast<float>();
                 fitness += result[1].cast<float>();
                 steps ++;
+                episodeLog.push_back({currentStepJEVisits, stepReward});
+                currentStepJEVisits.clear(); 
+
                 if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
-                lastFitness = result[1].cast<float>();
             }
+
+
+            if (frozenExperience)
+                episodeLog.clear(); // Elite: Log immer leeren
+            else if (updateExperience)
+                updateExperienceFromEpisode(); // Einzelaufruf: sofort updaten
         }
                  
         /**
@@ -757,28 +871,33 @@ class Network {
                                         ));
                             innerNodes.back().setEdges("P", innerNodes.size());
                             pn += 1;
-                    }else{ // add judgment node 
+                    }else{ // add judgment node
                         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
                         int randomInt = distributionJNF(*generator);
                         int nOutgoingEdges;
+                        std::string jNodeType = useExperience ? "JE" : "J"; // NEU
                         innerNodes.push_back(Node(
-                                    generator, 
-                                    innerNodes.size(), // node id 
-                                    "J", // node type 
-                                    randomInt // node function
+                                    generator,
+                                    innerNodes.size(),
+                                    jNodeType,        // NEU: "J" oder "JE"
+                                    randomInt
                                     ));
 
-                        if(nFeatureValues.size() > 0){ // feature is categorical
+                        if(nFeatureValues.size() > 0){
                              nOutgoingEdges = nFeatureValues[randomInt];
                         } else {nOutgoingEdges = 0;}
 
+                        if (jNodeType == "JE") {
+                            // NEU: Initialize experience structures for JE node
+                            innerNodes.back().initEdgeExperience();
+                        }
 
-                        if(fractalJudgment == false || nOutgoingEdges != 0){ // fractal or categorical feature
+                        if(fractalJudgment == false || nOutgoingEdges != 0){
                             innerNodes.back().setEdges("J", innerNodes.size(), nOutgoingEdges);
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt]);
                         }
-                        else if(fractalJudgment == true && nOutgoingEdges == 0){ 
-                            std::pair<int, int> k_d = random_k_d_combination(innerNodes.size(), generator); // normaly pn+jn-1 but jn counter comes later
+                        else if(fractalJudgment == true && nOutgoingEdges == 0){
+                            std::pair<int, int> k_d = random_k_d_combination(innerNodes.size(), generator);
                             innerNodes.back().k_d.first = k_d.first;
                             innerNodes.back().k_d.second = k_d.second;
                             innerNodes.back().setEdges("J", innerNodes.size(), pow(k_d.first,k_d.second));
@@ -786,13 +905,17 @@ class Network {
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
                         }
+                        // NEU: Experience initialisieren falls JE
+                        if(useExperience) innerNodes.back().initEdgeExperience();
                     }
 
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
                         innerNodes.size() - nUsedNodes - 1 > innerNodes.size() * junk && // left: current junk size (unused nodes); right: allowed junk size 
-                        innerNodes[n].used == false) // node is not used
+                        innerNodes[n].used == false &&
+                        (innerNodes[n].generationReceived == -1 || currentGeneration - innerNodes[n].generationReceived >= crossoverProtection)
+                        ) 
                 {// deleting nodes
 
                     for(auto& node : innerNodes){
@@ -861,7 +984,7 @@ class Network {
             for(auto& node : innerNodes){
                 if(node.type == "P"){
                     pn += 1;
-                } else if(node.type == "J"){
+                } else if(node.type == "J" or node.type == "JE"){
                     jn += 1;
                 }
             }

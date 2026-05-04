@@ -40,6 +40,34 @@ class Node {
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
         unsigned int traverseCounter = 0; /** counter of the traversed path. Allow filter of successor nodes */
+        int generationReceived = -1;
+        
+        // ─── Experience-Weighted Judgment Node (EWJN) ─────────────────────────
+
+        /**
+         * @brief Stores accumulated experience for one outgoing edge of a JE node.
+         *
+         * @details
+         * Uses Welford's online algorithm for numerically stable computation of
+         * mean and variance for both the discounted return G and the feature value
+         * obs[f] observed when this edge was chosen.
+         * 
+         * Option C: only the node's own feature f is tracked for similarity,
+         * keeping the semantics of GNP (each judgment node "knows" one feature).
+         */
+        struct EdgeExperience {
+            float meanObs    = 0.0f; ///< Welford mean  of obs[f] when this edge was chosen
+            float m2Obs      = 0.0f; ///< Welford M2    of obs[f] (for variance)
+            float meanReturn = 0.0f; ///< Welford mean  of discounted return G
+            float m2Return   = 0.0f; ///< Welford M2    of G (for variance)
+            int   n          = 0;    ///< Number of times this edge was chosen
+        };
+
+        std::vector<EdgeExperience> edgeExperience; ///< one entry per outgoing edge; only used for type "JE"
+        float gamma = 0.95f; ///< Discount factor for return G (evolvable parameter)
+        float alpha = 0.1f;  ///< Mixing weight: P(use experience over reactive judge) in [0,1] (evolvable)
+
+
         /** @endcond */
         
         /** @name Constructor */
@@ -106,7 +134,7 @@ class Node {
          */
         void setEdges(std::string type, int nn, int k=0){
 
-            if (type == "J") {
+            if (type == "J" or type == "JE") {
                 for(int i=0; i<nn; i++){
                     if(i != this->id){//prevents self-loop
                         edges.push_back(i);    
@@ -264,10 +292,14 @@ class Node {
                 propability = (float)k / (float)N;
             }
             std::bernoulli_distribution distributionBernoulli(propability);
-            for(auto& edge : edges){
+            for(int i = 0; i < static_cast<int>(edges.size()); i++){
                 bool result = distributionBernoulli(*generator);
-                if(result){ 
-                    edge = changeEdge(nn, edge);
+                if(result){
+                    edges[i] = changeEdge(nn, edges[i]);
+                    // reset experience because the target node has changed
+                    if(type == "JE"){
+                        edgeExperience[i] = EdgeExperience{};
+                    }
                 }
             }
         }
@@ -329,12 +361,16 @@ class Node {
          */
         void boundaryMutationUniform(float propability){
             std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i=1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
+            for(int i=1; i<boundaries.size()-1; i++){
                 bool result = distributionBernoulli(*generator);
                 if(result){
                     std::uniform_real_distribution<float> distributionUniform(boundaries[i-1], boundaries[i+1]);
                     boundaries[i] = distributionUniform(*generator);
-
+                    // only reset the two adjacent edges because only their intervals have changed
+                    if(type == "JE")
+                        edgeExperience[i-1] = EdgeExperience{};
+                    if(type == "JE")
+                        edgeExperience[i] = EdgeExperience{};
                 }
             }
         }
@@ -374,20 +410,20 @@ class Node {
          */
         void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
-            if(productionRuleParameter.size() > 0){ // some node are not fractals, e.g., categorical features
-                for(int i=1; i<productionRuleParameter.size()-1; i++){ // only shift the inner parameter: [0,shift,...,1]
+            if(productionRuleParameter.size() > 0){
+                for(int i=1; i<productionRuleParameter.size()-1; i++){
                     bool result = distributionBernoulli(*generator);
                     if(result){
                         std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
-                        productionRuleParameter[i] = distributionUniform(*generator); 
+                        productionRuleParameter[i] = distributionUniform(*generator);
                         boundaries.clear();
                         std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
                         setEdgesBoundaries(minf[f], maxf[f], fractals);
+                        edgeExperience.assign(edges.size(), EdgeExperience{});
                     }
                 }
             }
         }
-
         /**
          * @brief Mutates decision boundaries by shifting them using a normal (Gaussian) distribution.
          *
@@ -425,12 +461,163 @@ class Node {
                 bool result = distributionBernoulli(*generator);
                 if(result){
                     float mu = boundaries[i];
-                    std::normal_distribution<float> distributionNormal(mu, sigma);
+                    float lowerGap = boundaries[i] - boundaries[i-1];
+                    float upperGap = boundaries[i+1] - boundaries[i];
+                    float adaptiveSigma = sigma * std::min(lowerGap, upperGap);
+                    std::normal_distribution<float> distributionNormal(mu, adaptiveSigma);
                     float newBoundary = distributionNormal(*generator);
                     if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){ // preventing overlapping boundaries
                         boundaries[i] = newBoundary; 
+                        if(type == "JE")
+                            edgeExperience[i-1] = EdgeExperience{};
+                        if(type == "JE")
+                            edgeExperience[i] = EdgeExperience{};
                     }
                 }
+            }
+        }
+
+        // ─── Experience-Weighted Judgment Node (EWJN): Methods ────────────────
+
+        /**
+         * @brief Initialises edgeExperience to match the current edges vector.
+         *
+         * @details
+         * Must be called once after setEdges() for nodes of type "JE".
+         * Safe to call multiple times; resets all accumulated experience.
+         */
+        void initEdgeExperience() {
+            edgeExperience.assign(edges.size(), EdgeExperience{});
+        }
+
+        /**
+         * @brief Updates the experience of one edge with a new (G, obs[f]) observation.
+         *
+         * @details
+         * Applies Welford's online algorithm in-place. This is called during the
+         * backward return pass at the end of each episode in fitGymnasium().
+         *
+         * @param edgeIdx  Index into edges[] (and edgeExperience[]) to update
+         * @param G        Discounted return observed from time t onward
+         * @param obsF     Value of obs[node.f] at the time this edge was chosen
+         */
+
+        void updateEdgeExperience(int edgeIdx, float G, float obsF, int remainingSteps) {
+            EdgeExperience& e = edgeExperience[edgeIdx];
+
+            // G normieren: relativ zu maximal möglichem Return ab Zeitpunkt t
+            float maxG       = (gamma < 1.0f)
+                               ? (1.0f - std::pow(gamma, remainingSteps)) / (1.0f - gamma)
+                               : static_cast<float>(remainingSteps);  // γ=1 → kein Discount
+            float G_norm     = (maxG > 0.0f) ? G / maxG : 0.0f;
+
+            e.n++;
+
+            // Welford für obsF
+            float d1 = obsF - e.meanObs;
+            e.meanObs  += d1 / e.n;
+            e.m2Obs    += d1 * (obsF - e.meanObs);
+
+            // Welford für G_norm statt G
+            float d2 = G_norm - e.meanReturn;
+            e.meanReturn += d2 / e.n;
+            e.m2Return   += d2 * (G_norm - e.meanReturn);
+        }
+
+        /**
+         * @brief Experience-weighted edge selection (Option C: similarity on obs[f] only).
+         *
+         * @details
+         * For the node's own feature f, computes a Gaussian similarity between the
+         * current observation obsF and the mean observation stored per edge.
+         * The variance used for the Gaussian kernel is estimated from the Welford M2.
+         *
+         * Score for edge i:  score_i = similarity_i * meanReturn_i
+         *
+         * With probability alpha the best-scored edge is selected (experience-based);
+         * with probability (1 - alpha) the standard reactive judge() is used.
+         * If no edge has been visited yet, falls back to judge() unconditionally.
+         *
+         * @param obsF  Current value of obs[node.f]
+         * @return      Index into edges[] to follow
+         */
+        int judgeWithExperience(float obsF) {
+
+            int reactiveEdge = judge(obsF);
+
+            // Mindestens N_MIN Besuche bevor Erfahrung zählt
+            const int N_MIN = 10000; //       / static_cast<int>(edges.size());  
+            bool anyExp = false;
+            for (const auto& e : edgeExperience)
+                if (e.n >= N_MIN) { anyExp = true; break; }
+            if (!anyExp) return reactiveEdge;
+
+            // ── eScore berechnen ────────────────────────────────────────────────────
+            std::vector<float> eScores(edges.size(), 0.0f);
+            float eMin =  std::numeric_limits<float>::max();
+            float eMax = -std::numeric_limits<float>::max();
+
+            for (int i = 0; i < static_cast<int>(edges.size()); i++) {
+                const auto& e = edgeExperience[i];
+                if (e.n > 0) {
+                    float var  = (e.n > 1) ? e.m2Obs / static_cast<float>(e.n) : 1.0f;
+                    if (var < 1e-6f) var = 1.0f;
+                    float diff = obsF - e.meanObs;
+                    float sim  = std::exp(-(diff * diff) / (2.0f * var));
+                    eScores[i] = sim * e.meanReturn;
+                    eMin = std::min(eMin, eScores[i]);
+                    eMax = std::max(eMax, eScores[i]);
+                }
+            }
+
+            // ── eScore auf [0,1] normalisieren ──────────────────────────────────────
+            float range = eMax - eMin;
+            for (int i = 0; i < static_cast<int>(edges.size()); i++) {
+                if (range > 1e-6f)
+                    eScores[i] = (eScores[i] - eMin) / range;
+                else
+                    eScores[i] = 0.0f;
+            }
+
+            // ── Gewichteter Score ───────────────────────────────────────────────────
+            int   bestEdge  = reactiveEdge;
+            float bestScore = -std::numeric_limits<float>::max();
+
+            for (int i = 0; i < static_cast<int>(edges.size()); i++) {
+                float rScore = (i == reactiveEdge) ? 1.0f : 0.0f;
+                float score  = alpha * eScores[i] + (1.0f - alpha) * rScore;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestEdge  = i;
+                }
+            }
+            return bestEdge;
+        }
+
+        /**
+         * @brief Mutates the discount factor gamma uniformly in [0, 1].
+         * @param probability Probability that gamma is resampled.
+         */
+        void gammaMutation(float probability) {
+            std::bernoulli_distribution dist(probability);
+            if (dist(*generator)) {
+                std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
+                gamma = uniform(*generator);
+                if (type == "JE") {
+                    edgeExperience.assign(edges.size(), EdgeExperience{});
+                }
+            }
+        }
+
+        /**
+         * @brief Mutates the mixing weight alpha uniformly in [0, 1].
+         * @param probability Probability that alpha is resampled.
+         */
+        void alphaMutation(float probability) {
+            std::bernoulli_distribution dist(probability);
+            if (dist(*generator)) {
+                std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
+                alpha = uniform(*generator);
             }
         }
         /** @} */
