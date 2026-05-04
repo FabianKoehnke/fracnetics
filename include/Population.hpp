@@ -54,6 +54,7 @@ class Population {
         unsigned int pn; /**< Initial number of processing nodes per individual */
         unsigned int pnf; /**< Number of processing node function types available */
         bool fractalJudgment; /**< Flag indicating whether judgment nodes use fractal-based edge patterns */
+        bool useExperience; ///< If true, all judgment nodes are created as "JE" nodes
         std::vector<Network> individuals; /**< Vector containing all Network individuals in the population */
         float bestFit; /**< Fitness value of the best individual in the current population */
         std::vector<int> indicesElite; /**< Indices of elite individuals (protected from mutation) */
@@ -88,6 +89,7 @@ class Population {
          * @param _pnf Number of processing node function types (determines action/output)
          * @param _fractalJudgment If true, judgment nodes use fractal-based edge patterns; if false, standard edge patterns 
          * (see boundaryMutationFractal() for more informations on fractal boundaries)
+         * @param _useExperience If true, all judgment nodes are created as "JE" nodes that track experience on edges; if false, standard "J" nodes are used
          * @param _nFeatureValues set the number of features values to distinguish between numerical and categorical data
                 - for numerical features: set 0 at the i-th feature 
                 - for categorical features: set the numbers of categories at feature position i. This will be the amount of outgoing edges of a judgment node 
@@ -101,6 +103,7 @@ class Population {
                 unsigned int _pn,
                 unsigned int _pnf,
                 bool _fractalJudgment,
+                bool _useExperience = false,
                 std::vector<int> _nFeatureValues = {}
                 ):
             generator(std::make_shared<std::mt19937_64>(seed)),
@@ -110,13 +113,18 @@ class Population {
             pn(_pn),
             pnf(_pnf),
             fractalJudgment(_fractalJudgment),
+            useExperience(_useExperience),
             nFeatureValues(_nFeatureValues)
-
-    {
-        for(int i=0; i<ni; i++){
-            individuals.push_back(Network(generator,jn,jnf,pn,pnf,fractalJudgment,nFeatureValues));
+        {
+            for(int i=0; i<ni; i++){
+                individuals.push_back(Network(
+                    generator, jn, jnf, pn, pnf,
+                    fractalJudgment,
+                    useExperience,
+                    nFeatureValues
+                ));
+            }
         }
-    }
         /** @} */
 
         /** @name Member Functions */
@@ -151,7 +159,7 @@ class Population {
         void setAllNodeBoundaries(std::vector<float>& minF, std::vector<float>& maxF){
             for(auto& network : individuals){
                for(auto& node : network.innerNodes){
-                   if(node.type == "J"){
+                   if(node.type == "J" || node.type == "JE"){
                        if(fractalJudgment == true){
                            node.productionRuleParameter = randomParameterCuts(node.k_d.first-1, generator);
                            std::vector<float> fractals = fractalLengths(node.k_d.second, sortAndDistance(node.productionRuleParameter));
@@ -159,8 +167,9 @@ class Population {
                        }else {
                            node.setEdgesBoundaries(minF[node.f], maxF[node.f]);
                        }
+                       if(node.type == "JE") node.initEdgeExperience();
                    }
-               } 
+               }
             }
         }
 
@@ -396,6 +405,11 @@ class Population {
             }
             setElite(E, individuals, selection);
             individuals = std::move(selection);
+            // set frozenExperience flag back for non-elite
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
+                individuals[i].frozenExperience = isElite;
+            }
             meanFitness /= individuals.size();
         }
         /**
@@ -526,7 +540,7 @@ class Population {
                     additionalMutationParam amp;
                     amp.networkSize = individuals[i].innerNodes.size();
                     for (auto& node : individuals[i].innerNodes) {
-                        if (node.type == "J") {
+                        if (node.type == "J" || node.type == "JE") {
                            if (justUsedNodes == true) {
                                 if (node.used == true) {
                                     func(node, amp, justUsedNodes);
@@ -1196,29 +1210,39 @@ class Population {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            const std::vector<int>& seeds
+            const std::vector<int>& seeds,
+            bool validation = false
                 ){
 
             for(auto& network : individuals){
                 network.fitnessValues.clear();
                 network.lastStepRewards.clear();
+                network.lastStepRewardsII.clear();
+                network.episodeLog.clear();
                 float totalReward = 0.0f;
+                float minReward = std::numeric_limits<float>::max();
                 bool firstSeed = true;
 
                 for(int s : seeds){
 
                     if(firstSeed == true){
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true);
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true, validation, false);
                     } else {
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false);
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false, validation, false);
                     }
 
                     network.fitnessValues.push_back(network.fitness);
                     network.lastStepRewards.push_back(network.lastFitness);
+                    network.lastStepRewardsII.push_back(network.lastFitnessII);
                     totalReward += network.fitness;
                     firstSeed = false;
                 }
 
+                // Nach ALLEN Seeds: einmalig Erfahrung aus allen Episoden aktualisieren
+                if (!network.frozenExperience)
+                    network.updateExperienceFromEpisode();
+                else
+                    network.episodeLog.clear();
                 // Default aggregation: mean reward
                 network.fitness = totalReward / static_cast<float>(seeds.size());
             }
@@ -1247,6 +1271,8 @@ class Population {
          * @param worstFitness Fitness value assigned when networks violate constraints
          * @param seeds Vector of random seeds for environment initialization
          */
+
+        /*
         void gymnasiumMultiSeed(
             std::vector<GymEnvWrapper>& envs,
             int dMax,
@@ -1302,6 +1328,7 @@ class Population {
                 th.join();
             }
         }
+        */
 
         /**
          * @brief Calculates Pareto objectives (landing rate, mean reward) from fitnessValues.
@@ -1431,74 +1458,115 @@ class Population {
                 }
             }
 
-            // Dual elitism
-            setEliteDual(E_reward, E_landing, individuals, selection);
+            // Utopia-point elitism
+            setEliteUtopia(E, individuals, selection);
             individuals = std::move(selection);
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
+                individuals[i].frozenExperience = isElite;
+            }
             meanFitness /= individuals.size();
         }
 
         /**
-         * @brief Identifies elite individuals by two criteria: mean reward AND landing rate.
+         * @brief Identifies elite individuals by Euclidean distance to the Utopia point.
          *
-         * @param E_reward Number of elite by best fitness (mean reward)
-         * @param E_landing Number of elite by best landing rate
-         * @param individuals Copy of current population
-         * @param selection Reference to new population being constructed
+         * @details
+         * The Utopia point is constructed as the per-objective maximum across
+         * the entire population. Each individual's distance to this point is
+         * computed (objectives are normalized by range to avoid scale bias).
+         * The E closest individuals are added to the selection as elites.
+         *
+         * @param E Number of elite individuals
+         * @param individuals Current population (const reference)
+         * @param selection New population being constructed (output)
          */
-        void setEliteDual(int E_reward, int E_landing,
-                          const std::vector<Network>& individuals,
-                          std::vector<Network>& selection){
+        void setEliteUtopia(
+                int E,
+                const std::vector<Network>& individuals,
+                std::vector<Network>& selection){
+
             indicesElite.clear();
+            if(E <= 0 || individuals.empty()) return;
 
-            // Track already selected indices to avoid duplicates
-            std::unordered_set<int> alreadySelected;
+            size_t nObj = individuals[0].objectives.size();
 
-            // Elite by best mean reward (fitness)
-            for(int e = 0; e < E_reward; e++){
-                float bestVal = std::numeric_limits<float>::lowest();
-                int bestIdx = 0;
-                for(int i = 0; i < individuals.size(); i++){
-                    if(alreadySelected.count(i) == 0 && individuals[i].fitness > bestVal){
-                        bestVal = individuals[i].fitness;
-                        bestIdx = i;
-                    }
+            // Compute Utopia point (per-objective max) and nadir (per-objective min)
+            std::vector<float> utopia(nObj, std::numeric_limits<float>::lowest());
+            std::vector<float> nadir(nObj, std::numeric_limits<float>::max());
+            for(const auto& ind : individuals){
+                for(size_t o = 0; o < nObj; o++){
+                    if(ind.objectives[o] > utopia[o]) utopia[o] = ind.objectives[o];
+                    if(ind.objectives[o] < nadir[o]) nadir[o] = ind.objectives[o];
                 }
-                indicesElite.push_back(selection.size());
-                selection.push_back(individuals[bestIdx]);
-                alreadySelected.insert(bestIdx);
-                if(bestVal > bestFit) bestFit = bestVal;
             }
 
-            // Elite by best landing rate (objectives[0])
-            for(int e = 0; e < E_landing; e++){
-                float bestVal = std::numeric_limits<float>::lowest();
-                int bestIdx = 0;
-                for(int i = 0; i < individuals.size(); i++){
-                    if(alreadySelected.count(i) == 0 &&
-                       !individuals[i].objectives.empty() &&
-                       individuals[i].objectives[0] > bestVal){
-                        bestVal = individuals[i].objectives[0];
-                        bestIdx = i;
-                    }
+            // Compute per-objective range for normalization
+            std::vector<float> range(nObj);
+            for(size_t o = 0; o < nObj; o++){
+                range[o] = utopia[o] - nadir[o];
+                if(range[o] < 1e-12f) range[o] = 1.0f; // avoid division by zero
+            }
+
+            // Compute normalized Euclidean distance to Utopia for each individual
+            std::vector<std::pair<float, int>> distances;
+            distances.reserve(individuals.size());
+            for(int i = 0; i < individuals.size(); i++){
+
+                float dist = 0.0f;
+                for(size_t o = 0; o < nObj; o++){
+                    float normalized = (utopia[o] - individuals[i].objectives[o]) / range[o];
+                    dist += normalized * normalized;
                 }
-                // Only add if actually has landings
-                if(bestVal > 0.0f){
-                    indicesElite.push_back(selection.size());
-                    selection.push_back(individuals[bestIdx]);
-                    alreadySelected.insert(bestIdx);
-                } else {
-                    // No lander found, fill with next best by fitness
-                    float bestFitVal = std::numeric_limits<float>::lowest();
-                    int bestFitIdx = 0;
-                    for(int i = 0; i < individuals.size(); i++){
-                        if(alreadySelected.count(i) == 0 && individuals[i].fitness > bestFitVal){
-                            bestFitVal = individuals[i].fitness;
-                            bestFitIdx = i;
-                        }
-                    }
-                    indicesElite.push_back(selection.size());
-                    selection.push_back(individuals[bestFitIdx]);
-                    alreadySelected.insert(bestFitIdx);
+                distances.emplace_back(std::sqrt(dist), i);
+            }
+
+            // Sort by distance (ascending = closest to Utopia first)
+            std::sort(distances.begin(), distances.end(),
+                      [](const auto& a, const auto& b){ return a.first < b.first; });
+
+            // Select E closest, avoiding duplicates
+            std::unordered_set<int> alreadySelected;
+            int added = 0;
+            for(const auto& [dist, idx] : distances){
+                if(added >= E) break;
+                if(alreadySelected.count(idx)) continue;
+                indicesElite.push_back(selection.size());
+                selection.push_back(individuals[idx]);
+                alreadySelected.insert(idx);
+                if(individuals[idx].fitness > bestFit) bestFit = individuals[idx].fitness;
+                added++;
+            }
+        }
+
+        /**
+         * @brief Applies gamma mutation to all non-elite JE nodes in the population.
+         * @param probability Probability that each node's gamma is resampled.
+         * @param justUsedNodes If true, only mutates nodes that were used during traversal.
+         */
+        void callGammaMutation(float probability, bool justUsedNodes = false) {
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
+                for (auto& node : individuals[i].innerNodes) {
+                    if (node.type != "JE") continue;
+                    if (justUsedNodes && !node.used) continue;
+                    node.gammaMutation(probability);
+                }
+            }
+        }
+
+        /**
+         * @brief Applies alpha mutation to all non-elite JE nodes in the population.
+         * @param probability Probability that each node's alpha is resampled.
+         * @param justUsedNodes If true, only mutates nodes that were used during traversal.
+         */
+        void callAlphaMutation(float probability, bool justUsedNodes = false) {
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
+                for (auto& node : individuals[i].innerNodes) {
+                    if (node.type != "JE") continue;
+                    if (justUsedNodes && !node.used) continue;
+                    node.alphaMutation(probability);
                 }
             }
         }

@@ -48,6 +48,31 @@ static void force_gc_collect() {
 
 PYBIND11_MODULE(_core, m) {
 
+    // ─── EdgeExperience Struct ────────────────────────────────────────────────
+    py::class_<Node::EdgeExperience>(m, "EdgeExperience")
+        .def(py::init<>())
+        .def_readwrite("meanObs",    &Node::EdgeExperience::meanObs)
+        .def_readwrite("m2Obs",      &Node::EdgeExperience::m2Obs)
+        .def_readwrite("meanReturn", &Node::EdgeExperience::meanReturn)
+        .def_readwrite("m2Return",   &Node::EdgeExperience::m2Return)
+        .def_readwrite("n",          &Node::EdgeExperience::n)
+        .def(py::pickle(
+            [](const Node::EdgeExperience &e) {
+                return py::make_tuple(e.meanObs, e.m2Obs, e.meanReturn, e.m2Return, e.n);
+            },
+            [](py::tuple t) {
+                if (t.size() != 5)
+                    throw std::runtime_error("Invalid state for EdgeExperience!");
+                Node::EdgeExperience e;
+                e.meanObs    = t[0].cast<float>();
+                e.m2Obs      = t[1].cast<float>();
+                e.meanReturn = t[2].cast<float>();
+                e.m2Return   = t[3].cast<float>();
+                e.n          = t[4].cast<int>();
+                return e;
+            }
+        ));
+
     // Node
     py::class_<Node>(m, "Node")
     .def(py::init<
@@ -65,8 +90,14 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("k_d", &Node::k_d)
     .def_readwrite("used", &Node::used)
     .def_readwrite("traverseCounter", &Node::traverseCounter)
+    .def_readwrite("edgeExperience", &Node::edgeExperience)
+    .def_readwrite("gamma", &Node::gamma)
+    .def_readwrite("alpha", &Node::alpha)
+    .def("initEdgeExperience",    &Node::initEdgeExperience)
+    .def("gammaMutation",         &Node::gammaMutation,  py::arg("probability"))
+    .def("alphaMutation",         &Node::alphaMutation,  py::arg("probability"))
     // pickle support
-    .def(py::pickle(
+        .def(py::pickle(
         [](const Node &n) { // __getstate__
             return py::make_tuple(
                 n.id,
@@ -76,30 +107,35 @@ PYBIND11_MODULE(_core, m) {
                 n.boundaries,
                 n.productionRuleParameter,
                 n.k_d,
-                n.used
+                n.used,
+                n.gamma,          // NEU
+                n.alpha,          // NEU
+                n.edgeExperience  // NEU
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 8)
+            if (t.size() != 11)
                 throw std::runtime_error("Invalid state for Node!");
 
             Node n(
-                std::make_shared<std::mt19937_64>(std::random_device{}()), // new generator
+                std::make_shared<std::mt19937_64>(std::random_device{}()),
                 t[0].cast<unsigned int>(),
                 t[1].cast<std::string>(),
                 t[2].cast<unsigned int>()
             );
 
-            n.edges = t[3].cast<std::vector<int>>();
-            n.boundaries = t[4].cast<std::vector<double>>();
+            n.edges                 = t[3].cast<std::vector<int>>();
+            n.boundaries            = t[4].cast<std::vector<double>>();
             n.productionRuleParameter = t[5].cast<std::vector<float>>();
-            n.k_d = t[6].cast<std::pair<int, int>>();
-            n.used = t[7].cast<bool>();
+            n.k_d                   = t[6].cast<std::pair<int, int>>();
+            n.used                  = t[7].cast<bool>();
+            n.gamma                 = t[8].cast<float>();   // NEU
+            n.alpha                 = t[9].cast<float>();   // NEU
+            n.edgeExperience        = t[10].cast<std::vector<Node::EdgeExperience>>(); // NEU
 
             return n;
         }
     ));
-
     // Network
     py::class_<Network>(m, "Network")
     .def(py::init<
@@ -128,6 +164,7 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("nBest", &Network::nBest)
     .def_readwrite("nConsecutiveP", &Network::nConsecutiveP)
     .def_readwrite("nCrossovers", &Network::nCrossovers)
+    .def_readwrite("frozenExperience", &Network::frozenExperience)
     .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f)
     .def("decisionAndNextNode",
         [](Network &self, std::vector<double> obs, int dMax) -> int {
@@ -145,6 +182,7 @@ PYBIND11_MODULE(_core, m) {
         },
         py::arg("X"), py::arg("dMax"))
     .def("clearUsedNodes", &Network::clearUsedNodes)
+    .def("updateExperienceFromEpisode", &Network::updateExperienceFromEpisode)
         // Pickle support – fixed: tuple has 12 elements (indices 0-11)
     .def(py::pickle(
         [](const Network &n) { // __getstate__
@@ -210,16 +248,18 @@ PYBIND11_MODULE(_core, m) {
                 unsigned int,
                 unsigned int,
                 bool,
+                bool,
                 std::vector<int>
                 >(),
              py::arg("seed"), py::arg("ni"), py::arg("jn"), py::arg("jnf"),
-             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("nFeatureValues"))
+             py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("useExperience") = false, py::arg("nFeatureValues"))
         .def_readonly("ni", &Population::ni)
         .def_readwrite("jn", &Population::jn)
         .def_readwrite("jnf", &Population::jnf)
         .def_readwrite("pn", &Population::pn)
         .def_readwrite("pnf", &Population::pnf)
         .def_readwrite("fractalJudgment", &Population::fractalJudgment)
+        .def_readwrite("useExperience", &Population::useExperience)
         .def_readwrite("bestFit", &Population::bestFit)
         .def_readwrite("indicesElite", &Population::indicesElite)
         .def_readwrite("meanFitness", &Population::meanFitness)
@@ -407,6 +447,13 @@ PYBIND11_MODULE(_core, m) {
             py::arg("justUsedNodes")=false
         )
 
+        .def("callGammaMutation", &Population::callGammaMutation,
+             py::call_guard<py::gil_scoped_release>(),
+             py::arg("probability"), py::arg("justUsedNodes") = false)
+        .def("callAlphaMutation", &Population::callAlphaMutation,
+             py::call_guard<py::gil_scoped_release>(),
+             py::arg("probability"), py::arg("justUsedNodes") = false)
+
         .def("crossover", &Population::crossover,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), 
@@ -416,7 +463,6 @@ PYBIND11_MODULE(_core, m) {
              py::arg("upperBoundTraversalCounter")=1.1)
         .def(
             "callAddDelNodes",
-            [](Population &p, py::list minF_py, py::list maxF_py, float junk, bool noElite)
             {
                 std::vector<float> minF;
                 std::vector<float> maxF;
