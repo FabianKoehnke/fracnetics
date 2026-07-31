@@ -292,7 +292,8 @@ class Population {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            int seed
+            int seed,
+            float curriculumLevel = 1.0f
                 ){
 
             for(auto& network : individuals){
@@ -302,7 +303,8 @@ class Population {
                         maxSteps,
                         maxConsecutiveP,
                         worstFitness,
-                        seed
+                        seed,
+                        curriculumLevel
                         );
             }
         }
@@ -1211,7 +1213,8 @@ class Population {
             int maxConsecutiveP,
             int worstFitness,
             const std::vector<int>& seeds,
-            bool validation = false
+            bool validation = false,
+            float curriculumLevel = 1.0f
                 ){
 
             for(auto& network : individuals){

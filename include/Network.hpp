@@ -548,6 +548,7 @@ class Network {
          * @param seed Random seed for environment initialization 
          * @param gamma discount factor of the rewards
          * @param newRun If true, resets network state for a new episode; if false, continues from current state (useful for multi-episode evaluation)
+         * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
          * 
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
@@ -559,10 +560,12 @@ class Network {
             int worstFitness,
             int seed,
             bool newRun = true,
-            bool updateExperience = true
+            float curriculumLevel = 1.0f
             ){
 
-            auto reset_out = env.reset(seed=seed);// Initial observation for the episode
+            // if(validation) curriculumLevel = 1.0f; // during validation, always use full difficulty
+
+            auto reset_out = env.reset(seed=seed, curriculumLevel);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
 
             if(newRun == true){

@@ -355,15 +355,16 @@ PYBIND11_MODULE(_core, m) {
                     int maxSteps,
                     int maxConsecutiveP,
                     int worstFitness,
-                    int seed
+                    int seed,
+                    float curriculumLevel=1.0f
                     ) {
                         GymEnvWrapper wrapper(env);
-                        self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed);
+                        self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed, validation, curriculumLevel);
                         // Force GC to reclaim cyclic garbage from env.step()/env.reset()
                         // calls that accumulate over the population loop.
                         force_gc_collect();
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed")
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f
             )
 
         .def("gymnasiumMultiSeed",
@@ -373,7 +374,8 @@ PYBIND11_MODULE(_core, m) {
                     int maxSteps,
                     int maxConsecutiveP,
                     int worstFitness,
-                    std::vector<int> seeds
+                    std::vector<int> seeds,
+                    float curriculumLevel=1.0f
                     ) {
                         if (py::isinstance<py::list>(env_or_envs)) {
                             // Parallel path: list of environments, one per core.
@@ -385,16 +387,16 @@ PYBIND11_MODULE(_core, m) {
                             }
                             {
                                 py::gil_scoped_release release;
-                                self.gymnasiumMultiSeed(wrappers, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
+                                //self.gymnasiumMultiSeed(wrappers, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
                             }
                         } else {
                             // Single-env path (backward compatible).
                             GymEnvWrapper wrapper(env_or_envs);
-                            self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
+                            self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds, validation, curriculumLevel);
                         }
                         force_gc_collect();
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds")
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f
             )
 
         .def("calculateParetoObjectives", &Population::calculateParetoObjectives,
