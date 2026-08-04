@@ -375,7 +375,7 @@ class Node {
                 }
             }
         }
-
+        
         // TODO: mention Paper II
 
         /**
@@ -412,7 +412,7 @@ class Node {
         void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
             std::bernoulli_distribution distributionBernoulli(propability);
             if(productionRuleParameter.size() > 0){
-                for(int i=1; i<productionRuleParameter.size()-1; i++){
+                for(int i=1; i<static_cast<int>(productionRuleParameter.size())-1; i++){
                     bool result = distributionBernoulli(*generator);
                     if(result){
                         std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
