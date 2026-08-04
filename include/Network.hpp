@@ -908,8 +908,6 @@ class Network {
                             std::vector<float> fractals = fractalLengths(innerNodes.back().k_d.second, sortAndDistance(innerNodes.back().productionRuleParameter));
                             innerNodes.back().setEdgesBoundaries(minF[randomInt], maxF[randomInt], fractals);
                         }
-                        // NEU: Experience initialisieren falls JE
-                        if(useExperience) innerNodes.back().initEdgeExperience();
                     }
 
                     break; // NOTE: just one node can be added with break statement!
