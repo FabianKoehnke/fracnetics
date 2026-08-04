@@ -250,12 +250,13 @@ class Node {
            float sum = minf;
            float span;
            for(int i = 0; i<edges.size()+1; i++){
+               boundaries.push_back(sum);
+               if(i == edges.size()) break;
                if(lengths.size()==0){
                    span = (maxf - minf) / edges.size();
                }else {
                    span = (maxf - minf) * lengths[i];
                } 
-               boundaries.push_back(sum);
                sum += span;
            }
         }
