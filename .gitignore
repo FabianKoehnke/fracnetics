@@ -7,7 +7,12 @@ venv
 dist
 videos
 gui
-build
+build*/
+runs
+research/results
+
+# rendered episodes (kept locally, not versioned)
+*.mp4
 
 # files
 src/main
