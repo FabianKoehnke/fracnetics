@@ -26,14 +26,14 @@ int main(){
     std::string boundaryMutationType = "normal"; // uniform, networkSigma, normal, edgeSigma, edgeFractal
     bool fractalJudgment = false;
     float probCrossOver = 1;
-    int generations = 100;
+    int generations = 1000;
     int generationsNoImprovementLimit = 500;
     int nIndividuals = 100;
     int tournamentSize = 2;
     int nElite = 1;
-    int jn = 2;
+    int jn = 20;
     int jnf = 4;
-    int pn = 2;
+    int pn = 20;
     int pnf = 5;
     int dMax = 10;
     int penalty = 2;
@@ -95,7 +95,7 @@ int main(){
         if(addDel == 1){
             population.callAddDelNodes(data.minX, data.maxX, 0.9);
         }
-        population.crossover(probCrossOver, "randomWidth");
+        population.crossover(probCrossOver, "randomWidth", 0, true, 0.98, 1.02);
         population.callEdgeMutation(probEdgeMutationInnerNodes, probEdgeMutationStartNode);
 
         std::cout << 
@@ -103,7 +103,9 @@ int main(){
             " BestFit: " << population.individuals[population.indicesElite[0]].fitness << 
             " MeanFitness: " << population.meanFitness << 
             " MinFitness: " << population.minFitness <<
-            " NetworkSize Best Ind: " << population.individuals[population.indicesElite[0]].innerNodes.size() << std::endl;
+            " NetworkSize Best Ind: " << population.individuals[population.indicesElite[0]].innerNodes.size() << 
+            " N crossover: " << population.individuals[population.indicesElite[0]].nCrossovers << std::endl;
+
 
        bestFitnessPerGeneration.push_back(population.bestFit);
        if(g > 1 && bestFitnessPerGeneration[g-1] == bestFitnessPerGeneration[g]){

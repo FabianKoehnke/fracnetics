@@ -107,3 +107,83 @@ TEST_F(NetworkRemapTest, RemapNodeIdsAndEdges_EmptyMapping) {
     EXPECT_EQ(net.innerNodes[0].edges, originalEdges);
 }
 
+// changeEdge(): a node OUTSIDE any transplant block must never be redirected onto an
+// interior (non-entry) node of a block -- only that block's designated entry node
+// remains a valid mutation target. Nodes belonging to the block themselves stay
+// unrestricted (self-mutation of the block's own edges is unaffected).
+TEST_F(NetworkRemapTest, ChangeEdgeRespectsTransplantBlockEntryRestriction) {
+    Network net(generator, 5, 3, 2, 2, false); // 5 judgment + 2 processing = 7 inner nodes
+
+    // Mark nodes 2,3,4 as one transplant block; node 3 is the designated entry.
+    net.innerNodes[2].transplantBlockID = 1;
+    net.innerNodes[3].transplantBlockID = 1;
+    net.innerNodes[3].isBlockEntry = true;
+    net.innerNodes[4].transplantBlockID = 1;
+
+    // Node 0 is a normal node (not part of the block) -- repeatedly mutate one of its
+    // edges and verify it never lands on the block's interior nodes (2 or 4).
+    for (int trial = 0; trial < 200; trial++) {
+        int edge = 6; // some current target, irrelevant to the check itself
+        int newTarget = net.innerNodes[0].changeEdge((int)net.innerNodes.size(), edge, &net.innerNodes);
+        EXPECT_NE(newTarget, 2);
+        EXPECT_NE(newTarget, 4);
+        // reaching the entry node (3) itself is fine and expected to occur
+    }
+
+    // A node that IS part of the block (node 2) must remain unrestricted and CAN
+    // target another interior node of the same block (e.g. node 4).
+    bool reachedInteriorFromInsideBlock = false;
+    for (int trial = 0; trial < 200; trial++) {
+        int edge = 6;
+        int newTarget = net.innerNodes[2].changeEdge((int)net.innerNodes.size(), edge, &net.innerNodes);
+        if (newTarget == 4) { reachedInteriorFromInsideBlock = true; break; }
+    }
+    EXPECT_TRUE(reachedInteriorFromInsideBlock);
+}
+
+
+// addDelNodes() removes ALL deletable unused nodes per call (except the one left standing by
+// the "more than one unused node" condition) -- not just every second one, as before the n--
+// after erase() (the node shifted into place was skipped by the loop's n++). This is the
+// counterweight to crossover(type="seedSpecialist") appending whole sub-graphs as blocks.
+TEST_F(NetworkRemapTest, AddDelNodesRemovesAllUnusedNodesPerCall) {
+    Network net(generator, 6, 3, 6, 4, false);
+
+    const int originalSize = static_cast<int>(net.innerNodes.size());
+    ASSERT_EQ(originalSize, 12);
+
+    // Only nodes 0, 1 and 2 count as used -- the remaining 9 are deletable.
+    for (auto& node : net.innerNodes) node.used = false;
+    net.innerNodes[0].used = true;
+    net.innerNodes[1].used = true;
+    net.innerNodes[2].used = true;
+    for (auto& node : net.innerNodes) node.generationReceived = -1; // no crossoverProtection
+
+    std::vector<float> minF(4, 0.0f), maxF(4, 1.0f);
+    std::vector<int> nFeatureValues;
+
+    // addDelNodes() flips a coin per call between adding and deleting; with junk = 0 the add
+    // branch is blocked while any unused node exists. Several calls ensure the delete branch
+    // is drawn at least once.
+    for (int call = 0; call < 20; call++) {
+        net.addDelNodes(minF, maxF, 0.0f, nFeatureValues, /*currentGeneration=*/0, /*crossoverProtection=*/0);
+    }
+
+    int unusedLeft = 0;
+    for (const auto& node : net.innerNodes) if (!node.used) unusedLeft++;
+
+    // Exactly one unused node may remain (condition size - nUsed - 1 > size*junk), and all
+    // three used nodes must be preserved.
+    EXPECT_EQ(unusedLeft, 1);
+    EXPECT_EQ(static_cast<int>(net.innerNodes.size()), 4);
+
+    // After the deletions, ids must be contiguous again and all edges valid.
+    for (int i = 0; i < static_cast<int>(net.innerNodes.size()); i++) {
+        EXPECT_EQ(static_cast<int>(net.innerNodes[i].id), i);
+        for (int edge : net.innerNodes[i].edges) {
+            EXPECT_GE(edge, 0);
+            EXPECT_LT(edge, static_cast<int>(net.innerNodes.size()));
+        }
+    }
+    EXPECT_LT(net.startNode.edges[0], static_cast<int>(net.innerNodes.size()));
+}
