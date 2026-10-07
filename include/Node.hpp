@@ -59,18 +59,19 @@ class Node {
         int generationReceived = -1;
 
         // ─── Grace period for recently active nodes (Network::ageUnusedNodes) ───
-        // Replaces the clusterLabels detour in addDelNodes(): a node that was part of
-        // the active sub-graph last generation must not be deleted just because this
-        // generation's seed panel happened not to need it. Measured on the old path,
-        // 74.9% of protected nodes had been active one generation earlier.
         bool everUsed = false;      /**< true once the node has been traversed at least once */
         int unusedSince = 0;        /**< Generations since the last traversal. 0 while the node is
                                          in use, 1 after one generation without it, and so on.
                                          addDelNodes() deletes at unusedSince >= nodeGracePeriod,
                                          so a value of n grants n-1 idle generations -- n=1 grants
-                                         none and disables the protection entirely. */
+                                         none and disables the protection entirely.
+                                         Keeps a node that was active last generation from being
+                                         deleted only because this generation's seed panel did not
+                                         need it. Replaces the clusterLabels detour in addDelNodes();
+                                         on that old path 74.9% of protected nodes had been active
+                                         one generation earlier. */
 
-        int frozen = 0; /**< If true, this node is immutable – excluded from all mutation operators */
+        int frozen = 0; /**< If > 0, this node is immutable – excluded from all mutation operators */
 
         // ─── Seed-specialist transplant block (Population::crossover(type="seedSpecialist")) ───
         int transplantBlockID = -1; /**< -1 = not part of any transplanted sub-graph block. Otherwise identifies
@@ -176,11 +177,7 @@ class Node {
         {
             edges.clear();
 
-            // ------------------------------------------------------------------
-            // Build the valid target list.
-            // If candidates is provided use it; otherwise fall back to [0, nn-1].
-            // In both cases self-loops are filtered out.
-            // ------------------------------------------------------------------
+            // Valid targets: candidates if given, else [0, nn-1]; never self.
             std::vector<int> valid;
 
             if (!candidates.empty()) {
@@ -197,9 +194,7 @@ class Node {
 
             if (valid.empty()) return; // safety: nothing to connect to
 
-            // ------------------------------------------------------------------
             // Type-specific edge initialisation
-            // ------------------------------------------------------------------
             if (type == "J") {
                 std::shuffle(valid.begin(), valid.end(), *generator);
                 int maxEdges = static_cast<int>(valid.size());
@@ -281,8 +276,8 @@ class Node {
          * @details
          * This method creates the boundary values that divide the continuous feature space
          * into intervals, one for each outgoing edge. Each interval corresponds to
-         * one possible judgment outcome (edge selection). Therfore, the number of boundaries
-         * is equal to the number of edges of a judgment node.
+         * one possible judgment outcome (edge selection). Therefore, a judgment node with
+         * n edges has n+1 boundaries.
          * 
          * **Two modes of operation**:
          * 
@@ -341,9 +336,12 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each individual edge will be mutated
          * @param nn Total number of nodes in the network (used to determine valid mutation targets)
-         * @param adaptToEdgeSize If true, mutation probability is adapted to the number of edges (e.g., propability / edges.size()). 
-         * If false, the provided propability is used directly for each edge.
-         * 
+         * @param k If > 0, replaces propability with min(1, k/N), i.e. about k mutations per N eligible
+         * edges. N == 0 yields probability 0; the cap at 1 keeps bernoulli_distribution valid (an invalid
+         * probability is UB and can segfault).
+         * @param N Number of eligible edges for the k/N rate (0 e.g. when justUsedNodes is set before
+         * any node was marked used).
+         *
          * @note No self-loops are introduced by the mutation and 
          * the edges vector maintains its original size
          * 
@@ -360,13 +358,9 @@ class Node {
 
             bool changed = false;
             const int N_MIN = 1;
-            
+
             if(k > 0.0f){
-                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
-                // justUsedNodes==true before any node has been marked used yet --
-                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
-                // on a small network) -- both would otherwise be passed as an invalid
-                // probability to std::bernoulli_distribution below (UB, can segfault).
+                // Guard N == 0 and k/N > 1: invalid p for bernoulli_distribution is UB.
                 propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
             }
             for(int i = 0; i < static_cast<int>(edges.size()); i++){
@@ -431,7 +425,7 @@ class Node {
             // cannot find a valid candidate -- avoids an infinite loop.
             const int maxAttempts = 10000;
             for(int attempt = 0; attempt < maxAttempts; attempt++){
-                int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
+                int randomInt = distributionUniform(*generator);// random target node
                 if(randomInt != this->id && randomInt != edge){// prevent self-loop and same edge
                     if(restrictBlockEntry && randomInt < static_cast<int>(allNodes->size())){
                         const Node& candidate = (*allNodes)[randomInt];
@@ -471,7 +465,9 @@ class Node {
          * allowing both small and large shifts with equal probability within the valid range.
          *
          * @param propability Probability (in range [0.0, 1.0]) that boundary will be mutated
-         * 
+         * @param k If > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation()).
+         * @param N Number of eligible boundaries for the k/N rate.
+         *
          */
         bool boundaryMutationUniform(float propability, float k=0.0f, int N=1){
 
@@ -479,11 +475,7 @@ class Node {
 
             bool changed = false;
             if(k > 0.0f){
-                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
-                // justUsedNodes==true before any node has been marked used yet --
-                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
-                // on a small network) -- both would otherwise be passed as an invalid
-                // probability to std::bernoulli_distribution below (UB, can segfault).
+                // Guard N == 0 and k/N > 1: invalid p for bernoulli_distribution is UB.
                 propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
             }
 
@@ -616,8 +608,9 @@ class Node {
          * large sigma → larger jumps (but still biased toward center).
          *
          * @param propability Probability (in range [0.0, 1.0]) that each interior boundary will be mutated
-         * @param sigma standard deviation of the normal distribution (later scaled by mu)
-         * @param k optional adaptive parameter to scale mutation probability based on number of eligible boundaries (default 0.0f = no adaptation)
+         * @param sigma Relative standard deviation; multiplied by the smaller gap to the neighbouring
+         * boundaries. JE nodes ignore it and use an experience-based sigma in [0.05, 0.5].
+         * @param k optional adaptive parameter: if > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation())
          * @param N optional total number of eligible boundaries (used for adaptive probability scaling)
          */
         bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1){
@@ -626,11 +619,7 @@ class Node {
 
             bool changed = false;
             if(k > 0.0f){
-                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
-                // justUsedNodes==true before any node has been marked used yet --
-                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
-                // on a small network) -- both would otherwise be passed as an invalid
-                // probability to std::bernoulli_distribution below (UB, can segfault).
+                // Guard N == 0 and k/N > 1: invalid p for bernoulli_distribution is UB.
                 propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
             }
 
@@ -692,7 +681,7 @@ class Node {
             }
             return changed;
         }
-                // ─── Experience-Weighted Judgment Node (EWJN): Methods ────────────────
+        // ─── Experience-Weighted Judgment Node (EWJN): Methods ────────────────
 
         /**
          * @brief Initialises edgeExperience to match the current edges vector.
@@ -715,24 +704,25 @@ class Node {
          * @param edgeIdx  Index into edges[] (and edgeExperience[]) to update
          * @param G        Discounted return observed from time t onward
          * @param obsF     Value of obs[node.f] at the time this edge was chosen
+         * @param G_min    Worst expected return (worstFitness); maps to 0 when G is min-max normalised
+         * @param G_max    Best expected return; maps to 1. G_norm is clamped to [0, 1].
          */
 
         void updateEdgeExperience(int edgeIdx, float G, float obsF,
                           float G_min = -500.0f, float G_max = 250.0f) {
             EdgeExperience& e = edgeExperience[edgeIdx];
 
-            // Min-Max Normierung: G_norm ∈ [0,1]
-            // 0 = schlimmstmöglich (worstFitness), 1 = bestmöglich
+            // Min-max normalise: 0 = worst (worstFitness), 1 = best
             float G_norm = std::clamp((G - G_min) / (G_max - G_min), 0.0f, 1.0f);
 
             e.n++;
 
-            // Welford für obsF
+            // Welford for obsF
             float d1 = obsF - e.meanObs;
             e.meanObs  += d1 / e.n;
             e.m2Obs    += d1 * (obsF - e.meanObs);
 
-            // Welford für G_norm
+            // Welford for G_norm
             float d2 = G_norm - e.meanReturn;
             e.meanReturn += d2 / e.n;
             e.m2Return   += d2 * (G_norm - e.meanReturn);
@@ -788,14 +778,14 @@ class Node {
 
             int reactiveEdge = judge(obsF);
 
-            // Mindestens N_MIN Besuche bevor Erfahrung zählt
+            // Experience counts only after N_MIN visits
             const int N_MIN = 1; //       / static_cast<int>(edges.size());  
             bool anyExp = false;
             for (const auto& e : edgeExperience)
                 if (e.n >= N_MIN) { anyExp = true; break; }
             if (!anyExp) return reactiveEdge;
 
-            // ── eScore berechnen ────────────────────────────────────────────────────
+            // ── Experience score per edge ───────────────────────────────────────────
             std::vector<float> eScores(edges.size(), 0.0f);
             float eMin =  std::numeric_limits<float>::max();
             float eMax = -std::numeric_limits<float>::max();
@@ -813,7 +803,7 @@ class Node {
                 }
             }
 
-            // ── eScore auf [0,1] normalisieren ──────────────────────────────────────
+            // ── Normalise eScore to [0,1] ───────────────────────────────────────────
             float range = eMax - eMin;
             for (int i = 0; i < static_cast<int>(edges.size()); i++) {
                 if (range > 1e-6f)
@@ -822,7 +812,7 @@ class Node {
                     eScores[i] = 0.0f;
             }
 
-            // ── Gewichteter Score ───────────────────────────────────────────────────
+            // ── Weighted score ──────────────────────────────────────────────────────
             int   bestEdge  = reactiveEdge;
             float bestScore = -std::numeric_limits<float>::max();
 
