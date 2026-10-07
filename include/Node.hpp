@@ -1,5 +1,6 @@
 #ifndef NODE_HPP
 #define NODE_HPP
+#include <cstdint>
 #include <utility>
 #include <vector>
 #include <string>
@@ -30,6 +31,11 @@ class Node {
         std::shared_ptr<std::mt19937_64> generator; /**< Shared pointer to random number generator for stochastic operations */
     
     public:
+        /** Diagnostic: identity of the RNG this node shares with its network. */
+        std::uintptr_t rngPointer() const {
+            return reinterpret_cast<std::uintptr_t>(generator.get());
+        }
+
         /** @cond INTERNAL */
         unsigned int id; /**< Unique identifier of the node within the network */
         std::string type; /**< Node type: "S" (Start), "P" (Processing), or "J" (Judgment) */
@@ -39,8 +45,42 @@ class Node {
         std::vector<float> productionRuleParameter = {}; /**< Parameters for fractal-based edge generation (used when fractalJudgment is enabled) */
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
-        unsigned int traverseCounter = 0; /** counter of the traversed path. Allow filter of successor nodes */
+        unsigned int traverseCounter = 0; /**< How OFTEN this node was entered since the last reset (a true visit
+                                               count, incremented by one per entry). Accumulates over all seeds of a
+                                               generation (only Network::initPathTraversal()/fitGymnasium(newRun=true)
+                                               reset it), so it is a usage FREQUENCY -- used e.g. for the traversal-
+                                               neighborhood filter in Population::findSuccessorNodes(). */
+        unsigned int lastVisitStep = 0; /**< Value of the network-wide step counter (Network::traverseCounter) at the
+                                             LAST entry of this node, i.e. a timestamp, not a count. Used to order
+                                             nodes along the traversal (Population::findSuccessorNodes() selects the
+                                             nodes entered AFTER a given start node). Kept separate from
+                                             traverseCounter, which previously carried this timestamp and was
+                                             therefore unusable as a frequency. */
         int generationReceived = -1;
+
+        // ─── Grace period for recently active nodes (Network::ageUnusedNodes) ───
+        // Replaces the clusterLabels detour in addDelNodes(): a node that was part of
+        // the active sub-graph last generation must not be deleted just because this
+        // generation's seed panel happened not to need it. Measured on the old path,
+        // 74.9% of protected nodes had been active one generation earlier.
+        bool everUsed = false;      /**< true once the node has been traversed at least once */
+        int unusedSince = 0;        /**< Generations since the last traversal. 0 while the node is
+                                         in use, 1 after one generation without it, and so on.
+                                         addDelNodes() deletes at unusedSince >= nodeGracePeriod,
+                                         so a value of n grants n-1 idle generations -- n=1 grants
+                                         none and disables the protection entirely. */
+
+        int frozen = 0; /**< If true, this node is immutable – excluded from all mutation operators */
+
+        // ─── Seed-specialist transplant block (Population::crossover(type="seedSpecialist")) ───
+        int transplantBlockID = -1; /**< -1 = not part of any transplanted sub-graph block. Otherwise identifies
+                                          the transplant event this node belongs to (see Population::nextTransplantBlockID).
+                                          Used together with isBlockEntry to restrict which nodes of the block may be
+                                          targeted by edge mutations originating from OUTSIDE the block. */
+        bool isBlockEntry = false; /**< Only meaningful if transplantBlockID != -1. True for the single node through
+                                         which the transplanted block may be entered by edges mutated from nodes
+                                         outside the block (see changeEdge()). Nodes belonging to the block itself are
+                                         not restricted when mutating their own outgoing edges. */
         
         // ─── Experience-Weighted Judgment Node (EWJN) ─────────────────────────
 
@@ -61,10 +101,12 @@ class Node {
             float meanReturn = 0.0f; ///< Welford mean  of discounted return G
             float m2Return   = 0.0f; ///< Welford M2    of G (for variance)
             int   n          = 0;    ///< Number of times this edge was chosen
+            float maxG_seen  = -std::numeric_limits<float>::max();
+            float minG_seen  =  std::numeric_limits<float>::max();
         };
 
         std::vector<EdgeExperience> edgeExperience; ///< one entry per outgoing edge; only used for type "JE"
-        float gamma = 0.95f; ///< Discount factor for return G (evolvable parameter)
+        float gamma = 0.999f; ///< Discount factor for return G (evolvable parameter)
         float alpha = 0.1f;  ///< Mixing weight: P(use experience over reactive judge) in [0,1] (evolvable)
 
 
@@ -104,64 +146,82 @@ class Node {
 
         /** @name Member Functions */
         /** @{ */
+
         /**
          * @brief Initializes the outgoing edges of the node based on its type and network size.
          *
          * @details
-         * This method creates the edge structure for different node types according to GNP rules:
+         * This method creates the edge structure for different node types according to GNP rules.
          * 
+         * When `candidates` is provided (non-empty), edges are sampled from this list only —
+         * treating each candidate as one meta-node (e.g. cluster entry or unclustered node).
+         * When `candidates` is empty, all nodes [0, nn-1] are valid targets (original behaviour).
+         *
          * **Judgment Nodes (type "J")**:
-         * - Can have multiple outgoing edges (between 2 and nn-1), where nn is the number of 
-         *   processing and judgment nodes of a Network
-         * - Randomly shuffles candidates
-         *  - If parameter k=0: randomly selects between 2 and nn-1 edges
-         *  - If parameter k>0: selects exactly k edges
-         * - Edges represent conditional branches based on feature value intervals
-         * 
-         * **Processing Nodes (type "P") and Start Nodes (type "S")**:
-         * - Have exactly one outgoing edge
-         * - Randomly selects a successor node (excluding self to prevent self-loops)
-         * 
-         * @note Self-loop are always prevented
+         * - Draws between 2 and candidates.size()-1 (or nn-1) edges, or exactly k if k > 0.
+         * - Samples without self-loop.
          *
-         * The edge selection ensures well-defined graph structure with no self-loops 
-         * for different node types.
+         * **Processing / Start Nodes (type "P" / "S")**:
+         * - Exactly one edge, sampled uniformly from valid targets, excluding self-loop.
          *
-         * @param type Node type string: "J" (Judgment), "P" (Processing), or "S" (Start)
-         * @param nn Total number of nodes in the network (used to determine valid edge targets)
-         * @param k Number of outgoing edges for judgment nodes (0 = random selection between 2 and nn-1, >0 = fixed number)
-         * 
+         * @param type       Node type: "J", "P", or "S".
+         * @param nn         Total number of nodes (used when candidates is empty).
+         * @param k          Fixed number of edges for J-nodes (0 = random 2..size-1).
+         * @param candidates Optional pre-built list of valid target node IDs.
+         *                   When non-empty, replaces the full [0, nn-1] candidate set.
+         *                   Typically: {Entry(C_k) for each cluster} + {unclustered node IDs}.
          */
-        void setEdges(std::string type, int nn, int k=0){
+        void setEdges(std::string type, int nn, int k = 0,
+                      const std::vector<int>& candidates = {})
+        {
+            edges.clear();
 
-            if (type == "J" or type == "JE") {
-                for(int i=0; i<nn; i++){
-                    if(i != this->id){//prevents self-loop
-                        edges.push_back(i);    
-                    }
-                } 
-                std::uniform_int_distribution<int> distribution(2, nn-1);
-                int randomInt = distribution(*generator);// sets a random number of outgoing edges
-                std::shuffle(edges.begin(), edges.end(), *generator);
-                if(k == 0){
-                    edges = std::vector<int>(edges.begin(), edges.begin()+randomInt);
-                }else{
-                    edges = std::vector<int>(edges.begin(), edges.begin()+k);
-                }
-            } else if(type == "S" || type == "P"){
-                bool noSelfLoop = false;
-                while(noSelfLoop == false){// prevents self-loop
-                    std::uniform_int_distribution<int> distribution(0, nn-1);
-                    int randomInt = distribution(*generator);// set a random successor
-                    if(randomInt != this->id){
-                        edges = std::vector<int>{randomInt};
-                        noSelfLoop = true;
-                        }
-                    }
-                } else {
-                edges = std::vector<int>{};
+            // ------------------------------------------------------------------
+            // Build the valid target list.
+            // If candidates is provided use it; otherwise fall back to [0, nn-1].
+            // In both cases self-loops are filtered out.
+            // ------------------------------------------------------------------
+            std::vector<int> valid;
+
+            if (!candidates.empty()) {
+                valid.reserve(candidates.size());
+                for (int c : candidates)
+                    if (c != static_cast<int>(this->id))
+                        valid.push_back(c);
+            } else {
+                valid.reserve(nn - 1);
+                for (int i = 0; i < nn; i++)
+                    if (i != static_cast<int>(this->id))
+                        valid.push_back(i);
             }
-        }
+
+            if (valid.empty()) return; // safety: nothing to connect to
+
+            // ------------------------------------------------------------------
+            // Type-specific edge initialisation
+            // ------------------------------------------------------------------
+            if (type == "J") {
+                std::shuffle(valid.begin(), valid.end(), *generator);
+                int maxEdges = static_cast<int>(valid.size());
+
+                int nEdges;
+                if (k > 0) {
+                    nEdges = std::min(k, maxEdges);
+                } else if (maxEdges < 2) {
+                    nEdges = maxEdges; // take all if fewer than 2 available
+                } else {
+                    std::uniform_int_distribution<int> dist(2, maxEdges);
+                    nEdges = dist(*generator);
+                }
+                edges = std::vector<int>(valid.begin(), valid.begin() + nEdges);
+
+            } else if (type == "S" || type == "P") {
+                std::uniform_int_distribution<int> dist(0, static_cast<int>(valid.size()) - 1);
+                edges = std::vector<int>{ valid[dist(*generator)] };
+
+            }
+            // type "E" or unknown → edges stays empty
+        } 
 
         /**
          * @brief Evaluates a feature value and determines which outgoing edge to follow.
@@ -287,24 +347,55 @@ class Node {
          * @note No self-loops are introduced by the mutation and 
          * the edges vector maintains its original size
          * 
+         * @param allNodes Optional pointer to the network's full innerNodes vector. When provided, restricts
+         * mutation targets so that a node NOT belonging to a transplant block (see transplantBlockID) cannot be
+         * redirected into an interior (non-entry) node of a transplant block -- only that block's designated
+         * isBlockEntry node remains reachable this way (see Population::crossover(type="seedSpecialist")).
+         * Nodes that ARE themselves part of a block are unrestricted (this only guards entry FROM outside the
+         * block). Passing nullptr (default) preserves the original, unrestricted behavior.
          */
-        void edgeMutation(float propability, int nn, int k, int N){
-            if(k > 0){
-                propability = (float)k / (float)N;
+        bool edgeMutation(float propability, int nn, float k, int N, const std::vector<Node>* allNodes = nullptr){
+
+            if (frozen > 0) return false;
+
+            bool changed = false;
+            const int N_MIN = 1;
+            
+            if(k > 0.0f){
+                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
+                // justUsedNodes==true before any node has been marked used yet --
+                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
+                // on a small network) -- both would otherwise be passed as an invalid
+                // probability to std::bernoulli_distribution below (UB, can segfault).
+                propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
             }
-            std::bernoulli_distribution distributionBernoulli(propability);
             for(int i = 0; i < static_cast<int>(edges.size()); i++){
-                bool result = distributionBernoulli(*generator);
-                if(result){
-                    edges[i] = changeEdge(nn, edges[i]);
-                    // reset experience because the target node has changed
+
+                float p = propability;
+
+                if(type == "JE" && edgeExperience[i].n >= N_MIN){
+                    float mean = edgeExperience[i].meanReturn;       // [0,1]
+                    // float var  = (edgeExperience[i].n > 1) ? edgeExperience[i].m2Return / static_cast<float>(edgeExperience[i].n) : 1.0f;
+                    // float std  = std::sqrt(var);
+                    // float confidence = 1.0f / (1.0f + std);          // ∈ (0,1]
+                    // float quality = mean * confidence;
+
+                    float quality = edgeExperience[i].meanReturn;
+                    p = propability * (1.0f - quality);
+                    p = std::max(p, 0.001f);
+                }
+
+                std::bernoulli_distribution distributionBernoulli(p);
+                if(distributionBernoulli(*generator)){
+                    edges[i] = changeEdge(nn, edges[i], allNodes);
+                    changed = true;
                     if(type == "JE"){
                         edgeExperience[i] = EdgeExperience{};
                     }
                 }
             }
+            return changed;
         }
-
         /**
          * @brief Selects a new random target node for an edge while avoiding self-loops and duplicates.
          *
@@ -322,19 +413,41 @@ class Node {
          *
          * @param nn Total number of nodes in the network (defines the valid range [0, nn-1])
          * @param edge Current edge value (by reference, though not modified by this function)
+         * @param allNodes Optional pointer to the network's full innerNodes vector. If provided AND this node
+         * itself is not part of a transplant block (transplantBlockID == -1), candidate targets that belong to
+         * a transplant block but are not that block's isBlockEntry node are rejected -- so a "normal" node can
+         * only reach into a transplanted sub-graph via its single designated entry node. Nodes that ARE
+         * themselves part of a block remain fully unrestricted. Passing nullptr (default) preserves the
+         * original, unrestricted behavior.
          * @return New valid node index for the edge
          * 
          * @warning Requirements: nn > 2 (at least 3 nodes required to ensure a valid alternative exists
          * because of the constraints). Otherwise method could run indefinitely.
          */
-        int changeEdge(int nn, int& edge){
+        int changeEdge(int nn, int& edge, const std::vector<Node>* allNodes = nullptr){
             std::uniform_int_distribution<int> distributionUniform(0, nn-1);
-            while(true){ 
+            const bool restrictBlockEntry = (allNodes != nullptr) && (this->transplantBlockID == -1);
+            // Safety fallback for the (practically unreachable) case that rejection sampling
+            // cannot find a valid candidate -- avoids an infinite loop.
+            const int maxAttempts = 10000;
+            for(int attempt = 0; attempt < maxAttempts; attempt++){
                 int randomInt = distributionUniform(*generator);// sets a random number of outgoing edges
                 if(randomInt != this->id && randomInt != edge){// prevent self-loop and same edge
+                    if(restrictBlockEntry && randomInt < static_cast<int>(allNodes->size())){
+                        const Node& candidate = (*allNodes)[randomInt];
+                        if(candidate.transplantBlockID != -1 && !candidate.isBlockEntry){
+                            continue; // interior node of a transplant block -- only reachable via its entry node
+                        }
+                    }
                     return randomInt;
                 }
             }
+            // Fallback: return any valid target ignoring the block restriction rather than looping forever.
+            int randomInt;
+            do {
+                randomInt = distributionUniform(*generator);
+            } while(randomInt == this->id);
+            return randomInt;
         }
 
          /**
@@ -360,20 +473,63 @@ class Node {
          * @param propability Probability (in range [0.0, 1.0]) that boundary will be mutated
          * 
          */
-        void boundaryMutationUniform(float propability){
-            std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i=1; i<boundaries.size()-1; i++){
-                bool result = distributionBernoulli(*generator);
-                if(result){
+        bool boundaryMutationUniform(float propability, float k=0.0f, int N=1){
+
+            if (frozen > 0) return false;
+
+            bool changed = false;
+            if(k > 0.0f){
+                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
+                // justUsedNodes==true before any node has been marked used yet --
+                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
+                // on a small network) -- both would otherwise be passed as an invalid
+                // probability to std::bernoulli_distribution below (UB, can segfault).
+                propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
+            }
+
+            const int N_MIN = 1;
+
+            for(int i=1; i<static_cast<int>(boundaries.size())-1; i++){
+
+                float p = propability;
+
+                if(type == "JE"){
+                    float q0 = 0.0f;
+                    if(edgeExperience[i-1].n >= N_MIN){
+                        float var0        = (edgeExperience[i-1].n > 1) ? edgeExperience[i-1].m2Return / static_cast<float>(edgeExperience[i-1].n) : 1.0f;
+                        float confidence0 = 1.0f / (1.0f + std::sqrt(var0));
+                        //q0                = edgeExperience[i-1].meanReturn * confidence0;
+                        q0                = edgeExperience[i-1].meanReturn;
+                    }
+
+                    float q1 = 0.0f;
+                    if(edgeExperience[i].n >= N_MIN){
+                        float var1        = (edgeExperience[i].n > 1) ? edgeExperience[i].m2Return / static_cast<float>(edgeExperience[i].n) : 1.0f;
+                        float confidence1 = 1.0f / (1.0f + std::sqrt(var1));
+                        //q1                = edgeExperience[i].meanReturn * confidence1;
+                        q1                = edgeExperience[i].meanReturn;
+                    }
+
+                    float quality = std::max(q0, q1);
+
+                    if(quality > 0.0f){
+                        p = propability * (1.0f - quality);
+                        p = std::max(p, 0.001f);
+                    }
+                }
+
+                std::bernoulli_distribution distributionBernoulli(p);
+                if(distributionBernoulli(*generator)){
                     std::uniform_real_distribution<float> distributionUniform(boundaries[i-1], boundaries[i+1]);
                     boundaries[i] = distributionUniform(*generator);
-                    // only reset the two adjacent edges because only their intervals have changed
+                    changed = true;
                     if(type == "JE")
                         edgeExperience[i-1] = EdgeExperience{};
                     if(type == "JE")
                         edgeExperience[i] = EdgeExperience{};
                 }
             }
+            return changed;
         }
         
         // TODO: mention Paper II
@@ -409,7 +565,11 @@ class Node {
          * 
          * @note productionRuleParameter must be initialized with values in [0, 1]
          */
-        void boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
+        bool boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
+
+            if (frozen > 0) return false;
+
+            bool changed = false;
             std::bernoulli_distribution distributionBernoulli(propability);
             if(productionRuleParameter.size() > 0){
                 for(int i=1; i<static_cast<int>(productionRuleParameter.size())-1; i++){
@@ -417,13 +577,15 @@ class Node {
                     if(result){
                         std::uniform_real_distribution<float> distributionUniform(productionRuleParameter[i-1], productionRuleParameter[i+1]);
                         productionRuleParameter[i] = distributionUniform(*generator);
+                        changed = true;
                         boundaries.clear();
                         std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
                         setEdgesBoundaries(minf[f], maxf[f], fractals);
-                        edgeExperience.assign(edges.size(), EdgeExperience{});
+                        if(type == "JE") edgeExperience.assign(edges.size(), EdgeExperience{});
                     }
                 }
             }
+            return changed;
         }
         /**
          * @brief Mutates decision boundaries by shifting them using a normal (Gaussian) distribution.
@@ -455,20 +617,72 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that each interior boundary will be mutated
          * @param sigma standard deviation of the normal distribution (later scaled by mu)
+         * @param k optional adaptive parameter to scale mutation probability based on number of eligible boundaries (default 0.0f = no adaptation)
+         * @param N optional total number of eligible boundaries (used for adaptive probability scaling)
          */
-        void boundaryMutationNormal(float propability, float sigma){
-            std::bernoulli_distribution distributionBernoulli(propability);
-            for(int i = 1; i<boundaries.size()-1; i++){ // only shift the inner boundaries
-                bool result = distributionBernoulli(*generator);
-                if(result){
+        bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1){
+
+            if (frozen > 0) return false;
+
+            bool changed = false;
+            if(k > 0.0f){
+                // Guard against N==0 (no eligible edges/boundaries this call, e.g.
+                // justUsedNodes==true before any node has been marked used yet --
+                // division by zero -> inf) and against k/N > 1.0 (e.g. large adaptiveK
+                // on a small network) -- both would otherwise be passed as an invalid
+                // probability to std::bernoulli_distribution below (UB, can segfault).
+                propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
+            }
+
+            const int N_MIN = 1;
+
+            for(int i = 1; i<boundaries.size()-1; i++){
+
+                float p = propability;
+                float adaptiveSigma = sigma;
+
+                if(type == "JE"){
+                    float q0 = 0.0f;
+                    if(edgeExperience[i-1].n >= N_MIN){
+                        float var0        = (edgeExperience[i-1].n > 1) ? edgeExperience[i-1].m2Return / static_cast<float>(edgeExperience[i-1].n) : 1.0f;
+                        float confidence0 = 1.0f / (1.0f + std::sqrt(var0));
+                        //q0                = edgeExperience[i-1].meanReturn * confidence0;
+                        q0                = edgeExperience[i-1].meanReturn;
+                    }
+
+                    float q1 = 0.0f;
+                    if(edgeExperience[i].n >= N_MIN){
+                        float var1        = (edgeExperience[i].n > 1) ? edgeExperience[i].m2Return / static_cast<float>(edgeExperience[i].n) : 1.0f;
+                        float confidence1 = 1.0f / (1.0f + std::sqrt(var1));
+                        //q1                = edgeExperience[i].meanReturn * confidence1;
+                        q1                = edgeExperience[i].meanReturn;
+                    }
+
+                    float quality = std::max(q0, q1);
+
+                    // if(quality > 0.0f){
+                    //     p = propability * (1.0f - quality);
+                    //     p = std::max(p, 0.001f);
+                    // }
+                    float sigmaMax = 0.5;
+                    float sigmaMin = 0.05;
+                    adaptiveSigma = sigmaMax * (1.0f - quality) + sigmaMin * quality;
+                }
+
+                std::bernoulli_distribution distributionBernoulli(p);
+                if(distributionBernoulli(*generator)){
                     float mu = boundaries[i];
-                    float lowerGap = boundaries[i] - boundaries[i-1];
-                    float upperGap = boundaries[i+1] - boundaries[i];
-                    float adaptiveSigma = sigma * std::min(lowerGap, upperGap);
+
+                    if(type != "JE"){
+                        float lowerGap = boundaries[i] - boundaries[i-1];
+                        float upperGap = boundaries[i+1] - boundaries[i];
+                        adaptiveSigma = sigma * std::min(lowerGap, upperGap);
+                    }
                     std::normal_distribution<float> distributionNormal(mu, adaptiveSigma);
                     float newBoundary = distributionNormal(*generator);
-                    if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){ // preventing overlapping boundaries
-                        boundaries[i] = newBoundary; 
+                    if(newBoundary > boundaries[i-1] && newBoundary < boundaries[i+1]){
+                        boundaries[i] = newBoundary;
+                        changed = true;
                         if(type == "JE")
                             edgeExperience[i-1] = EdgeExperience{};
                         if(type == "JE")
@@ -476,9 +690,9 @@ class Node {
                     }
                 }
             }
+            return changed;
         }
-
-        // ─── Experience-Weighted Judgment Node (EWJN): Methods ────────────────
+                // ─── Experience-Weighted Judgment Node (EWJN): Methods ────────────────
 
         /**
          * @brief Initialises edgeExperience to match the current edges vector.
@@ -503,14 +717,13 @@ class Node {
          * @param obsF     Value of obs[node.f] at the time this edge was chosen
          */
 
-        void updateEdgeExperience(int edgeIdx, float G, float obsF, int remainingSteps) {
+        void updateEdgeExperience(int edgeIdx, float G, float obsF,
+                          float G_min = -500.0f, float G_max = 250.0f) {
             EdgeExperience& e = edgeExperience[edgeIdx];
 
-            // G normieren: relativ zu maximal möglichem Return ab Zeitpunkt t
-            float maxG       = (gamma < 1.0f)
-                               ? (1.0f - std::pow(gamma, remainingSteps)) / (1.0f - gamma)
-                               : static_cast<float>(remainingSteps);  // γ=1 → kein Discount
-            float G_norm     = (maxG > 0.0f) ? G / maxG : 0.0f;
+            // Min-Max Normierung: G_norm ∈ [0,1]
+            // 0 = schlimmstmöglich (worstFitness), 1 = bestmöglich
+            float G_norm = std::clamp((G - G_min) / (G_max - G_min), 0.0f, 1.0f);
 
             e.n++;
 
@@ -519,11 +732,40 @@ class Node {
             e.meanObs  += d1 / e.n;
             e.m2Obs    += d1 * (obsF - e.meanObs);
 
-            // Welford für G_norm statt G
+            // Welford für G_norm
             float d2 = G_norm - e.meanReturn;
             e.meanReturn += d2 / e.n;
             e.m2Return   += d2 * (G_norm - e.meanReturn);
         }
+
+        // void updateEdgeExperience(int edgeIdx, float G, float obsF, int remainingSteps) {
+        //     EdgeExperience& e = edgeExperience[edgeIdx];
+        //
+        //     //G normieren: relativ zu maximal möglichem Return ab Zeitpunkt t
+        //     float maxG       = (gamma < 1.0f)
+        //                        ? (1.0f - std::pow(gamma, remainingSteps)) / (1.0f - gamma)
+        //                        : static_cast<float>(remainingSteps);  // γ=1 → kein Discount
+        //
+        //     float G_norm     = (maxG > 0.0f) ? G / maxG : 0.0f;
+        //
+        //     // const float MAX_RETURN = 250.0f;
+        //     // float G_norm = std::clamp(G / MAX_RETURN, 0.0f, 1.0f);
+        //
+        //     e.n++;
+        //
+        //     // Welford für obsF
+        //     float d1 = obsF - e.meanObs;
+        //     e.meanObs  += d1 / e.n;
+        //     e.m2Obs    += d1 * (obsF - e.meanObs);
+        //
+        //     // Welford für G_norm statt G
+        //     float d2 = G_norm - e.meanReturn;
+        //     //float lr = 0.02f; // Lernrate
+        //     //e.meanReturn = (1.0f - lr) * e.meanReturn + lr * G;
+        //     e.meanReturn += d2 / e.n;
+        //     e.m2Return   += d2 * (G_norm - e.meanReturn);
+        // }
+        //
 
         /**
          * @brief Experience-weighted edge selection (Option C: similarity on obs[f] only).
@@ -547,7 +789,7 @@ class Node {
             int reactiveEdge = judge(obsF);
 
             // Mindestens N_MIN Besuche bevor Erfahrung zählt
-            const int N_MIN = 10000; //       / static_cast<int>(edges.size());  
+            const int N_MIN = 1; //       / static_cast<int>(edges.size());  
             bool anyExp = false;
             for (const auto& e : edgeExperience)
                 if (e.n >= N_MIN) { anyExp = true; break; }
@@ -599,7 +841,7 @@ class Node {
          * @brief Mutates the discount factor gamma uniformly in [0, 1].
          * @param probability Probability that gamma is resampled.
          */
-        void gammaMutation(float probability) {
+        bool gammaMutation(float probability) {
             std::bernoulli_distribution dist(probability);
             if (dist(*generator)) {
                 std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
@@ -607,19 +849,23 @@ class Node {
                 if (type == "JE") {
                     edgeExperience.assign(edges.size(), EdgeExperience{});
                 }
+                return true;
             }
+            return false;
         }
 
         /**
          * @brief Mutates the mixing weight alpha uniformly in [0, 1].
          * @param probability Probability that alpha is resampled.
          */
-        void alphaMutation(float probability) {
+        bool alphaMutation(float probability) {
             std::bernoulli_distribution dist(probability);
             if (dist(*generator)) {
                 std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
                 alpha = uniform(*generator);
+                return true;
             }
+            return false;
         }
         /** @} */
 
