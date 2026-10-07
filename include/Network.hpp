@@ -73,29 +73,25 @@ class Network {
         float lastFitness = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
         float lastFitnessII = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
 
-        // --- EMA-Fitness über Generationen hinweg (verhindert "Vergessen" alter Seed-Auswertungen) ---
-        float alpha = 0.15f; /**< EMA-Glättungsfaktor: Gewicht der aktuellen Generation gegenüber der bisherigen Historie.
-                                  Wird spaeter individuell (z.B. aehnlichkeitsbasiert bei Mutation/Crossover) angepasst. */
-        float emaFitness = std::numeric_limits<float>::lowest(); /**< Laufender EMA-Fitnesswert ueber alle je berechneten Generationen dieses Individuums. */
-        bool emaInitialized = false; /**< Flag: true sobald emaFitness mindestens einmal gesetzt wurde (verhindert Vermischung mit dem lowest()-Initialwert). */
+        // --- EMA fitness across generations (keeps old seed evaluations from being forgotten) ---
+        float alpha = 0.15f; /**< EMA smoothing factor: weight of the current generation against the history.
+                                  Meant to be adapted per individual (e.g. similarity-based on mutation/crossover). */
+        float emaFitness = std::numeric_limits<float>::lowest(); /**< Running EMA fitness over all generations this individual was evaluated in. */
+        bool emaInitialized = false; /**< true once emaFitness has been set (keeps the lowest() initial value out of the average). */
 
-        // --- Lineage-Fitness: inkrementeller Online-Mittelwert ueber ALLE jemals
-        //     gesehenen Seeds dieser Linie (nicht nur die aktuelle Generation),
-        //     vererbbar bei Crossover/Mutation (siehe blendLineageWith()). Feature
-        //     ist rein additiv/optional: wird automatisch mitgefuehrt, beeinflusst
-        //     aber standardmaessig KEINE bestehende Selektion (fitness/fitnessValues
-        //     bleiben unveraendert) -- kann bei Bedarf zusaetzlich zur Sortierung
-        //     herangezogen werden, ohne dass etwas anderes angepasst werden muss. ---
+        // --- Lineage fitness: running statistics over ALL seeds this lineage has seen ---
         static constexpr size_t N_OBJECTIVES = 5; /**< Size of lastEpisodeObjectives / lexicaseObjectives. */
-        static constexpr float LANDING_SUCCESS_THRESHOLD = 100.0f; /**< Schwelle für "erfolgreich gelandet" (Gymnasium vergibt +100 Terminalbonus bei sicherer Landung, -100 bei Crash). */
-        float lineageMean = 0.0f; /**< Inkrementeller (Welford) laufender Mittelwert der Rohreward-Fitness ueber ALLE je von dieser Linie gesehenen Seeds. */
-        int lineageN = 0; /**< Anzahl der Beobachtungen, die in lineageMean eingeflossen sind. */
-        float lineageM2 = 0.0f; /**< Welford-M2-Akkumulator (Summe quadrierter Abweichungen vom laufenden
-                                      Mittelwert) fuer lineageMean -- Grundlage fuer die Varianz-/Unsicherheits-
-                                      abschaetzung (lineageVariance()/lineageLCB()), analog zum bereits
-                                      existierenden EdgeExperience::m2Return-Pattern in Node.hpp. */
-        float lineageSuccessRate = 0.0f; /**< Inkrementelle laufende Landungserfolgsrate (Anteil Seeds mit fitness > LANDING_SUCCESS_THRESHOLD) ueber ALLE je gesehenen Seeds dieser Linie. */
-        int lineageSuccessN = 0; /**< Anzahl der Beobachtungen, die in lineageSuccessRate eingeflossen sind. */
+        static constexpr float LANDING_SUCCESS_THRESHOLD = 100.0f; /**< Threshold for a successful landing (Gymnasium gives +100 for a safe landing, -100 for a crash). */
+        float lineageMean = 0.0f; /**< Incremental (Welford) running mean of the raw-reward fitness over ALL seeds this
+                                       lineage has seen, not just the current generation. Inherited on crossover/mutation
+                                       (see blendLineageWith()). Purely additive: by default it changes no selection
+                                       (fitness/fitnessValues stay as they are), but can be used for sorting. */
+        int lineageN = 0; /**< Number of observations in lineageMean. */
+        float lineageM2 = 0.0f; /**< Welford M2 accumulator (sum of squared deviations from the running mean) for
+                                      lineageMean -- basis of lineageVariance()/lineageLCB(), same pattern as
+                                      EdgeExperience::m2Return in Node.hpp. */
+        float lineageSuccessRate = 0.0f; /**< Running landing success rate (share of seeds with fitness > LANDING_SUCCESS_THRESHOLD) over ALL seeds this lineage has seen. */
+        int lineageSuccessN = 0; /**< Number of observations in lineageSuccessRate. */
 
         bool invalid = false; /**< Flag to indicate invalid individuals (e.g., exceeding judgment limits) */
         int currentNodeID; /**< ID of the currently active node during network traversal */
@@ -104,37 +100,24 @@ class Network {
         int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
         std::vector<float> fitnessValues = {}; /** placeholder for storing multiple fitness values */
-        // ─── Per-seed traversal record (Population::gymnasiumMultiSeed(), Population::crossover(type="seedSpecialist")) ───
-        // Entry s holds the sorted list of innerNodes-indices actually traversed (used) while
-        // evaluating seeds[s] specifically -- unlike Node::used/traverseCounter, which accumulate
-        // ACROSS all seeds of a generation (by design, e.g. for callAddDelNodes()), this vector
-        // isolates the active sub-graph of EACH individual seed. Populated unconditionally by
-        // gymnasiumMultiSeed() via a traverseCounter before/after diff, so it never interferes with
-        // the existing cumulative used/traverseCounter semantics.
+        /** Per-seed traversal record: entry s holds the sorted innerNodes indices traversed while
+         *  evaluating seeds[s]. Unlike Node::used/traverseCounter, which accumulate ACROSS all seeds
+         *  of a generation (e.g. for callAddDelNodes()), this isolates each seed's active sub-graph.
+         *  Filled by Population::gymnasiumMultiSeed() from a traverseCounter before/after diff, so the
+         *  cumulative counters are untouched. Used by Population::crossover(type="seedSpecialist"). */
         std::vector<std::vector<int>> visitedNodesPerSeed = {};
         int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
         size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
-        // Per-Generation-Flag: wird von jeder Mutations-/Crossover-Operation, die diese
-        // Linie TATSAECHLICH veraendert (nicht nur "probability check bestanden, aber
-        // 0 Aenderungen ausgefuehrt"), auf true gesetzt. capLineageAfterMutation() liest
-        // dieses Flag, um die lineageMean/lineageSuccessRate-Historie NUR bei Linien zu
-        // deckeln, die diese Generation wirklich mutiert/gekreuzt wurden -- unveraenderte
-        // Individuen sollen ihre akkumulierte Historie behalten. Wird nach dem Lesen in
-        // capLineageAfterMutation() wieder auf false zurueckgesetzt.
+        /** Per-generation flag, set by every mutation/crossover that ACTUALLY changed this lineage
+         *  (not one that passed the probability check but changed nothing). capLineageAfterMutation()
+         *  reads it to cap the lineageMean/lineageSuccessRate history only of lineages changed this
+         *  generation -- unchanged individuals keep theirs -- and then resets it to false. */
         bool structureChangedThisGen = false;
         std::vector<float> objectives = {}; 
         std::vector<float> lastStepRewards = {};
         std::vector<float> lastStepRewardsII = {};
 
-        // --- Epsilon-Lexicase-Selektion: 5-dimensionaler Ziel-Vektor pro Episode -----
-        // (siehe Population::lexicaseSelection()). Zerlegt das Problem in isolierte,
-        // voneinander unabhaengige Ziele, damit ein dominanter Treibstoff-Abzug nicht
-        // laenger das fragile Balance-Signal ausloescht -- jedes Ziel wird von der
-        // Selektion separat bewertet statt zu einem einzigen Skalar vermischt.
-        // Reihenfolge: [0]=Haltungskontrolle (Balance), [1]=Sinkflug-Sicherheit
-        // (Aufprallgeschwindigkeit), [2]=Horizontale Praezision (Pad-Treffer),
-        // [3]=Treibstoff-Effizienz, [4]=Gym-Standard-Reward (holistisch). Fuer alle
-        // 5 Ziele gilt: hoeher = besser (siehe fitGymnasium()).
+        // --- Epsilon-lexicase objectives (see Population::lexicaseSelection()) ---
         /** Objective vector of the last finished episode, filled by fitGymnasium().
          *
          *  Five criteria, EVERY ONE of which is maximised by landing on the pad:
@@ -180,7 +163,7 @@ class Network {
 
         bool frozenExperience = false;
 
-        // ─── Experience Episode Logging (für JE-Nodes) ────────────────────────
+        // ─── Experience Episode Logging (JE nodes) ────────────────────────────
 
         /**
          * @brief Records one JE-node activation within a single env step.
@@ -262,11 +245,6 @@ class Network {
                             jNodeType,
                             randomInt
                             ));
-                // Alle Individuen starten mit derselben Topologie (jn Judgment-, dann pn
-                // Processing-Knoten), also bekommt Knoten i in JEDEM Individuum dieselbe
-                // innovationID -- genau wie in NEAT, wo die Startpopulation eine gemeinsame
-                // Struktur und damit gemeinsame historische Marker teilt. Nur so sind die
-                // Startnetze ueberhaupt aneinander ausrichtbar.
 
                 if(_nFeatureValues.size()>0){
                      nOutgoingEdges = _nFeatureValues[randomInt];
@@ -288,9 +266,6 @@ class Network {
                 innerNodes.push_back(Node(generator, i, "P", randomInt));
                 innerNodes.back().setEdges("P", jn+pn);
             }
-            // Start tracking transitions right away so that findTransitionClusters()
-            // addDelNodes()/addOverhangNodes()/deleteOverhangNodes() keep this matrix
-            // in sync as innerNodes grows/shrinks afterwards.
         }
         /** @} */
 
@@ -314,19 +289,6 @@ class Network {
         }
         
         /**
-         * @brief Counts the number of nodes that have been marked as used and stores the result.
-         * 
-         * @details
-         * This method iterates through all inner nodes (judgment and processing nodes) and counts how many 
-         * have their 'used' flag set to true. The result is stored in the member 
-         * variable nUsedNodes. This information is crucial for:
-         * - Determining network efficiency (ratio of used to total nodes)
-         * - Making decisions about node addition/deletion during evolution (addDelNodes())
-         * 
-         * @note This function should be called after a network traversal to get 
-         *       accurate usage statistics.
-         */
-        /**
          * @brief Advances the per-node grace-period counters by one generation.
          *
          * @details
@@ -349,6 +311,19 @@ class Network {
             }
         }
 
+        /**
+         * @brief Counts the number of nodes that have been marked as used and stores the result.
+         *
+         * @details
+         * This method iterates through all inner nodes (judgment and processing nodes) and counts how many
+         * have their 'used' flag set to true. The result is stored in the member
+         * variable nUsedNodes. This information is crucial for:
+         * - Determining network efficiency (ratio of used to total nodes)
+         * - Making decisions about node addition/deletion during evolution (addDelNodes())
+         *
+         * @note This function should be called after a network traversal to get
+         *       accurate usage statistics.
+         */
         void countUsedNodes(){
             nUsedNodes = 0;
             for(const auto& node : innerNodes){
@@ -443,8 +418,8 @@ class Network {
                 currentNodeID = innerNodes[currentNodeID].edges[0];
                 innerNodes[currentNodeID].used = true;
                 traverseCounter++;
-                innerNodes[currentNodeID].traverseCounter += 1;      // wie OFT der Knoten betreten wurde
-                innerNodes[currentNodeID].lastVisitStep = traverseCounter; // WANN zuletzt (Reihenfolge)
+                innerNodes[currentNodeID].traverseCounter += 1;      // how OFTEN the node was entered
+                innerNodes[currentNodeID].lastVisitStep = traverseCounter; // WHEN last entered (ordering)
                 nConsecutiveP++;
 
             } else if (innerNodes[currentNodeID].type == "J"
@@ -500,31 +475,15 @@ class Network {
         }
 
         /**
-         * @brief Initializes the network state for a new path traversal. 
-         * 
-         * @details
-         * Prepares the network for sequential decision-making by:
-         * 1. Clearing all node usage flags
-         * 2. Resetting traverse counters for all nodes and the network
-         * 3. Setting the current node to the start node's target
-         * 4. Resetting fitness, validity, and consecutive processing node counters
-         * 
-         * After calling this method, the network is ready to receive observations
-         * via decisionAndNextNode() one step at a time.
+         * @brief Updates the lineage fitness statistics (incremental Welford mean) with a new
+         *        seed observation of this lineage.
          *
-         * @param startingFitness Optional initial fitness value to set before traversal (default is 0)
-         */
-        /**
-         * @brief Aktualisiert die Lineage-Fitness-Statistik (inkrementeller Online-Mittelwert
-         *        nach Welford) mit einer neuen Seed-Beobachtung dieser Linie.
+         * @details Weights every observation equally (unlike EMA, which favours recent ones), so the
+         * result is a true mean over ALL seeds this lineage has ever seen, however long ago.
+         * Purely additive: by default it changes no selection.
          *
-         * @details Gibt jeder Beobachtung gleiches Gewicht (im Gegensatz zu EMA, das jüngere
-         * Beobachtungen stärker gewichtet). Dadurch entsteht ein echter Mittelwert über ALLE
-         * jemals von dieser Linie gesehenen Seeds, unabhängig davon, wie lange sie zurückliegen.
-         * Rein additiv: beeinflusst standardmäßig keine bestehende Selektion.
-         *
-         * @param rawFitness Rohreward-Fitness der aktuellen Seed-Episode.
-         * @param landed true, falls diese Episode erfolgreich gelandet ist (rawFitness > LANDING_SUCCESS_THRESHOLD).
+         * @param rawFitness Raw-reward fitness of the current seed episode.
+         * @param landed true if this episode landed successfully (rawFitness > LANDING_SUCCESS_THRESHOLD).
          */
         void updateLineageStats(float rawFitness, bool landed) {
             lineageN++;
@@ -539,11 +498,11 @@ class Network {
         }
 
         /**
-         * @brief Liefert die (unverzerrte) Stichproben-Varianz von lineageMean, basierend auf
-         *        dem Welford-M2-Akkumulator lineageM2.
+         * @brief Returns the unbiased sample variance behind lineageMean, from the Welford
+         *        accumulator lineageM2.
          *
-         * @return 0.0f falls lineageN <= 1 (Varianz nicht definierbar), sonst lineageM2/(lineageN-1).
-         *         Wird mit max(..., 0.0f) gegen negative Rundungsfehler abgesichert.
+         * @return 0.0f if lineageN <= 1 (variance undefined), else lineageM2/(lineageN-1),
+         *         clamped at 0 against negative rounding errors.
          */
         float lineageVariance() const {
             if (lineageN <= 1) return 0.0f;
@@ -551,21 +510,18 @@ class Network {
         }
 
         /**
-         * @brief Liefert eine untere Konfidenzgrenze (Lower Confidence Bound, LCB) fuer
-         *        lineageMean: lineageMean - z * Standardfehler, mit Standardfehler =
-         *        sqrt(lineageVariance() / lineageN).
+         * @brief Returns a lower confidence bound (LCB) for lineageMean:
+         *        lineageMean - z * standard error, with standard error = sqrt(lineageVariance() / lineageN).
          *
-         * @details Bestraft Linien mit wenigen Beobachtungen (kleines lineageN, hohe
-         * Varianz der Schaetzung) automatisch mit einem groesseren Abschlag -- verhindert,
-         * dass frisch ueber eine Schwelle (z.B. minLineageN) gekommene "Gluecks-Neulinge"
-         * durch reines Stichprobenrauschen einen etablierten, praeziser geschaetzten
-         * Champion bei der Elite-/Turnierauswahl verdraengen (Winner's-Curse-Problem).
+         * @details Lineages with few observations (small lineageN, uncertain estimate) get a larger
+         * discount. This keeps "lucky newcomers" that just crossed a threshold (e.g. minLineageN) from
+         * displacing an established, more precisely estimated champion in elite/tournament selection
+         * through sampling noise alone (winner's curse).
          *
-         * @param z Konfidenz-Multiplikator (z.B. 1.0 ≈ 84%, 1.645 ≈ 95%, 2.0 ≈ 97.7%
-         *          einseitiges Konfidenzniveau bei Normalverteilungsannahme). Groesseres
-         *          z = konservativerer (staerker abgestrafter) Schaetzwert.
-         * @return lineageMean fuer lineageN <= 1 (Standardfehler nicht definierbar),
-         *         sonst lineageMean - z * sqrt(lineageVariance()/lineageN).
+         * @param z Confidence multiplier (e.g. 1.0 ≈ 84%, 1.645 ≈ 95%, 2.0 ≈ 97.7% one-sided under a
+         *          normal assumption). Larger z = more conservative estimate.
+         * @return lineageMean if lineageN <= 1 (standard error undefined),
+         *         else lineageMean - z * sqrt(lineageVariance()/lineageN).
          */
         float lineageLCB(float z) const {
             if (lineageN <= 1) return lineageMean;
@@ -574,33 +530,30 @@ class Network {
         }
 
         /**
-         * @brief Vermischt die Lineage-Fitness-Statistik von "other" in diese Instanz hinein
-         *        (verwendet bei Crossover, wenn genetisches Material von "other" übernommen wird).
+         * @brief Blends the lineage statistics of "other" into this instance (used on crossover,
+         *        when genetic material is taken from "other").
          *
-         * @details Bildet einen beobachtungsgewichteten gepoolten Mittelwert aus den beiden
-         * laufenden Mittelwerten (this und other). Um zu verhindern, dass eine sehr alte,
-         * hochgezählte Linie neue Evidenz erdrückt, wird die effektive Beobachtungszahl beider
-         * Seiten vor der Poolbildung auf priorCap gedeckelt. Nach dem Aufruf enthält "this"
-         * die vermischte Statistik; "other" bleibt unverändert (einseitige Operation - bei
-         * beidseitigem Genfluss muss die Methode für beide Individuen aufgerufen werden).
+         * @details Forms an observation-weighted pooled mean of the two running means. So that a very
+         * old lineage with a large count cannot drown new evidence, each side's effective count is
+         * capped at priorCap before pooling. M2 is first rescaled to the capped count: the current
+         * variance estimate is taken as the true spread and M2 = variance * (n_capped - 1) is rebuilt
+         * from it, which keeps the variance consistent with lineageN/lineageMean. Afterwards "this"
+         * holds the blended statistics; "other" is unchanged (one-sided -- for gene flow in both
+         * directions, call it for both individuals).
          *
-         * @param other Das andere am Crossover beteiligte Individuum, dessen Statistik eingemischt wird.
-         * @param priorCap Obergrenze für die bei der Poolbildung berücksichtigte Beobachtungszahl jeder Seite.
+         * @param other The other crossover parent whose statistics are blended in.
+         * @param priorCap Upper bound on each side's observation count used for pooling.
          */
         void blendLineageWith(const Network& other, int priorCap) {
             int nThis = std::min(lineageN, priorCap);
             int nOther = std::min(other.lineageN, priorCap);
             int nTotal = nThis + nOther;
             if (nTotal > 0) {
-                // M2 wird vor dem Poolen auf die gedeckelte Beobachtungszahl umskaliert:
-                // wir nehmen die aktuelle (unkorrigierte) Varianzschaetzung als "wahre"
-                // Streuung an und rekonstruieren daraus ein M2, das zur gedeckelten
-                // Stichprobengroesse passt (M2 = Varianz * (n_capped - 1)). So bleibt die
-                // Varianzschaetzung bei einer Deckelung konsistent mit lineageN/lineageMean.
+                // Rescale M2 to the capped counts (see docstring)
                 float m2ThisCapped = (nThis > 1) ? lineageVariance() * static_cast<float>(nThis - 1) : 0.0f;
                 float m2OtherCapped = (nOther > 1) ? other.lineageVariance() * static_cast<float>(nOther - 1) : 0.0f;
 
-                float delta = other.lineageMean - lineageMean; // vor dem Ueberschreiben von lineageMean berechnen
+                float delta = other.lineageMean - lineageMean; // before lineageMean is overwritten
                 lineageM2 = m2ThisCapped + m2OtherCapped +
                             delta * delta * static_cast<float>(nThis) * static_cast<float>(nOther) / static_cast<float>(nTotal);
 
@@ -618,19 +571,16 @@ class Network {
         }
 
         /**
-         * @brief Deckelt die Lineage-Beobachtungszahl auf priorCap (analog zum Crossover-
-         *        Cap), damit auch reine Mutations-Linien ihre alte Historie "vergessen"
-         *        koennen und neue Beobachtungen nach einer genetischen Veraenderung schneller
-         *        ins Gewicht fallen. Rein monoton (min), daher gefahrlos mehrfach pro
-         *        Generation aufrufbar (z.B. nach mehreren Mutationsoperatoren).
+         * @brief Caps the lineage observation count at priorCap (like the crossover cap), so that
+         *        pure mutation lineages can also "forget" old history and new observations after a
+         *        genetic change weigh in faster. Monotone (min), so it is safe to call several
+         *        times per generation (e.g. after several mutation operators).
          *
-         * @param priorCap Obergrenze fuer lineageN/lineageSuccessN nach dieser Operation.
+         * @param priorCap Upper bound for lineageN/lineageSuccessN after this call.
          */
         void capLineageStats(int priorCap) {
             if (lineageN > priorCap) {
-                // lineageM2 konsistent mit der neuen, kleineren Stichprobengroesse
-                // umskalieren (siehe blendLineageWith() fuer dieselbe Logik): die
-                // Varianzschaetzung bleibt erhalten, nur die "Konfidenz" (n) sinkt.
+                // Rescale M2 to the smaller n: variance is kept, only confidence (n) drops
                 float variance = lineageVariance();
                 int cappedN = priorCap;
                 lineageM2 = (cappedN > 1) ? variance * static_cast<float>(cappedN - 1) : 0.0f;
@@ -639,6 +589,21 @@ class Network {
             lineageSuccessN = std::min(lineageSuccessN, priorCap);
         }
 
+        /**
+         * @brief Initializes the network state for a new path traversal.
+         *
+         * @details
+         * Prepares the network for sequential decision-making by:
+         * 1. Clearing all node usage flags
+         * 2. Resetting traverse counters for all nodes and the network
+         * 3. Setting the current node to the start node's target
+         * 4. Resetting fitness, validity, and consecutive processing node counters
+         *
+         * After calling this method, the network is ready to receive observations
+         * via decisionAndNextNode() one step at a time.
+         *
+         * @param startingFitness Optional initial fitness value to set before traversal (default is 0)
+         */
         void initPathTraversal(double startingFitness = 0){
             clearUsedNodes();
             for(auto& node : innerNodes){
@@ -656,7 +621,7 @@ class Network {
             invalid = false;
         }
 
-                /**
+        /**
          * @brief Backward return pass: updates EdgeExperience for all JE nodes after an episode.
          *
          * @details
@@ -685,7 +650,7 @@ class Network {
                 return;
             }
 
-            const int T = static_cast<int>(episodeLog.size());  // ← Gesamtlänge
+            const int T = static_cast<int>(episodeLog.size());  // episode length
             std::vector<float> G(innerNodes.size(), 0.0f);
 
             for (int t = T - 1; t >= 0; t--) {
@@ -695,7 +660,7 @@ class Network {
                     G[id] = r + innerNodes[id].gamma * G[id];
                 }
 
-                const int remainingSteps = T - t;  // ← Steps ab t bis Episodenende
+                const int remainingSteps = T - t;  // steps from t to episode end
 
                 for (const auto& visit : episodeLog[t].jeVisits) {
                     innerNodes[visit.nodeID].updateEdgeExperience(
@@ -761,7 +726,7 @@ class Network {
             float correct = 0;
 
             for(int i=0; i<y.size(); i++){
-                int  dSum = 0; // to prevent dead-looks 
+                int  dSum = 0; // to prevent dead loops
                 dec = decisionAndNextNode(X[i], dMax);
                 if(invalid == true){
                     fitness = 0;
@@ -816,10 +781,10 @@ class Network {
          * @param maxConsecutiveP Maximum consecutive processing nodes allowed.
          *  Here we can control the number of possible actions after using the observation data again.  
          * @param worstFitness Fitness value assigned when network violates constraints
-         * @param seed Random seed for environment initialization 
-         * @param gamma discount factor of the rewards
+         * @param seed Random seed for environment initialization
          * @param newRun If true, resets network state for a new episode; if false, continues from current state (useful for multi-episode evaluation)
-         * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization)
+         * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization).
+         *        Also skips all curriculum changes to the start state, so validation always sees the real environment (see GymEnvWrapper::reset()).
          * @param updateExperience If true, updates the experience of JE nodes after the episode (calls updateExperienceFromEpisode())
          * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
          * @param absoluteImpulseCurriculum If true, curriculumLevel controls the ABSOLUTE strength of the
@@ -837,7 +802,10 @@ class Network {
          *        of Gymnasium's raw reward: r' = r + gamma*phi(s') - phi(s) with gamma = 1 and phi(terminal) = 0,
          *        where phi = -(|angle| + |angularVelocity| + |vy|). Because the shaping telescopes to -phi(s_0),
          *        the episode return shifts by a constant that depends on the seed only -- the ranking of
-         *        individuals on any given seed is provably unchanged. If both survivalMode and potential are
+         *        individuals on any given seed is provably unchanged (Ng, Harada & Russell 1999; see
+         *        tests/test_potential_shaping.py). Truncation at maxSteps is treated as terminal on purpose:
+         *        leaving phi(s_last) in the sum would make the offset depend on where the individual stopped
+         *        and break that guarantee. If both survivalMode and potential are
          *        false (default), the raw, unmodified Gymnasium reward is used ("standard" mode).
          * 
          * @note SURVIVAL MODE: this function intentionally ignores Gymnasium's built-in reward
@@ -849,6 +817,11 @@ class Network {
          *       the network is only rewarded for staying alive/airborne inside the frame as long as
          *       possible (up to maxSteps), with no notion of "reaching the pad" at all. This is a
          *       deliberate ablation to test whether the GNP can learn pure hover/balance control.
+         *       Survival mode also ends the episode on leg contact and when the lander leaves the
+         *       frame upward (obs[1] > 2.0, roughly the top edge; the lander starts at about 1.4).
+         *       Gymnasium itself only terminates on |x| >= 1, crash or landing and keeps simulating
+         *       above the frame, so a policy could otherwise "survive" by thrusting out of view
+         *       (observed exploit).
          * 
          * @warning The network must produce valid actions for the specific Gymnasium environment
          */
@@ -870,12 +843,10 @@ class Network {
             bool potential = false
             ){
 
-            // Curriculum-Erzwingung wird bewusst NUR waehrend des Trainings angewendet;
-            // Validierungslaeufe (validation=true) nutzen immer die echte, ungedeckelte
-            // Umgebung (siehe GymEnvWrapper::reset()).
+            // Curriculum applies only in training; validation sees the real environment
             auto reset_out = env.reset(seed=seed, curriculumLevel, absoluteImpulseCurriculum, validation, uniformDirectionCurriculum, directionAngle);// Initial observation for the episode
             auto obs = reset_out[0].cast<std::vector<double>>();   
-            std::vector<double> prevObs = obs;  // vorheriger Step
+            std::vector<double> prevObs = obs;  // previous step
 
             if(newRun == true){
                 clearUsedNodes();
@@ -905,16 +876,11 @@ class Network {
             int decBefore = 0;
 
             int curriculumCutoff = maxSteps;
-            // Discount of the potential-based shaping below. MUST stay 1.0: the fitness is
-            // an UNDISCOUNTED sum over the episode, and only with gamma = 1 does the
-            // shaping telescope to a constant offset per seed (see the potential branch).
+            // MUST stay 1.0: fitness is an undiscounted sum, and only then does the
+            // shaping telescope to a constant offset per seed
             constexpr float shapingGamma = 1.0f;
             std::vector<float> rewards;
             rewards.reserve(maxSteps);
-
-            // survivalMode / potential are now function parameters (see docstring above),
-            // instead of hardcoded local flags -- lets callers select the reward mode
-            // per call while keeping gymnasium()/gymnasiumMultiSeed() consistent.
 
             float angle_init = static_cast<float>(obs[4]);
             float angular_vel_init = static_cast<float>(obs[5]);
@@ -960,9 +926,8 @@ class Network {
                 prevObs = obs;
                 obs = result[0].cast<std::vector<double>>(); 
 
-                // --- Epsilon-Lexicase objectives, accumulated in EVERY reward mode ----
-                // The landing flag is read off Gymnasium's raw reward (+100 on a safe
-                // landing), so it stays correct no matter which reward branch runs below.
+                // --- Epsilon-lexicase objectives, accumulated in EVERY reward mode; landing
+                // is read off Gymnasium's raw reward (+100), independent of the branch below
                 {
                     float rawStepReward = result[1].cast<float>();
                     objGymRewardSum += rawStepReward;
@@ -977,20 +942,9 @@ class Network {
                 // }
                 //
 
-                // Vertikaler Rahmen-Check: Gymnasium selbst terminiert nur bei
-                // horizontalem Verlassen des Frames (abs(x) >= 1.0) oder bei Crash/
-                // Landung -- die Box2D-Simulation laeuft aber UNBEGRENZT weiter, wenn
-                // der Lander nach OBEN aus dem sichtbaren Bild hinausfliegt. Ohne
-                // diesen Check kann eine Policy durch reinen Dauer-Hauptschub nach oben
-                // aus dem Bild fliegen und so kuenstlich "ueberleben", ohne je zu landen
-                // oder abzustuerzen (beobachtetes Exploit-Verhalten). frameHeightCap
-                // entspricht (aus der obs-Skalierung in lunar_lander.py hergeleitet:
-                // obs[1] = (pos.y - helipad_y - LEG_DOWN/SCALE) / (VIEWPORT_H/SCALE/2))
-                // in etwa der Hoehe des oberen Bildschirmrands -- der Lander startet
-                // dort bereits bei ca. 1.4. Ueberschreiten bedeutet: der Lander hat den
-                // sichtbaren Rahmen nach oben verlassen.
                 if (survivalMode) {
 
+                    // ~ top edge of the frame; blocks the fly-out-of-view exploit (see docstring)
                     constexpr float frameHeightCap = 2.0f;
                     bool outOfFrameTop = static_cast<float>(obs[1]) > frameHeightCap;
 
@@ -1010,17 +964,8 @@ class Network {
 
                 } else if (potential){
 
-                    // Potential-based reward shaping in its exact form (Ng, Harada &
-                    // Russell 1999): r'(s,s') = r(s,s') + gamma*Phi(s') - Phi(s), with
-                    // Phi(terminal) = 0. At gamma = 1 the shaping telescopes over the
-                    // episode to -Phi(s_0) -- a constant that depends on the seed only, not
-                    // on the individual. The episode return therefore keeps every ranking
-                    // intact; the shaping cannot bias selection (see
-                    // tests/test_potential_shaping.py).
-                    //
-                    // Truncation at maxSteps is treated as terminal on purpose. Leaving
-                    // Phi(s_last) in the sum would make the offset depend on where the
-                    // individual happened to stop and would break exactly that guarantee.
+                    // Exact PBRS (Ng et al. 1999); truncation counts as terminal so the
+                    // offset stays seed-only (see docstring, tests/test_potential_shaping.py)
                     float gymReward = result[1].cast<float>();
 
                     bool episodeEnds = result[2].cast<bool>() || result[3].cast<bool>()
@@ -1058,7 +1003,7 @@ class Network {
                     if ((leftContact || rightContact) && !hasLanded) {
                         float vx = static_cast<float>(obs[2]);
                         float vy = static_cast<float>(obs[3]);
-                        lastFitness = std::sqrt(vx * vx + vy * vy); // Betrag der Landegeschwindigkeit (nur Diagnose)
+                        lastFitness = std::sqrt(vx * vx + vy * vy); // landing speed (diagnostics only)
                         float x = static_cast<float>(obs[0]);
                         lastFitnessII = std::abs(x); 
                         hasLanded = true;
@@ -1086,16 +1031,12 @@ class Network {
                 lastFitnessII = std::abs(x); 
             }
 
-            // --- Epsilon-Lexicase objectives, see Network::lastEpisodeObjectives for why
-            // exactly these four. All are read off the final frame except the step count.
+            // --- Epsilon-lexicase objectives (see lastEpisodeObjectives); [1]-[3] from the final frame
             {
                 float vx_final = static_cast<float>(obs[2]);
                 float vy_final = static_cast<float>(obs[3]);
                 float x_final  = static_cast<float>(obs[0]);
-                // Penalties just beyond the worst value each quantity actually reaches
-                // (speeds stay below ~3, |x| below ~1.5 before the frame ends), so a
-                // failed episode ranks below every landing without blowing up the spread
-                // the epsilon tolerance is derived from.
+                // Just beyond the worst real values (speed < ~3, |x| < ~1.5)
                 constexpr float NO_LANDING_SPEED = -4.0f;
                 constexpr float NO_LANDING_POSITION = -2.0f;
                 lastEpisodeObjectives[0] = objGymRewardSum;
@@ -1129,14 +1070,14 @@ class Network {
               //  episodeLog.clear(); // Elite: Log immer leeren
             //else if (updateExperience)
               //  updateExperienceFromEpisode(); // Einzelaufruf: sofort updaten
-            updateExperienceFromEpisode(); // Einzelaufruf: sofort updaten
+            updateExperienceFromEpisode(); // single call: update right away
         }
                  
         /**
          * @brief Evaluates network fitness on the CartPole balancing problem.
          * 
          * @details
-         * This mthod implements a specialized fitness evaluation for the classic
+         * This method implements a specialized fitness evaluation for the classic
          * CartPole control problem (similar to OpenAI Gymnasium's CartPole-v1). The CartPole
          * task requires balancing a pole on a moving cart through discrete left/right actions.
          *
@@ -1361,9 +1302,16 @@ class Network {
          * 
          * @param minF Vector of minimum feature values for each feature dimension (used for judgment node boundary initialization)
          * @param maxF Vector of maximum feature values for each feature dimension (used for judgment node boundary initialization)
-         * @junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes.
-         * 
-         * @warning This method must be called bevore edgeMutation()! Reason: if edges are change 
+         * @param junk ratio of protected unused nodes (junk DNA). A value of 0.1 protects 10% of unused nodes.
+         * @param nFeatureValues Number of categories per feature (0 = numerical); fixes the edge count of a
+         * new judgment node (see the constructor).
+         * @param currentGeneration Current generation, compared with Node::generationReceived.
+         * @param crossoverProtection Generations during which nodes received by crossover are not deleted.
+         * @param nodeGracePeriod Nodes that were active before survive until unused for this many generations
+         * (see Node::unusedSince), so one generation's seed panel cannot delete a node the next panel needs.
+         * Nodes never traversed stay immediately deletable -- those are genuine junk. -1 disables the protection.
+         *
+         * @warning This method must be called before edgeMutation()! Reason: if edges are changed
          * by edgeMutation(), the node flag "used" is not guaranteed to be correct.
          *
          * @post All edges remain valid (no dangling edges)
@@ -1385,11 +1333,7 @@ class Network {
             bool resultAdd = distributionBernoulliAdd(*generator);
             countUsedNodes();
 
-            // ------------------------------------------------------------------
-            // Build meta-node candidate list for cluster-aware edge initialisation.
-            // Only built when cluster information is available.
-            // Candidates = {Entry(C_k) for each cluster k} + {unclustered node IDs}
-            // ------------------------------------------------------------------
+            // Empty candidate list: setEdges() draws from all nodes
             std::vector<int> metaCandidates;
 
             //     for (auto& node : innerNodes)
@@ -1416,25 +1360,20 @@ class Network {
                         std::uniform_int_distribution<int> distributionJNF(0, jnf-1);
                         int randomInt = distributionJNF(*generator);
                         int nOutgoingEdges;
-                        std::string jNodeType = useExperience ? "JE" : "J"; // NEU
+                        std::string jNodeType = useExperience ? "JE" : "J";
                         innerNodes.push_back(Node(
                                     generator,
                                     innerNodes.size(),
-                                    jNodeType,        // NEU: "J" oder "JE"
+                                    jNodeType,        // "J" or "JE"
                                     randomInt
                                     ));
-
-                        // Jede strukturelle Neuerung bekommt eine frische, global eindeutige
-                        // innovationID -- das historische Kennzeichen, an dem crossover(type=
-                        // "innovation") spaeter erkennt, welche Knoten zweier Individuen
-                        // einander entsprechen (siehe Node::innovationID).
 
                         if(nFeatureValues.size() > 0){
                              nOutgoingEdges = nFeatureValues[randomInt];
                         } else {nOutgoingEdges = 0;}
 
                         if (jNodeType == "JE") {
-                            // NEU: Initialize experience structures for JE node
+                            // Initialize experience structures for JE node
                             innerNodes.back().initEdgeExperience();
                         }
 
@@ -1461,10 +1400,7 @@ class Network {
                         innerNodes.size() - nUsedNodes - 1 > innerNodes.size() * junk && // left: current junk size (unused nodes); right: allowed junk size 
                         innerNodes[n].used == false &&
                         (innerNodes[n].generationReceived == -1 || currentGeneration - innerNodes[n].generationReceived >= crossoverProtection) &&
-                        // Keep nodes that were recently part of the active sub-graph: one
-                        // generation's seed panel must not kill a node the next panel needs.
-                        // Nodes never traversed have everUsed == false and stay immediately
-                        // deletable -- those are genuine junk.
+                        // Grace period for recently active nodes (see nodeGracePeriod)
                         !(innerNodes[n].everUsed && innerNodes[n].unusedSince < nodeGracePeriod)
                         )
                 {// deleting nodes
@@ -1490,14 +1426,12 @@ class Network {
                     }
 
                     
-                    // adapting start node edge; hint: no changeEdge() needed because a node connected 
-                    // by a startnode ist always used. 
+                    // Start node: no changeEdge() needed, its target is always used
                     if(startNode.edges[0] > n){
                         startNode.edges[0] -= 1;
                     }
 
-                    // Zaehler des geloeschten Typs mitfuehren, sonst driften jn/pn (und damit
-                    // pnRatio()) mit jeder Loeschung weiter von der Realitaet ab.
+                    // Keep jn/pn in sync, otherwise they drift with every deletion
                     if(innerNodes[n].type == "P"){
                         if(pn > 0) pn -= 1;
                     } else if(innerNodes[n].type == "J" || innerNodes[n].type == "JE"){
@@ -1506,13 +1440,7 @@ class Network {
 
                     innerNodes.erase(innerNodes.begin()+n);
 
-                    // Nach dem erase() ist der nachfolgende Knoten auf Position n gerueckt.
-                    // Ohne dieses n-- wuerde ihn das n++ der Schleife ueberspringen, sodass
-                    // pro Aufruf nur jeder ZWEITE loeschbare Knoten entfernt wird. Mit dem
-                    // Dekrement werden alle unbenutzten Knoten bis zur junk-Quote entfernt --
-                    // das block-wertige Anhaengen (seedSpecialist) bekommt damit eine
-                    // gleich schnelle Gegenkraft. Hinzugefuegt wird weiterhin nur EIN Knoten
-                    // pro Aufruf (break im Add-Zweig).
+                    // erase() moved the next node to n; without n-- the loop would skip it
                     n--;
                     changed = true;
                 }
@@ -1529,13 +1457,14 @@ class Network {
          * justUsedNodes parameter is set to true, only nodes that are currently marked as used (used == true) are included in the count. 
          * 
          * @param justUsedNodes If true, only counts edges from nodes that are currently used. If false, counts edges from all nodes regardless of usage status.
+         * @param skipFrozenNodes If true, nodes with frozen > 0 are not counted.
          * @return The total count of edges in the network, filtered by usage if specified.
          */
         int countEdges(bool justUsedNodes = false, bool skipFrozenNodes = false){
             int count = 0;
             for(const auto& node : innerNodes){
                 if((justUsedNodes && node.used == false) || (skipFrozenNodes && node.frozen > 0)){
-                    continue; // skip unused nodes if justUsedNodes is true
+                    continue; // skip unused / frozen nodes as requested
                 }
                 count += node.edges.size();
             }
@@ -1546,16 +1475,13 @@ class Network {
          * @brief Calculates the ratio of processing nodes to total nodes in the network.
          * 
          * @details
-         * This method iterates through all inner nodes and counts the number of processing nodes (pn) and judgment nodes (jn). 
-         * 
+         * This method iterates through all inner nodes and counts the number of processing nodes (pn) and judgment nodes (jn).
+         * The counts are recomputed on every call and overwrite pn and jn, so both always describe the current network.
+         *
          * @return The ratio of processing nodes to total nodes, calculated as pn / (pn + jn). If there are no nodes, returns 0 to avoid division by zero.
          */
         float pnRatio(){
-            // Neu zaehlen statt aufaddieren: zuvor wurden pn/jn bei JEDEM Aufruf um die
-            // aktuellen Knotenzahlen ERHOEHT (kein Reset), sodass beide Zaehler mit jeder
-            // Generation weiter anwuchsen und nicht mehr die Netzgroesse beschrieben --
-            // das Verhaeltnis war dadurch ein traeger kumulativer Mittelwert statt der
-            // aktuellen Zusammensetzung.
+            // Recount instead of accumulating, so pn/jn match the current network
             unsigned int nP = 0, nJ = 0;
             for(auto& node : innerNodes){
                 if(node.type == "P"){

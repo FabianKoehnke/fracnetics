@@ -77,16 +77,16 @@ class Population {
         float meanFitness = 0; /**< Mean fitness across all individuals in the population */
         float minFitness; /**< Minimum fitness value in the current population */
         int maxNetworkSize; 
-        std::vector<int> nFeatureValues; /** stores the number of feature values */
-        // Crossover diagnostics of the LAST crossover() call. Only type="semantic" fills
-        // them; all other types leave them at 0. They exist to tell "the operator had no
-        // effect" apart from "the operator never fired": if nodesSkipped dominates
-        // nodesExchanged, boundaryTolerance is too tight for a gene to travel with its
-        // whole neighbourhood (see the all-or-nothing rule in the semantic branch).
-        int crossoverPairsApplied = 0;   /**< Parent pairs that actually entered the exchange. */
+        std::vector<int> nFeatureValues; /**< stores the number of feature values */
+        // Diagnostics of the LAST crossover() call; only type="semantic" fills them
+        int crossoverPairsApplied = 0;   /**< Parent pairs that actually entered the exchange. Together with the
+                                              counters below it tells "no effect" apart from "never fired". */
         int crossoverNodesMatched = 0;   /**< Node pairs the role matching found, summed over all pairs. */
         int crossoverNodesExchanged = 0; /**< Nodes actually transferred donor -> recipient. */
-        int crossoverNodesSkipped = 0;   /**< Nodes drawn for exchange but skipped: an edge was untranslatable. */
+        int crossoverNodesSkipped = 0;   /**< Nodes drawn for exchange but skipped: an edge was untranslatable.
+                                              If this dominates crossoverNodesExchanged, boundaryTolerance is too
+                                              tight for a gene to travel with its whole neighbourhood (see the
+                                              all-or-nothing rule in the semantic branch). */
         int nextTransplantBlockID = 1; /**< Monotonically increasing counter used to tag each transplanted
                                              sub-graph produced by crossover(type="seedSpecialist") with a unique
                                              Node::transplantBlockID (0 is reserved / unused, -1 means "no block"). */
@@ -160,9 +160,6 @@ class Population {
                     nFeatureValues
                 ));
             }
-            // Die Startnetze belegen bereits die innovationIDs 0..jn+pn-1 (jedes Individuum
-            // dieselben, siehe Network-Konstruktor). Der Zaehler fuer strukturell NEUE Knoten
-            // muss deshalb dahinter beginnen.
         }
         /** @} */
 
@@ -321,7 +318,7 @@ class Population {
          * @param maxSteps Maximum episode length (prevents indefinite episodes)
          * @param maxConsecutiveP Maximum consecutive processing nodes allowed 
          * @param worstFitness Fitness value assigned when networks violate constraints
-         * @param seed Random seed for environment initialization (currently unused in implementation)
+         * @param seed Random seed for environment initialization
          * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization)
          * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
          * @param absoluteImpulseCurriculum See Network::fitGymnasium().
@@ -373,9 +370,7 @@ class Population {
                         survivalMode,
                         potential
                         );
-                // Konsistenz mit gymnasiumMultiSeed(): auch der Einzel-Seed-Pfad (Video-
-                // Rendering) befuellt lexicaseObjectives, hier ohne Mittelung ueber
-                // mehrere Seeds (nur 1 Episode).
+                // Same fields as gymnasiumMultiSeed(), from a single episode (no averaging)
                 network.lexicaseObjectives = network.lastEpisodeObjectives;
                 network.objectivesPerSeed.assign(1, network.lastEpisodeObjectives);
             }
@@ -434,34 +429,30 @@ class Population {
          * 
          * @param N Tournament size (number of individuals per tournament)
          * @param E Elite size (number of best individuals to preserve unchanged)
-         * @param useLineageFitness Wenn true, wird als Selektionskriterium bevorzugt
-         *        `lineageMean` (laufender Mittelwert ueber ALLE je gesehenen Seeds dieser
-         *        Linie) statt der rohen aktuellen Fitness verwendet -- macht die Selektion
-         *        robuster gegen Generalisierungs-Ausreisser (z.B. ein einzelner harter Crash-
-         *        Seed in der aktuellen Generation). Gilt NUR fuer Individuen mit
-         *        `lineageN >= minLineageN` (Bootstrap-Schutz); alle anderen (z.B. junge
-         *        Linien direkt nach Populationsinitialisierung) fallen automatisch auf die
-         *        rohe `fitness` zurueck, bis genug Beobachtungen vorliegen. Reporting-Groessen
-         *        (bestFit/meanFitness/minFitness) bleiben unabhaengig davon immer die rohe
-         *        Fitness des jeweiligen Turniersiegers (fuer konsistentes Logging/Plotting).
-         * @param minLineageN Minimale Anzahl an Lineage-Beobachtungen, ab der `lineageMean`
-         *        statt roher Fitness als Kriterium genutzt wird (nur relevant, wenn
-         *        `useLineageFitness == true`). Default 10.
-         * 
+         * @param useLineageFitness If true, the selection criterion is the lineage estimate
+         *        (`lineageMean` over ALL seeds this lineage has seen, see lineageZ) instead of
+         *        the raw current fitness -- makes selection robust against generalisation
+         *        outliers (e.g. a single hard crash seed in the current generation). Applies
+         *        ONLY to individuals with `lineageN >= minLineageN` (bootstrap protection); all
+         *        others (e.g. young lineages right after initialisation) fall back to the raw
+         *        `fitness` until enough observations exist. Reporting values
+         *        (bestFit/meanFitness/minFitness) always stay the raw fitness of the tournament
+         *        winner, for consistent logging/plotting.
+         * @param minLineageN Minimum number of lineage observations from which `lineageMean` is
+         *        used instead of the raw fitness (only relevant if `useLineageFitness == true`).
+         *        Default 10.
+         * @param lineageZ z of the lower confidence bound Network::lineageLCB() used as criterion.
+         *        The LCB penalises lineages with small lineageN/high uncertainty, so "lucky
+         *        newcomers" that just crossed minLineageN cannot displace established, more
+         *        precisely estimated lineages through sampling noise (winner's curse). 0.0
+         *        (default) reduces the LCB to the plain lineageMean (previous behaviour).
+         *
          * @note N ≥ 2 for meaningful selection pressure
          * @note Population size remains constant at ni
          * 
          */
         void tournamentSelection(int N, int E, bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
-            // Liefert das tatsaechliche Selektionskriterium fuer ein Individuum: entweder die
-            // rohe aktuelle Fitness (Standard) oder -- falls aktiviert und genug Beobachtungen
-            // vorliegen -- die untere Konfidenzgrenze (LCB) des Lineage-Mittelwerts. Die LCB
-            // bestraft Linien mit kleinem lineageN/hoher Unsicherheit automatisch (siehe
-            // Network::lineageLCB()) und verhindert so, dass frisch ueber minLineageN
-            // gekommene "Gluecks-Neulinge" durch reines Stichprobenrauschen etablierte,
-            // praeziser geschaetzte Linien bei der Selektion verdraengen (Winner's-Curse-Fix).
-            // lineageZ=0.0 (Default) reduziert lineageLCB() auf den reinen lineageMean
-            // (bisheriges Verhalten, abwaertskompatibel).
+            // Raw fitness, or the lineage LCB once enough observations exist (see docstring)
             auto selectionCriterion = [&](const Network& ind) -> float {
                 if(useLineageFitness && ind.lineageN >= minLineageN){
                     return ind.lineageLCB(lineageZ);
@@ -499,8 +490,7 @@ class Population {
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
-                // Reporting bleibt konsistent auf roher Fitness, unabhaengig vom
-                // verwendeten Selektionskriterium (siehe Doku oben).
+                // Reporting stays on raw fitness, whatever the criterion
                 float bestFitTournament = individuals[indexBestIndTournament].fitness;
                 meanFitness += bestFitTournament;
                 if (bestFitTournament < minFitness) {
@@ -570,8 +560,14 @@ class Population {
          * 0.5) instead of the MAD automatic. This makes the selection pressure independent of
          * the shape and the scale of the reward and removes the seed difficulty, while --
          * unlike a rank transform -- keeping the magnitudes that epsilon is meant to judge.
+         * Why not the raw MAD of "seeds": the reward is bimodal (landed ~+200, crashed ~-200),
+         * so a spread estimate mostly measures the distance between the two modes, not the
+         * resolution among near-equal candidates -- epsilon comes out far too large and the test
+         * case barely filters. Standardising is the established fix (La Cava et al.).
          * Standardising over the population rather than over the shrinking candidate pool is
-         * deliberate, so a fixed epsilon does not get more permissive along the filter chain.
+         * deliberate (the "semi-dynamic" variant), so a fixed epsilon does not get more
+         * permissive along the filter chain. Seeds on which all individuals are identical carry
+         * no information and filter nobody.
          *
          * **type = "seedsRank"**: same test cases as "seeds", but each filter cuts by RANK
          * instead of by reward value: the remaining candidates are sorted by their reward on
@@ -582,6 +578,10 @@ class Population {
          * ranks is ~n/4 whatever the data); a negative epsilon defaults to 3. Motivation: the
          * reward is bimodal, so a value-based MAD mostly measures the distance between
          * "landed" and "crashed" rather than the resolution among near-equal candidates.
+         * On ranks the sharpness is independent of the shape and scale of the reward, and the
+         * seed difficulty drops out: a hard and an easy seed give the same rank distribution.
+         * Without re-ranking, later test cases would let everyone through, since the survivors
+         * lie close together anyway.
          * WARNING: an absolute rank cut collapses the pool to epsilon+1 candidates in a
          * single step, after which every remaining test case filters nobody -- only the
          * first one or two seeds ever decide a parent. Prefer "seedsStandardized".
@@ -628,8 +628,7 @@ class Population {
                 throw std::invalid_argument("lexicaseSelection: unknown type \"" + type + "\" (expected \"objectives\", \"seeds\", \"seedsStandardized\", \"seedsRank\" or \"objectivesPerSeed\")");
             }
 
-            // Berechnet die MAD-basierte Toleranz (oder den festen epsilon-Wert) fuer eine
-            // Menge von Werten -- identisch fuer jedes Ziel/jeden Seed/jede Runde benoetigt.
+            // MAD-based tolerance (or the fixed epsilon) for one set of values
             auto computeThreshold = [&](const std::vector<float>& values) -> float {
                 if(epsilon >= 0.0f) return epsilon;
                 std::vector<float> sortedValues = values;
@@ -673,29 +672,10 @@ class Population {
             std::vector<int> seedOrder(nSeeds);
             std::iota(seedOrder.begin(), seedOrder.end(), 0);
 
-            // type=="seedsRank": epsilon is a number of RANK POSITIONS, not a reward margin.
-            // The MAD automatic is deliberately not available here -- the MAD of ranks is
-            // always about n/4 regardless of the data, so it would degenerate into "keep the
-            // upper half on every test case".
+            // type=="seedsRank": epsilon in RANK positions; no MAD automatic (MAD of ranks is ~n/4)
             const int rankTolerance = (epsilon < 0.0f) ? 3 : static_cast<int>(std::lround(epsilon));
 
-            // type=="seedsStandardized": the rewards of each seed are z-transformed over the
-            // WHOLE population once per generation -- (value - mean) / sd. epsilon is then a
-            // number of standard deviations and means the same thing on every seed and in
-            // every generation, no matter how the rewards happen to be distributed.
-            //
-            // Why not the raw MAD of "seeds": the reward is bimodal (landed ~+200 against
-            // crashed ~-200), and a spread estimate on such a distribution mostly measures
-            // the distance between the two modes, not the resolution among the near-equal
-            // candidates that selection actually has to separate -- epsilon comes out far too
-            // large and the test case barely filters. Standardising is the established fix
-            // (La Cava et al., epsilon-lexicase); unlike a rank transform it keeps the
-            // magnitudes, which is exactly what epsilon is meant to judge.
-            //
-            // Standardising over the population and not over the shrinking candidate pool is
-            // deliberate (the "semi-dynamic" variant): a pool-based sd shrinks along the
-            // filter chain, so a fixed epsilon would silently get more permissive with every
-            // step.
+            // type=="seedsStandardized": z-transform each seed over the WHOLE population (see docstring)
             std::vector<std::vector<float>> standardizedBySeed;
             if(type == "seedsStandardized"){
                 standardizedBySeed.assign(nSeeds, std::vector<float>(individuals.size(), 0.0f));
@@ -709,8 +689,7 @@ class Population {
                         sqSum += d * d;
                     }
                     double sd = std::sqrt(sqSum / static_cast<double>(individuals.size()));
-                    // Every individual identical on this seed: the test case carries no
-                    // information, leave it at 0 so it filters nobody.
+                    // All identical on this seed: leave 0 so it filters nobody
                     if(sd < 1e-9){
                         continue;
                     }
@@ -738,9 +717,8 @@ class Population {
                 std::iota(gridOrder.begin(), gridOrder.end(), 0);
             }
 
-            // One filtering step on one test case: keep everyone within the epsilon/MAD
-            // tolerance of the best value. The tolerance is computed per test case, so the
-            // very different scales of the five objectives need no normalisation.
+            // Keep everyone within the tolerance of the best value; computed per test
+            // case, so the different scales of the objectives need no normalisation
             auto filterOnTestCase = [&](std::vector<int>& candidates, auto&& valueOf){
                 float best = std::numeric_limits<float>::lowest();
                 std::vector<float> values;
@@ -777,9 +755,7 @@ class Population {
                         });
                     }
                 } else if(type == "objectivesPerSeed"){
-                    // Fresh, independent order over the whole (seed x objective) grid --
-                    // seeds and objectives are shuffled together, not nested, so no seed and
-                    // no objective is systematically decided before the others.
+                    // Shuffle the whole (seed x objective) grid as one, so neither is decided first
                     std::shuffle(gridOrder.begin(), gridOrder.end(), *generator);
 
                     for(int t : gridOrder){
@@ -791,8 +767,7 @@ class Population {
                         });
                     }
                 } else if(type == "seedsStandardized"){
-                    // Wie "seeds", aber auf den z-transformierten Werten und mit einer festen
-                    // Toleranz in Standardabweichungen statt der MAD-Automatik.
+                    // Like "seeds", on z-scores with a fixed tolerance in standard deviations
                     std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
 
                     for(int seedIdx : seedOrder){
@@ -810,32 +785,13 @@ class Population {
                         candidates = std::move(filtered);
                     }
                 } else if(type == "seedsRank"){
-                    // ─── Rangbasiert je Seed ──────────────────────────────────────────
-                    // Wie "seeds", aber der Filter schneidet nach RANG statt nach Rewardwert.
-                    //
-                    // Warum: Die MAD-Toleranz von "seeds" wird aus den Werten berechnet, und
-                    // der Reward ist zweigipflig (gelandet ~+200 gegen abgestuerzt ~-200).
-                    // Die MAD misst dort im Wesentlichen den Abstand der beiden Gipfel, nicht
-                    // die Aufloesung zwischen den fast gleichen Kandidaten, um die es bei der
-                    // Selektion geht -- das Epsilon faellt zu gross aus und der Testfall
-                    // trennt kaum. Auf Raengen ist die Schaerfe von der Form und der Skala
-                    // des Rewards unabhaengig, und die Seed-Schwierigkeit faellt vollstaendig
-                    // heraus: ein schwerer und ein leichter Seed liefern dieselbe
-                    // Rangverteilung.
-                    //
-                    // Die Raenge werden bei JEDEM Filterschritt neu ueber den verbliebenen
-                    // Kandidatenpool gebildet. Sonst liessen die spaeteren Testfaelle nach --
-                    // wer uebrig ist, liegt ohnehin eng beieinander, und eine feste
-                    // Rangtoleranz wuerde alle durchlassen. So bleibt die Pressung ueber die
-                    // ganze Kette konstant.
+                    // ─── Rank-based per seed, ranks recomputed on the remaining pool (see docstring) ───
                     std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
 
                     for(int seedIdx : seedOrder){
                         if(candidates.size() <= 1) break;
 
-                        // Rangschnitt: die verbliebenen Werte absteigend sortieren und bei
-                        // Rang (rankTolerance + 1) abschneiden. Gleichstaende ueberleben
-                        // gemeinsam, die Zahl der Ueberlebenden kann also groesser sein.
+                        // Cut at rank rankTolerance + 1; ties survive together
                         std::vector<float> values;
                         values.reserve(candidates.size());
                         for(int c : candidates){
@@ -911,27 +867,22 @@ class Population {
          * @param E Number of elite individuals to preserve
          * @param individuals Copy of current population (will be modified during extraction)
          * @param selection Reference to new population being constructed (elite will be appended)
-         * @param useLineageFitness Wenn true, wird zur Auswahl/Rangierung der Elite
-         *        `lineageMean` statt der rohen `fitness` verwendet -- aber nur fuer
-         *        Individuen, deren `lineageN >= minLineageN` (sonst Fallback auf rohe
-         *        Fitness fuer dieses Individuum). Default false = bisheriges Verhalten
-         *        (reine rohe Fitness), damit andere Aufrufer (z.B. lexicaseSelection())
-         *        unveraendert bleiben.
-         * @param minLineageN Mindestanzahl an Lineage-Beobachtungen, ab der lineageMean
-         *        statt roher Fitness fuer die Elite-Rangierung genutzt wird (nur relevant,
-         *        wenn useLineageFitness=true).
-         * @param lineageZ Konfidenz-Multiplikator fuer die untere Konfidenzgrenze (LCB)
-         *        des Lineage-Mittelwerts (siehe Network::lineageLCB()). 0.0 (Default) =
-         *        reiner lineageMean ohne Unsicherheitsabschlag (bisheriges Verhalten).
-         *        Groesseres lineageZ bestraft Linien mit kleinem lineageN/hoher Varianz
-         *        staerker -- verhindert, dass frisch ueber minLineageN gekommene
-         *        "Gluecks-Neulinge" durch Stichprobenrauschen etablierte Champions
-         *        verdraengen (Winner's-Curse-Fix).
-         * 
+         * @param useLineageFitness If true, the elite is ranked by `lineageMean` instead of the raw
+         *        `fitness` -- but only for individuals with `lineageN >= minLineageN` (others fall
+         *        back to their raw fitness). Default false = raw fitness only, so other callers
+         *        (e.g. lexicaseSelection()) are unaffected.
+         * @param minLineageN Minimum number of lineage observations from which lineageMean is used
+         *        for the elite ranking (only relevant if useLineageFitness=true).
+         * @param lineageZ Confidence multiplier for the lower confidence bound (LCB) of the lineage
+         *        mean (see Network::lineageLCB()). 0.0 (default) = plain lineageMean without an
+         *        uncertainty discount. Larger values penalise lineages with small lineageN/high
+         *        variance more, so "lucky newcomers" that just crossed minLineageN cannot displace
+         *        established champions through sampling noise (winner's curse).
+         *
          * @note Elite indices are used to protect elite from mutation operations
-         * @note bestFit wird immer aus der rohen Fitness des gewaehlten Elite-Kandidaten
-         *       aktualisiert, unabhaengig vom Rangierungskriterium -- Reporting bleibt so
-         *       konsistent auf roher Fitness (siehe tournamentSelection()).
+         * @note bestFit is always updated from the raw fitness of the chosen elite candidate,
+         *       whatever the ranking criterion, so reporting stays on raw fitness (see
+         *       tournamentSelection()).
          */
         void setElite(int E, const std::vector<Network>& individuals, std::vector<Network>& selection,
                       bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
@@ -963,67 +914,31 @@ class Population {
 
                 indicesElite.push_back(selection.size()); // because of push_back of elite the index is the old size
                 selection.push_back(individuals[eliteIndex]);
-                float eliteFit = individuals[eliteIndex].fitness; // rohe Fitness fuer bestFit-Reporting
+                float eliteFit = individuals[eliteIndex].fitness; // raw fitness for bestFit reporting
                 if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will be forgotten in bestFit calculation
             }
         }
 
         /**
-         * @brief Applies edge mutation to all non-elite individuals in the population.
-         * 
-         * @details
-         * This method implements edge mutation, a topology-modifying operator that changes
-         * the connections between nodes in the GNP networks. For each non-elite individual (network) 
-         * and each node:
-         * 
-         * 1. **Inner nodes** (judgment and processing nodes): apply edgeMutation()
-         * with probability probInnerNodes
-         * 
-         * 2. **Start node**: apply edgeMutation() with probability probStartNode
-         * 
-         * Edge mutation allows the evolutionary process to explore different network topologies
-         * by redirecting execution flow. 
+         * @brief Caps the lineage observation count (lineageN/lineageSuccessN) ONLY for
+         *        individuals that were ACTUALLY changed by mutation or crossover this generation
+         *        (individuals[i].structureChangedThisGen == true) -- the mutation counterpart of
+         *        priorCap in crossover(). Call once per generation, AFTER all mutation operators
+         *        of the generation have run (however many were used -- the operation is monotone
+         *        and therefore safe to call repeatedly).
          *
-         * **Elite protection**: Elite individuals (tracked via indicesElite) are excluded from
-         * mutation to preserve the best solutions found so far.
+         * @details Without this cap, conditioned on an actual change, either (a) a pure mutation
+         * lineage would accumulate its `lineageMean` without bound and grow very sluggish towards
+         * new observations after many generations, OR (b) -- if the cap were applied blanket to
+         * ALL non-elite individuals regardless of a real structural change (an earlier bug) --
+         * unchanged individuals would needlessly lose history every generation, letting the
+         * current (noisy) seed batch dominate lineageMean more than intended. Unchanged lineages
+         * therefore keep their full accumulated history.
          *
-         * @see Node::edgeMutation()
-         * 
-         * @param probInnerNodes Probability (in [0.0, 1.0]) that each edge of inner nodes will be mutated
-         * @param probStartNode Probability (in [0.0, 1.0]) that the start node's edge will be mutated
-         * @param justUsedNodes If true, only applies edge mutation to nodes that were used during traversal (node.used == true). 
-         * If false, applies to all nodes regardless of usage.
-         * @param adaptToEdgeSize If true, mutation probability is adapted based on the number of edges (e.g., more edges → lower mutation probability) to prevent excessive disruption in highly connected nodes. 
-         * @note adaptToEdgeSize not holds for starnode, because it has only one edge and should be mutated with the same probability as nodes with few edges to allow topology changes.
+         * The flag `structureChangedThisGen` is reset here for ALL individuals after reading it
+         * (whether capped or not), so the next generation starts at false again.
          *
-         * @warning tournamentSelection() must have been called to set indicesElite
-         * 
-         */
-        /**
-         * @brief Deckelt die Lineage-Beobachtungszahl (lineageN/lineageSuccessN) NUR bei
-         *        Individuen, die diese Generation TATSAECHLICH mutiert oder per Crossover
-         *        veraendert wurden (individuals[i].structureChangedThisGen == true) -- das
-         *        Mutations-Pendant zum priorCap in crossover(). Soll einmal pro Generation
-         *        aufgerufen werden, NACHDEM alle Mutationsoperatoren dieser Generation
-         *        gelaufen sind (unabhaengig davon, wie viele/welche Mutationsoperatoren
-         *        genutzt wurden -- die Operation ist rein monoton und daher robust gegen
-         *        Mehrfachaufruf).
-         *
-         * @details Ohne diesen (auf tatsaechliche Veraenderung bedingten) Cap wuerde entweder
-         * (a) eine reine Mutations-Linie ihre `lineageMean` unbegrenzt akkumulieren und
-         * dadurch nach vielen Generationen sehr traege gegenueber neuen Beobachtungen werden,
-         * ODER (b) -- falls der Cap blanket auf ALLE nicht-elitaeren Individuen angewendet
-         * wuerde, unabhaengig von echter struktureller Veraenderung (frueherer Bug) -- auch
-         * unveraenderte Individuen jede Generation unnoetig Historie verlieren, was
-         * lineageMean staerker vom aktuellen (verrauschten) Seed-Batch dominieren laesst als
-         * beabsichtigt. Der Cap wird daher NUR bei tatsaechlich veraenderten Linien
-         * angewendet; unveraenderte Linien behalten ihre volle akkumulierte Historie.
-         *
-         * Das Flag `structureChangedThisGen` wird nach dem Auslesen (unabhaengig davon, ob
-         * gecappt wurde) hier fuer ALLE Individuen zurueckgesetzt, damit die naechste
-         * Generation wieder bei false startet.
-         *
-         * @param priorCap Obergrenze fuer lineageN/lineageSuccessN. Default 5 (wie crossover()).
+         * @param priorCap Upper bound for lineageN/lineageSuccessN. Default 5 (as in crossover()).
          */
         void capLineageAfterMutation(int priorCap = 5) {
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
@@ -1031,7 +946,7 @@ class Population {
                 if (!isElite && individuals[i].structureChangedThisGen) {
                     individuals[i].capLineageStats(priorCap);
                 }
-                individuals[i].structureChangedThisGen = false; // Reset fuer die naechste Generation
+                individuals[i].structureChangedThisGen = false; // reset for the next generation
             }
         }
 
@@ -1293,6 +1208,37 @@ class Population {
         }
 
 
+        /**
+         * @brief Applies edge mutation to all non-elite individuals in the population.
+         *
+         * @details
+         * This method implements edge mutation, a topology-modifying operator that changes
+         * the connections between nodes in the GNP networks. For each non-elite individual (network)
+         * and each node:
+         *
+         * 1. **Inner nodes** (judgment and processing nodes): apply edgeMutation()
+         * with probability probInnerNodes
+         *
+         * 2. **Start node**: apply edgeMutation() with probability probStartNode
+         *
+         * Edge mutation allows the evolutionary process to explore different network topologies
+         * by redirecting execution flow.
+         *
+         * **Elite protection**: Elite individuals (tracked via indicesElite) are excluded from
+         * mutation to preserve the best solutions found so far. Frozen nodes are skipped as well.
+         *
+         * @see Node::edgeMutation()
+         *
+         * @param probInnerNodes Probability (in [0.0, 1.0]) that each edge of inner nodes will be mutated
+         * @param probStartNode Probability (in [0.0, 1.0]) that the start node's edge will be mutated
+         * @param justUsedNodes If true, only applies edge mutation to nodes that were used during traversal (node.used == true).
+         * If false, applies to all nodes regardless of usage.
+         * @param k If > 0, replaces both probabilities with min(1, k/N), N being the network's number of
+         * (used) edges, i.e. about k mutated edges per network (see Node::edgeMutation(), adaptiveK_).
+         *
+         * @warning tournamentSelection() must have been called to set indicesElite
+         *
+         */
         void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, float k = 0.0f){
             for(int i=0; i<individuals.size(); i++){
 
@@ -1521,10 +1467,10 @@ class Population {
          * This method implements crossover, a genetic operator that exchanges
          * parts of the gene structure between parent networks to create offspring. The process:
          * 
-         * **Pairing**:
+         * **Pairing** (all types except "seedSpecialist*"):
          * 1. Shuffles all individual indices randomly
          * 2. Pairs adjacent individuals in the shuffled order (0-1, 2-3, 4-5, etc.)
-         * 3. Skips pairs where either parent is elite (elite protection)
+         * 3. Skips pairs of two elites; if one parent is elite, it only donates and stays unchanged
          * 
          * **Node exchange**:
          * 1. Determines maximum exchangeable nodes: min(parent1.size, parent2.size). This is only 
@@ -1550,75 +1496,58 @@ class Population {
          * - For "randomWidth": Check edges for the larger parent (due to node deletion creating potential dangling edges)
          * - changeFalseEdges() redirects any dangling edges to valid random nodes
          * - Prevents graph structure corruption after recombination
+         *
+         * **Lineage statistics** are blended in the direction of the actual gene flow, once per pair:
+         * one-sided (Network::blendLineageWith()) when an elite or the fitter parent donates, symmetric
+         * otherwise -- both parents then read the original values, so the call order cannot matter.
          * 
          * @param propability Probability (in [0.0, 1.0]), interpreted per crossover type. Default is 1
          *  (i.e. crossover is always applied). Values outside [0.0, 1.0] throw std::invalid_argument,
          *  since std::bernoulli_distribution would otherwise be undefined behaviour.
          *  - "uniform": per NODE POSITION -- each of the min(size1, size2) positions is exchanged with
          *    this probability, so it controls HOW MUCH of the genotype is exchanged per pair.
+         *  - "onepoint" / "randomWidth": per PAIR -- one draw decides whether the pair is recombined
+         *    at all; if it fails the pair is left completely untouched. What is exchanged afterwards
+         *    (cutpoint, subnetwork depth) stays uniformly random.
          *  - "semantic": TWO rates. This value gates the PAIR (one draw decides whether the pair
          *    recombines at all); `nodeExchangeRate` then decides how many of the role-matched
-         *    nodes inside that pair are transferred. Passing a negative nodeExchangeRate couples
-         *    the two, i.e. the effective rate per matched node becomes propability^2.
-         *    recombined at all; if it fails the pair is left completely untouched. What is exchanged
-         *    afterwards (cutpoint, subnetwork depth, cluster blocks) stays uniformly random.
+         *    nodes inside that pair are transferred. This is deliberate: a pair recombines noticeably
+         *    or not at all, instead of spreading thinly over the population. Passing a negative
+         *    nodeExchangeRate couples the two, i.e. the effective rate per matched node becomes
+         *    propability^2 (0.05 -> 0.0025), which reproduces the earlier behaviour bit for bit.
          *  - "seedSpecialist" / "seedSpecialistAppend" / "seedSpecialistReplace": per INDIVIDUAL --
          *    one draw per host decides whether that host receives a transplant this generation.
          *    Drawn before the donor search, so a low value also skips the O(populationSize) search
          *    for that host.
          * @param type Type of the crossover:
-         *  - "innovation": NEAT-style crossover aligned on Node::innovationID (historical markings,
-         *    Stanley & Miikkulainen 2002) instead of the array position. Genes present in BOTH parents
-         *    (matching) are inherited from the donor with probability 0.5; genes present in only one
-         *    parent (disjoint/excess) are taken from the FITTER parent, measured as the mean over
-         *    fitnessValues (falling back to Network::fitness when per-seed data is missing). The fitter
-         *    parent survives unchanged and the weaker one is overwritten by the child, so the operator is
-         *    one-directional per pair; if one parent is elite, the elite always donates. Edge targets of
-         *    inherited nodes are translated donor-position -> innovationID -> recipient-position, i.e. the
-         *    LINKAGE between genes is transferred rather than an index pattern; targets whose gene is
-         *    absent in the recipient are repaired like in the other types. Requires unique markings per
-         *    individual, which ensureInnovationIDs() establishes on the fly.
          *  - "uniform": selects each node and exchanges them with given probability
          *  - "onepoint": draws a random cutpoint from the genotype and exchanges all nodes until this point
          *  - "randomWidth": exchanges subnetworks of different widths where all succesor nodes of a randomly selected node are exchanged
-         *    subgraph. A random number of cluster-block pairs (1..min(#clusters1, #clusters2)) is drawn and
-         *    exchanged, one cluster picked independently (no size-matching -- asymmetric swaps of many vs. few
-         *    nodes are intentional) from each parent per pair. Requires both parents to carry valid, up-to-date
-         *    another crossover type). Dangling boundary edges after the swap(s) are repaired via changeFalseEdges(),
-         *    exactly as for "randomWidth".
-         *  @param traversalNeighbor If true, the crossover is only applied to pairs of individuals that are neighbors in the traversal space 
-         *  calculated by traverseCounter.
-         *  @param lowerBoundTraversalCounter Lower bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
-         *  @param upperBoundTraversalCounter Upper bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
-          *  @param boundaryTolerance Only used by type="semantic": maximum normalised distance
-          *         between the inner boundaries of two same-role nodes for them to still count
-          *         as the same gene. 1.0 (default) matches everything within a role; smaller
-          *         values additionally require that both cut the feature at a similar place.
-          *  @param nodeExchangeRate Only used by type="semantic": rate at which a MATCHED node is
-          *         transferred, inside a pair that already passed the per-pair gate
-          *         (`propability`). Negative (default) means "use propability", reproducing the
-          *         historical behaviour where one value was applied twice.
-          *  @param matchOnlyUsed Only used by type="semantic": if true, nodes never entered
-          *         during the last evaluation (Node::used == false) take no part in the
-          *         matching, so dormant material is not exchanged.
-         * 
-         * @note tournamentSelection() must have been called to set indicesElite
-         * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
-         *  - "seedSpecialistReplace": same donor search and same donor-side sub-graph as
-         *    "seedSpecialistAppend" (see below), but the sub-graph does not become a dormant
-         *    appendix -- it OVERWRITES the host's own deficit-exclusive sub-graph, i.e. the nodes
-         *    the host traverses ONLY on the deficit seeds and not on the seeds where the host
-         *    itself is the better one. The shared backbone is therefore preserved, and with it the
-         *    host's strength on its good seeds; only the seed-specific structure that fails is
-         *    swapped out. If that set is empty (the host uses the same nodes everywhere), the host
-         *    is left unchanged. Because this variant is destructive for the host, ELITE hosts are
-         *    skipped (unlike the additive variant). The donor is never modified -- it only hands
-         *    out copies, so one donor can serve several hosts in the same generation. Sub-graphs of
-         *    unequal size are handled exactly like the elite branch of "randomWidth"
-         *    (addOverhangNodes()/deleteOverhangNodes()), so the host grows or shrinks by the size
-         *    difference. The replaced nodes are wired into the existing graph and are therefore
-         *    active immediately: they carry NO transplantBlockID/isBlockEntry, and the host's
-         *    them). Like the other types it obeys crossoverProtection via generationReceived.
+         *  - "semantic": role-based crossover -- homology is read off the node content instead of the
+         *    array position. Position-based types are weakly founded for GNP: networks start small and
+         *    grow/shrink via addDelNodes(), every deletion shifts all later indices, so after a few hundred
+         *    generations the same position in two individuals means nothing in common. Origin markers
+         *    (NEAT-style innovation IDs) would stop NEW competing conventions but cannot recognise
+         *    CONVERGENT solutions: two lineages that evolve the same decision rule independently carry
+         *    different IDs. A GNP node carries its role explicitly: (type, f, edges.size()) is the coarse
+         *    role, boundaries the fine tuning within it. The arity must be part of the role, otherwise an
+         *    exchange would change the recipient's edge count and the threshold vectors would not be
+         *    comparable.
+         *    Steps: (1) group both parents by role; (2) within a group, match greedily by boundary
+         *    distance -- the mean deviation of the INNER boundaries, normalised by the feature range so
+         *    wide features do not weigh more (P nodes: distance 0); pairs above boundaryTolerance are not
+         *    the same gene. Greedy instead of optimal (Hungarian) matching, since the groups are small and
+         *    both almost always agree; (3) transfer each matched node with `nodeExchangeRate`; (4)
+         *    translate its edges through the matching table. The elite only donates; otherwise the fitter
+         *    parent (mean over fitnessValues, else fitness) donates and stays unchanged.
+         *    The exchange is ALL-OR-NOTHING per node: boundaries and edges of a judgment node belong
+         *    together (edge k = "feature in interval k, go there"), so mixing donor intervals with
+         *    recipient targets would create a node NO parent has ever tested. A node is therefore only
+         *    taken over if EVERY edge translates. Since the table only holds pairs within the tolerance, a
+         *    gene travels only if it AND all its direct successors have a close counterpart -- always a
+         *    complete sub-structure proven in the donor, which makes boundaryTolerance the real control.
+         *    Unmatched nodes stay where they are; nothing is appended, so this type does not grow the
+         *    network. Diagnostics: crossoverPairsApplied, crossoverNodesMatched/Exchanged/Skipped.
          *  - "seedSpecialist" / "seedSpecialistAppend" (identical, the short name is kept for
          *    backward compatibility): for EVERY individual (host, including elite) independently searches the whole
          *    population for the single donor individual maximizing the summed positive per-seed fitness
@@ -1635,8 +1564,52 @@ class Population {
          *    Node::changeEdge()/edgeMutation() are extended so that only the entry node (never an interior node)
          *    of a block can be chosen as a mutation target from outside the block. Once entered this way, the
          *    block behaves like any other part of the network (its own internal edges mutate normally, are not
-         *    frozen). This type has its OWN partner-search/insertion logic and completely bypasses the
-         *    shuffle-based pairing loop used by the other types (see @note below).
+         *    frozen). Edges leaving the copied sub-graph are redirected to random valid host nodes. This type
+         *    has its OWN partner-search/insertion logic and completely bypasses the shuffle-based pairing.
+         *  - "seedSpecialistReplace": same donor search and same donor-side sub-graph as
+         *    "seedSpecialistAppend", but the sub-graph does not become a dormant
+         *    appendix -- it OVERWRITES the host's own deficit-exclusive sub-graph, i.e. the nodes
+         *    the host traverses ONLY on the deficit seeds and not on the seeds where the host
+         *    itself is the better one. The shared backbone is therefore preserved, and with it the
+         *    host's strength on its good seeds; only the seed-specific structure that fails is
+         *    swapped out. If that set is empty (the host uses the same nodes everywhere), the host
+         *    is left unchanged. Because this variant is destructive for the host, ELITE hosts are
+         *    skipped (unlike the additive variant). The donor is never modified -- it only hands
+         *    out copies, so one donor can serve several hosts in the same generation. Sub-graphs of
+         *    unequal size are handled exactly like the elite branch of "randomWidth"
+         *    (addOverhangNodes()/deleteOverhangNodes()), so the host grows or shrinks by the size
+         *    difference. The replaced nodes are wired into the existing graph and are therefore
+         *    active immediately: they carry NO transplantBlockID/isBlockEntry. They start with
+         *    used == false and zeroed traversal counters instead of the donor's values: they lay on the
+         *    donor's active path but were never traversed in the host, and an inherited used == true
+         *    would hide them from the deletion branch of addDelNodes() forever, so never-traversed
+         *    transplant nodes would pile up beyond the junk quota. generationReceived together with
+         *    crossoverProtection keeps them alive until the next evaluation sets `used` from the host's
+         *    real traversal. WARNING: with crossoverProtection == 0 a directly following
+         *    callAddDelNodes() can remove the transplant in the same generation.
+         * @param currentGeneration Current generation, stored in Node::generationReceived of received nodes.
+         * @param crossoverProtection Generations during which received nodes are protected from further
+         *  crossover and from deletion in addDelNodes().
+         *  @param traversalNeighbor If true, the crossover is only applied to pairs of individuals that are neighbors in the traversal space 
+         *  calculated by traverseCounter.
+         *  @param lowerBoundTraversalCounter Lower bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
+         *  @param upperBoundTraversalCounter Upper bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
+         * @param lineagePriorCap Upper bound on each side's lineage observation count when the lineage
+         *  statistics are blended (see Network::blendLineageWith()).
+          *  @param boundaryTolerance Only used by type="semantic": maximum normalised distance
+          *         between the inner boundaries of two same-role nodes for them to still count
+          *         as the same gene. 1.0 (default) matches everything within a role; smaller
+          *         values additionally require that both cut the feature at a similar place.
+          *  @param nodeExchangeRate Only used by type="semantic": rate at which a MATCHED node is
+          *         transferred, inside a pair that already passed the per-pair gate
+          *         (`propability`). Negative (default) means "use propability", reproducing the
+          *         historical behaviour where one value was applied twice.
+          *  @param matchOnlyUsed Only used by type="semantic": if true, nodes never entered
+          *         during the last evaluation (Node::used == false) take no part in the
+          *         matching, so dormant material is not exchanged.
+         * 
+         * @note tournamentSelection() must have been called to set indicesElite
+         * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
          */
 
         void crossover(
@@ -1653,11 +1626,7 @@ class Population {
                 float nodeExchangeRate = -1.0f
                 ){
 
-            // type="semantic" uses TWO rates, and they used to be the same value applied
-            // twice: `propability` gated the pair AND decided every node inside it, so the
-            // effective exchange rate per matched node was propability^2 (0.05 -> 0.0025).
-            // They are separate now. nodeExchangeRate < 0 keeps the old coupling, so every
-            // existing call reproduces its previous behaviour bit for bit.
+            // "semantic": nodeExchangeRate < 0 couples both rates (see docstring)
             const float nodeRate = (nodeExchangeRate < 0.0f) ? propability : nodeExchangeRate;
             std::bernoulli_distribution distributionNodeExchange(nodeRate);
 
@@ -1672,13 +1641,7 @@ class Population {
 
             std::bernoulli_distribution distributionBernoulli(propability);
 
-            // ─── "seedSpecialist*": own partner search + insertion logic, fully independent ───
-            // of the shuffle-based pairing below (per-individual best-donor search over the whole
-            // population -- see class-level docstring for details). Both variants share the donor
-            // search and the donor-side sub-graph; they differ only in HOW that sub-graph enters
-            // the host: "…Append" adds it as a dormant block, "…Replace" overwrites the host's own
-            // deficit-exclusive sub-graph with it.
-            // Early return keeps every other crossover type's code path byte-for-byte unchanged.
+            // ─── "seedSpecialist*": own donor search and insertion, independent of the pairing below ───
             const bool seedSpecialistAppend  = (type == "seedSpecialist" || type == "seedSpecialistAppend");
             const bool seedSpecialistReplace = (type == "seedSpecialistReplace");
 
@@ -1687,18 +1650,13 @@ class Population {
                     auto& host = individuals[hostIdx];
                     if(host.fitnessValues.empty()) continue; // no per-seed data yet this generation
 
-                    // Elite ist nur bei der ERSETZENDEN Variante geschuetzt: dort verliert der Host
-                    // eigenes Genmaterial und koennte dabei genau die Fitness einbuessen, die der
-                    // Elitismus bewahren soll. Das additive Anhaengen ist fitness-neutral (dormanter
-                    // Block) und laeuft deshalb weiterhin fuer jedes Individuum inklusive Elite.
+                    // Only Replace skips the elite: it destroys host material, Append is fitness-neutral
                     if(seedSpecialistReplace &&
                        std::find(indicesElite.begin(), indicesElite.end(), hostIdx) != indicesElite.end()){
                         continue;
                     }
 
-                    // Per-INDIVIDUAL application gate: with probability (1 - propability) this host
-                    // receives no transplant this generation. Drawn before the (expensive) donor
-                    // search over the whole population, so a low propability also saves the search.
+                    // Per-host gate, drawn before the expensive donor search
                     if(!distributionBernoulli(*generator)) continue;
 
                     int bestDonorIdx = -1;
@@ -1745,15 +1703,7 @@ class Population {
                     std::vector<int> subGraphNodes(subGraphSet.begin(), subGraphSet.end());
                     std::sort(subGraphNodes.begin(), subGraphNodes.end());
 
-                    // ─── Variante "seedSpecialistReplace": ersetzen statt anhaengen ───────────
-                    // Der Donor-Sub-Graph (oben, identisch zur additiven Variante) ueberschreibt
-                    // den DEFIZIT-EXKLUSIVEN Sub-Graphen des Hosts: die Knoten, die der Host NUR
-                    // auf den Defizit-Seeds durchlaeuft, nicht aber auf den Seeds, auf denen er
-                    // selbst besser ist. Damit bleibt das gemeinsam genutzte Backbone -- und
-                    // damit die Staerke des Hosts auf seinen guten Seeds -- erhalten; ersetzt
-                    // wird nur die seed-spezifische Teilstruktur, die dort versagt. Ist diese
-                    // Menge leer (der Host benutzt ueberall dieselben Knoten), gibt es nichts
-                    // seed-Spezifisches zu ersetzen und der Host bleibt unveraendert.
+                    // ─── "seedSpecialistReplace": overwrite the host's deficit-exclusive sub-graph ───
                     if(seedSpecialistReplace){
                         if(host.visitedNodesPerSeed.size() != host.fitnessValues.size()) continue;
 
@@ -1772,12 +1722,10 @@ class Population {
                         for(int n : hostDeficitNodes){
                             if(hostOtherNodes.find(n) == hostOtherNodes.end()) hostBlock.push_back(n);
                         }
-                        if(hostBlock.empty()) continue; // keine defizit-exklusive Teilstruktur vorhanden
-                        std::sort(hostBlock.begin(), hostBlock.end()); // Voraussetzung von add/deleteOverhangNodes()
+                        if(hostBlock.empty()) continue; // no deficit-exclusive structure
+                        std::sort(hostBlock.begin(), hostBlock.end()); // required by add/deleteOverhangNodes()
 
-                        // Ab hier exakt das Vorgehen des Elite-Zweigs von "randomWidth": einseitige
-                        // Uebernahme (der Donor gibt nur Kopien ab und bleibt unveraendert), gleiche
-                        // Ueberhang-Behandlung fuer unterschiedlich grosse Sub-Graphen.
+                        // From here like the elite branch of "randomWidth"; the donor only hands out copies
                         const size_t minSubNodes = std::min(subGraphNodes.size(), hostBlock.size());
                         std::unordered_map<int, int> replaceMap =
                             initNodeSwapMap(subGraphNodes, hostBlock, static_cast<int>(host.innerNodes.size()));
@@ -1786,33 +1734,13 @@ class Population {
                             auto& node = host.innerNodes[hostBlock[j]];
                             node = donor.innerNodes[subGraphNodes[j]];
                             node.generationReceived = currentGeneration;
-                            // Aktiv eingebaut statt dormant: keine Block-Kennung, damit
-                            // Node::changeEdge() die Knoten nicht als "nur ueber den Entry-Knoten
-                            // erreichbar" behandelt (siehe Node::transplantBlockID/isBlockEntry).
+                            // Wired in actively: no block tag, so changeEdge() does not restrict access
                             node.transplantBlockID = -1;
                             node.isBlockEntry = false;
                             node.frozen = 0;
-                            // used wird bewusst auf false gesetzt und NICHT vom Donor uebernommen:
-                            // der Knoten lag auf einem aktiven Pfad des SPENDERS, im Empfaenger ist
-                            // er dagegen noch nie durchlaufen worden. Wuerde er als used markiert
-                            // bleiben, waere er fuer die Loeschbranche von addDelNodes() (die nur
-                            // used == false entfernt) dauerhaft unsichtbar -- auch dann, wenn der
-                            // Host ihn nie erreicht. Genau darueber sammeln sich sonst Generation
-                            // fuer Generation nie durchlaufene Transplantat-Knoten an, ohne dass
-                            // die junk-Quote sie je abbauen kann.
-                            //
-                            // Vor verfruehtem Loeschen schuetzt stattdessen generationReceived in
-                            // Verbindung mit crossoverProtection: solange currentGeneration -
-                            // generationReceived < crossoverProtection ist, ueberspringt
-                            // addDelNodes() den Knoten (siehe Network::addDelNodes()). Der Knoten
-                            // ueberlebt damit garantiert bis zur naechsten Evaluation, die sein
-                            // used-Flag anhand der tatsaechlichen Traversierung im Host setzt.
-                            // ACHTUNG: Mit crossoverProtection == 0 entfaellt dieser Schutz und das
-                            // direkt nachfolgende callAddDelNodes() koennte das Transplantat noch in
-                            // derselben Generation wieder entfernen.
+                            // Never traversed in the host yet; keeps it deletable (see docstring)
                             node.used = false;
-                            // traverseCounter/lastVisitStep gehoeren dem Donor und wuerden die
-                            // Statistik des Hosts verfaelschen.
+                            // donor's counters would distort the host's statistics
                             node.traverseCounter = 0;
                             node.lastVisitStep = 0;
                         }
@@ -1828,13 +1756,7 @@ class Population {
                                 host.innerNodes[k].transplantBlockID = -1;
                                 host.innerNodes[k].isBlockEntry = false;
                                 host.innerNodes[k].frozen = 0;
-                                // Gleiche Begruendung wie beim Ersetzen oben: addOverhangNodes()
-                                // kopiert die Donor-Knoten samt used-Flag. Die Ueberhang-Knoten sind
-                                // im Host aber ebenso wenig durchlaufen worden wie die ersetzten --
-                                // und da genau dieser Zweig den Host wachsen laesst, waere ein
-                                // uebernommenes used == true hier die Hauptquelle dauerhaft
-                                // unloeschbarer Knoten. generationReceived (von addOverhangNodes()
-                                // gesetzt) schuetzt sie bis zur naechsten Evaluation.
+                                // As above: addOverhangNodes() copies the donor's used flag, reset it
                                 host.innerNodes[k].used = false;
                                 host.innerNodes[k].traverseCounter = 0;
                                 host.innerNodes[k].lastVisitStep = 0;
@@ -1849,14 +1771,9 @@ class Population {
 
                         host.changeFalseEdges();
 
-                        // Positionen im Host haben sich verschoben (Ueberhang angehaengt bzw.
-                        // Sie werden verworfen statt mitgefuehrt: callFindTransitionClusters()
-                        // berechnet sie ohnehin jede Generation neu, und ein verschobener Vektor
-                        // schuetzt in addDelNodes() die falschen Knoten vor dem Loeschen.
-
                         host.nCrossovers += 1;
                         host.structureChangedThisGen = true;
-                        host.blendLineageWith(donor, lineagePriorCap); // nur der Host uebernimmt (Donor unveraendert)
+                        host.blendLineageWith(donor, lineagePriorCap); // host only, donor unchanged
                         continue;
                     }
 
@@ -1928,12 +1845,7 @@ class Population {
             }
             std::shuffle(inds.begin(), inds.end(), *generator);
 
-            // Vermischt die Lineage-Statistik zweier Individuen SYMMETRISCH (beide erhalten
-            // Gene voneinander), ohne dass die Reihenfolge zweier nacheinander ausgefuehrter
-            // blendLineageWith()-Aufrufe zu einer Asymmetrie fuehrt (sonst wuerde der zweite
-            // Aufruf bereits die veraenderten Werte des ersten Individuums sehen). Dazu werden
-            // zunaechst beide Original-Werte zwischengespeichert und danach beide Individuen
-            // unabhaengig voneinander aktualisiert.
+            // Symmetric blend: both read the original values, so call order cannot matter
             auto blendLineageBidirectional = [lineagePriorCap](Network& a, Network& b){
                 float aMean = a.lineageMean, bMean = b.lineageMean;
                 int aN = a.lineageN, bN = b.lineageN;
@@ -1984,36 +1896,8 @@ class Population {
                 }
 
                 if(type == "semantic"){
-                    // ─── Rollenbasiertes Crossover: Homologie aus dem Knoteninhalt ──────────
-                    //
-                    // Warum ueberhaupt: "uniform"/"onepoint" paaren nach ARRAY-POSITION, und
-                    // "innovation" nach HERKUNFT (Node::innovationID). Beides ist fuer GNP
-                    // schwach begruendet. Die Netze starten klein und wachsen/schrumpfen ueber
-                    // addDelNodes(); jede Loeschung verschiebt alle nachfolgenden Indizes, also
-                    // bezeichnet dieselbe Position in zwei Individuen nach einigen hundert
-                    // Generationen nichts Gemeinsames mehr. Herkunftsmarker wiederum verhindern
-                    // zwar, dass "competing conventions" NEU entstehen, koennen aber KONVERGENTE
-                    // Loesungen nicht erkennen: zwei Linien, die unabhaengig voneinander dieselbe
-                    // Entscheidungsregel entwickeln, tragen verschiedene IDs und gelten als
-                    // verschiedene Gene.
-                    //
-                    // Ein GNP-Knoten braucht das alles nicht -- er traegt seine Rolle explizit:
-                    //   type            "J"/"JE" (Urteil) oder "P" (Aktion)
-                    //   f               Feature-Index (J) bzw. Aktion (P)
-                    //   edges.size()    Stelligkeit: in wie viele Intervalle geteilt wird
-                    //   boundaries      wo genau geschnitten wird (boundaries.size() == edges+1)
-                    // (type, f, edges.size()) ist die grobe Rolle, boundaries die Feinjustierung
-                    // darin. Die Stelligkeit gehoert zwingend in die Rolle: sonst wuerde ein
-                    // Austausch die Kantenzahl des Empfaengers aendern, und die Schwellenvektoren
-                    // waeren nicht vergleichbar.
-                    //
-                    // Ablauf: (1) beide Eltern nach der Rolle gruppieren, (2) innerhalb einer
-                    // Gruppe ueber den Schwellenabstand paaren, (3) je Paar mit `propability`
-                    // tauschen, (4) die Kanten des uebernommenen Knotens ueber die Paarungs-
-                    // tabelle uebersetzen. Nicht zuordenbare Knoten bleiben, wo sie sind -- im
-                    // Gegensatz zu "innovation" wird NICHTS angehaengt, dieses Crossover laesst
-                    // das Netz also nicht wachsen.
-                    if(!distributionBernoulli(*generator)) continue; // Gate PRO PAAR (= propability)
+                    // ─── Role-based crossover: homology from node content (see docstring) ───
+                    if(!distributionBernoulli(*generator)) continue; // gate per PAIR (= propability)
 
                     auto meanFitnessOf = [](const Network& net) -> float {
                         if(net.fitnessValues.empty()) return net.fitness;
@@ -2022,8 +1906,7 @@ class Population {
                         return sum / static_cast<float>(net.fitnessValues.size());
                     };
 
-                    // Elite gibt nur ab und empfaengt nie; sonst spendet der fittere Elternteil
-                    // und bleibt unveraendert -- wie bei "innovation".
+                    // Elite only donates; otherwise the fitter parent donates and stays unchanged
                     Network* recipient = nullptr;
                     Network* donorNet  = nullptr;
                     if(parent1IsElite){
@@ -2036,20 +1919,14 @@ class Population {
                         donorNet = &parent2; recipient = &parent1;
                     }
 
-                    // Rollenschluessel eines Knotens. Als String, damit er direkt als Map-Key
-                    // taugt; die Gruppen sind klein, das ist nicht performancekritisch.
+                    // Role key as string, usable as map key (groups are small)
                     auto roleKey = [](const Node& node) -> std::string {
                         return node.type + "|" + std::to_string(node.f)
                                          + "|" + std::to_string(node.edges.size());
                     };
 
-                    // Abstand zweier Knoten derselben Rolle: mittlere, auf den Feature-Bereich
-                    // normierte Abweichung der INNEREN Schwellen. Der erste und letzte Wert von
-                    // boundaries sind Unter- und Obergrenze des Features und tragen keine
-                    // Information ueber die Entscheidungsregel. Die Normierung sorgt dafuer, dass
-                    // ein Feature mit Spanne 20 nicht staerker gewichtet wird als eines mit
-                    // Spanne 5. P-Knoten haben keine Schwellen -> Abstand 0, sie sind innerhalb
-                    // ihrer Rolle austauschbar.
+                    // Mean deviation of the INNER boundaries (outer ones are the feature range),
+                    // normalised by the range; P nodes have none -> 0
                     auto boundaryDistance = [](const Node& a, const Node& b) -> float {
                         if(a.boundaries.size() < 3 || a.boundaries.size() != b.boundaries.size()){
                             return 0.0f;
@@ -2066,9 +1943,7 @@ class Population {
                         return (n == 0) ? 0.0f : static_cast<float>(sum / static_cast<double>(n));
                     };
 
-                    // Kandidaten je Rolle einsammeln. matchOnlyUsed blendet Knoten aus, die in
-                    // der letzten Auswertung nie betreten wurden -- dann wird keine tote Masse
-                    // getauscht (siehe der hohe Anteil dormanter Knoten im Wachstumsplot).
+                    // Candidates per role; matchOnlyUsed drops nodes not entered last evaluation
                     std::unordered_map<std::string, std::vector<int>> donorByRole, recipientByRole;
                     for(size_t k = 0; k < donorNet->innerNodes.size(); k++){
                         if(matchOnlyUsed && !donorNet->innerNodes[k].used) continue;
@@ -2079,16 +1954,11 @@ class Population {
                         recipientByRole[roleKey(recipient->innerNodes[k])].push_back(static_cast<int>(k));
                     }
 
-                    // Paarungstabelle Spender-Index -> Empfaenger-Index. Innerhalb einer Rolle
-                    // wird global gierig zugeordnet: alle Kreuzpaare nach Abstand sortieren und
-                    // von vorn nehmen, solange beide Partner noch frei sind. Eine optimale
-                    // Zuordnung (ungarische Methode) waere theoretisch sauberer, aber die Gruppen
-                    // umfassen typischerweise nur wenige Knoten, und dort stimmen beide Verfahren
-                    // fast immer ueberein -- der Aufwand lohnt hier nicht.
+                    // Donor -> recipient table: greedy by distance within each role (see docstring)
                     std::unordered_map<int, int> donorToRecipient;
                     for(auto const& [role, donorIdxs] : donorByRole){
                         auto it = recipientByRole.find(role);
-                        if(it == recipientByRole.end()) continue; // Rolle nur beim Spender -> disjunkt
+                        if(it == recipientByRole.end()) continue; // role only in donor -> disjoint
                         const std::vector<int>& recipientIdxs = it->second;
 
                         struct Candidate { float distance; int donorIdx; int recipientIdx; };
@@ -2098,9 +1968,7 @@ class Population {
                             for(int r : recipientIdxs){
                                 float distance = boundaryDistance(donorNet->innerNodes[d],
                                                                   recipient->innerNodes[r]);
-                                // Gleiche Rolle, aber zu unterschiedliche Schwellen: die beiden
-                                // schneiden das Feature an ganz verschiedenen Stellen und sind
-                                // dann eben NICHT dasselbe Gen.
+                                // Same role, but cuts too far apart: not the same gene
                                 if(distance > boundaryTolerance) continue;
                                 candidates.push_back({distance, d, r});
                             }
@@ -2117,37 +1985,17 @@ class Population {
                         }
                     }
 
-                    if(donorToRecipient.empty()) continue; // keine gemeinsame Rolle -> Paar unveraendert
+                    if(donorToRecipient.empty()) continue; // no shared role -> pair unchanged
                     crossoverNodesMatched += static_cast<int>(donorToRecipient.size());
 
-                    // Austausch, ALLES-ODER-NICHTS pro Knoten.
-                    //
-                    // Bei einem Judgment-Knoten gehoeren `boundaries` und `edges` zusammen: Kante k
-                    // heisst "faellt das Feature in Intervall k, gehe dorthin". Uebernaehme man die
-                    // Schwellen des Spenders, liesse aber einzelne Kanten des Empfaengers stehen,
-                    // entstuende ein Knoten mit Spender-Intervallen und teils Empfaenger-Zielen --
-                    // eine Kombination, die KEIN Elternteil je getestet hat. Deshalb wird ein Knoten
-                    // nur dann uebernommen, wenn sich JEDE seiner Kanten uebersetzen laesst.
-                    //
-                    // Das hat eine Kettenwirkung, die boundaryTolerance zum eigentlichen Regler
-                    // macht: die Paarungstabelle enthaelt nur Paare INNERHALB der Toleranz, also ist
-                    // eine Kante auf einen nicht gepaarten Knoten nicht uebersetzbar. Ein Gen wandert
-                    // damit nur, wenn es UND alle seine direkten Nachfolger eine nahe Entsprechung
-                    // haben -- es wandert immer ein vollstaendiges, im Spender erprobtes Teilstueck.
-                    //
-                    // Zwei getrennte Raten: `propability` entscheidet weiter oben, OB ein Paar
-                    // ueberhaupt rekombiniert, `nodeExchangeRate` hier, WIE VIEL innerhalb eines
-                    // ausgewaehlten Paares wandert. Das ist Absicht -- ein Paar rekombiniert
-                    // entweder spuerbar oder gar nicht, statt ueber die ganze Population duenn
-                    // zu streuen.
+                    // All-or-nothing per node: taken only if EVERY edge translates (see docstring)
                     bool changed = false;
                     for(auto const& [donorIdx, recipientIdx] : donorToRecipient){
                         if(!distributionNodeExchange(*generator)) continue;
 
                         const Node& donorNode = donorNet->innerNodes[donorIdx];
 
-                        // Erst uebersetzen, dann entscheiden -- der Empfaengerknoten wird nicht
-                        // angefasst, solange nicht feststeht, dass das ganze Gen passt.
+                        // Translate first; the recipient is untouched until the whole gene fits
                         std::vector<int> translatedEdges;
                         translatedEdges.reserve(donorNode.edges.size());
                         bool translatable = true;
@@ -2167,7 +2015,7 @@ class Population {
                         Node& targetNode = recipient->innerNodes[recipientIdx];
                         unsigned int keptPosition = targetNode.id;
                         targetNode = donorNode;
-                        targetNode.id = keptPosition;              // die Position gehoert dem Empfaenger
+                        targetNode.id = keptPosition;              // position belongs to the recipient
                         targetNode.edges = std::move(translatedEdges);
                         targetNode.generationReceived = currentGeneration;
                         targetNode.traverseCounter = 0;
@@ -2265,8 +2113,7 @@ class Population {
                         // parent1 is elite → only parent2 receives genes
                         parent2.nCrossovers += 1;
                         parent2.structureChangedThisGen = true;
-                        // Elite bleibt selbst unveraendert; nur der Empfaenger (parent2)
-                        // vermischt seine Lineage-Statistik mit der des Elite-Spenders.
+                        // Elite stays unchanged; only the recipient blends lineage stats
                         parent2.blendLineageWith(parent1, lineagePriorCap);
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
@@ -2301,8 +2148,7 @@ class Population {
                         // parent2 is elite → only parent1 receives genes
                         parent1.nCrossovers += 1;
                         parent1.structureChangedThisGen = true;
-                        // Elite bleibt selbst unveraendert; nur der Empfaenger (parent1)
-                        // vermischt seine Lineage-Statistik mit der des Elite-Spenders.
+                        // Elite stays unchanged; only the recipient blends lineage stats
                         parent1.blendLineageWith(parent2, lineagePriorCap);
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
@@ -2404,10 +2250,7 @@ class Population {
                         }
                     }
 
-                    // Lineage-Statistik entsprechend der tatsaechlichen Genflussrichtung
-                    // vermischen (einmal pro Paar, nicht pro ausgetauschtem Knoten).
-                    // nCrossovers wird ebenfalls hier (einmal pro Paar) erhoeht, analog zum
-                    // "randomWidth"-Zweig, damit die Analyse-Zaehlung fuer alle Crossover-Typen konsistent ist.
+                    // Blend lineage along the gene flow and count once per pair, like "randomWidth"
                     if(!nodesToExchange.empty()){
                         if(parent1IsElite){
                             parent2.blendLineageWith(parent1, lineagePriorCap);
@@ -2505,7 +2348,6 @@ class Population {
                     parent2.innerNodes.push_back(parent1.innerNodes[nodeIndex]);
                 }
                 parent2.innerNodes.back().generationReceived = currentGeneration;
-                // Keep parent2's coactivation matrix in sync so that
             }
         }
 
@@ -2564,17 +2406,25 @@ class Population {
         /**
          * @brief Find all successor nodes reachable after path traversal from a given start node.
          *
-         * @details Starting from @p subNodesStart, this method collects successor nodes by
-         * comparing traverse counters. Nodes whose traverse counter is greater than that of the
-         * start node are considered successors. If the start node is unused, only the start node
-         * itself is returned. The resulting indices are sorted in ascending order.
+         * @details Starting from @p subNodesStart, this method collects successor nodes. By default,
+         * nodes entered AFTER the start node (Node::lastVisitStep greater) are successors. Two separate
+         * criteria use two separate fields: the ordering along the path comes from the timestamp
+         * lastVisitStep, the usage similarity of traversalNeighbor from the frequency traverseCounter
+         * (traverseCounter used to carry the timestamp, so the ratio criterion compared timestamps).
+         * Nodes of the start node's frozen block (frozen > 0) are always included. If the start node is
+         * unused, only the start node (plus its frozen block) is returned. The resulting indices are
+         * sorted in ascending order.
          *
          * @param individual The individual (network) whose inner nodes are traversed.
          * @param subNodesStart Index of the starting node in @c individual.innerNodes.
          *                      If -1, a random index is selected uniformly from the available inner nodes.
          * @param nSelectedNodes Maximum number of successor nodes to collect (excluding the start node).
          *                       If -1, a random count between 1 and the number of inner nodes minus one is chosen.
-         * @param traversalNeighbor If true, collects nodes with traverse counters within ±10% of the start node's counter, instead of strictly greater.
+         * @param traversalNeighbor If true, collects nodes whose traverseCounter lies within
+         *                          [lowerBound, upperBound] times the start node's, instead of later nodes.
+         * @param graphDepth If != -1, collects nodes by breadth-first search along the edges up to this depth instead.
+         * @param lowerBoundTraversalCounter Lower ratio bound for traversalNeighbor (default 0.9).
+         * @param upperBoundTraversalCounter Upper ratio bound for traversalNeighbor (default 1.1).
          * @return A sorted vector of node indices comprising the start node and up to
          *         @p nSelectedNodes successors.
          */
@@ -2650,12 +2500,7 @@ class Population {
             }
 
 
-            // Zwei getrennte Kriterien, zwei getrennte Felder (siehe Node::traverseCounter /
-            // Node::lastVisitStep): die Reihenfolge entlang des Pfades ("nach dem Startknoten
-            // besucht") kommt aus dem Zeitstempel lastVisitStep, die Nutzungs-Aehnlichkeit
-            // ("etwa gleich oft besucht") aus der Haeufigkeit traverseCounter. Vor der Trennung
-            // trug traverseCounter in decisionAndNextNode() den Zeitstempel, weshalb das
-            // Verhaeltnis-Kriterium unten faktisch Zeitstempel verglichen hat.
+            // Ordering from lastVisitStep, usage similarity from traverseCounter (see docstring)
             int lastVisitStepStart = individual.innerNodes[subNodesStart].lastVisitStep;
             int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
             int lastFrozenValue = individual.innerNodes[subNodesStart].frozen;
@@ -2663,13 +2508,8 @@ class Population {
                 int lastVisitStepNode = individual.innerNodes[i].lastVisitStep;
                 int traverseCounterNode = individual.innerNodes[i].traverseCounter;
                 int frozenValueNode = individual.innerNodes[i].frozen;
-                // Die frozen-Klausel haelt eingefrorene Bloecke zusammen und darf nur fuer
-                // TATSAECHLICH eingefrorene Knoten (frozen > 0) greifen. Ohne das
-                // frozen > 0 ist sie bei einem Netz ohne eingefrorene Knoten (frozen
-                // ueberall 0, der Normalfall) IMMER wahr -- dann liefert
-                // findSuccessorNodes() unabhaengig vom Pfad einfach die ersten
-                // nSelectedNodes Knoten, und "randomWidth" tauscht einen beliebigen
-                // Indexbereich statt eines Sub-Netzes.
+                // Keeps frozen blocks together; frozen > 0 required, else it is always true
+                // (frozen == 0 everywhere) and "randomWidth" swaps an arbitrary index range
                 bool sameFrozenBlock = (frozenValueNode > 0 && frozenValueNode == lastFrozenValue);
 
                 if(traversalNeighbor == false){
@@ -2707,7 +2547,7 @@ class Population {
          *   transition path (the nodes flag "used" = true).
          * 
          * **Deletion**:
-         * - Removes one unused node
+         * - Removes unused nodes down to the junk quota (see Network::addDelNodes())
          * - Updates all node IDs and edge connections to maintain graph validity
          *   Restriction: only delete a node if the node is **not** traversed during the 
          *   transition path (the node flag "used" = false).
@@ -2731,6 +2571,9 @@ class Population {
          *  the fitness neutraly is given by used nodes it just protects node of the last traversal path. 
          *  If you use multiple traversal path per generation, e.g. using multiple seeds for evaluation a elite protection is not garanteed and 
          *  noElite should be set to true. Default is false.
+         * @param currentGeneration Current generation (see Network::addDelNodes()).
+         * @param crossoverProtection Generations during which nodes received by crossover are not deleted.
+         * @param nodeGracePeriod Grace period for recently active nodes (see Network::addDelNodes()); -1 disables it.
          * 
          * @note This operator has not influence on the individuals fitness  
          * @see Network::addDelNodes()
@@ -2785,6 +2628,14 @@ class Population {
          * @param maxConsecutiveP Maximum consecutive processing nodes allowed
          * @param worstFitness Fitness value assigned when networks violate constraints
          * @param seeds Vector of random seeds for environment initialization
+         * @param validation,curriculumLevel,absoluteImpulseCurriculum See Network::fitGymnasium().
+         * @param useLineageFitness If true, every seed result updates the lineage statistics
+         *        (Network::updateLineageStats()).
+         * @param uniformDirectionCurriculum If true, directionAngles[i] is the forced impulse direction
+         *        of seeds[i] (see Network::fitGymnasium()).
+         * @param directionAngles Per-seed angles (radians) assigned for this generation, e.g. by
+         *        lunarlander.py -- guarantees an even spread of directions over the batch instead of
+         *        the natural, non-uniform seed direction.
          * @param survivalMode See Network::fitGymnasium(). Passed through unchanged so
          *        gymnasium()/renderVideos() (video path) always matches the reward mode
          *        used here during training.
@@ -2798,6 +2649,8 @@ class Population {
          *        160 * 0.8^2 = 102.4), while a "suicidal" high-scorer that rarely lands
          *        (5/10, 200 * 0.5^2 = 50.0) is penalized heavily. Default: false (mean
          *        reward, unchanged behavior).
+         *        NOTE: the code currently sets fitness to the plain landing rate
+         *        (landings / nSeeds); the Return * rate^k line is commented out.
          * @param landingQuoteExponent The exponent k in (landings/nSeeds)^k, expected
          *        in [2,3]. Only used when landingQuote is true. Default: 2.0f.
          * 
@@ -2832,25 +2685,16 @@ class Population {
                 float minReward = std::numeric_limits<float>::max();
                 int landingCount = 0;
                 bool firstSeed = true;
-                // Akkumulatoren fuer den ueber alle Seeds gemittelten Epsilon-Lexicase
-                // Ziel-Vektor (siehe Network::lastEpisodeObjectives / lexicaseObjectives).
+                // Sums for the seed-averaged lexicase objective vector
                 std::vector<float> objSum(Network::N_OBJECTIVES, 0.0f);
 
                 for(size_t seedIdx = 0; seedIdx < seeds.size(); ++seedIdx){
                     int s = seeds[seedIdx];
-                    // directionAngles[i] enthaelt den Winkel, der Seed seeds[i] fuer
-                    // diese Generation zugewiesen wurde (siehe drawSeeds()/lunarlander.py)
-                    // -- garantiert eine gleichverteilte Abdeckung aller Richtungen ueber
-                    // das Batch hinweg, statt der natuerlichen (quadratisch verteilten)
-                    // Seed-Richtung.
+                    // Angle assigned to seeds[i] this generation (see docstring)
                     float directionAngle = (uniformDirectionCurriculum && seedIdx < directionAngles.size())
                         ? directionAngles[seedIdx] : 0.0f;
 
-                    // Snapshot der traverseCounter VOR diesem Seed, um im Anschluss per Diff genau
-                    // die fuer DIESEN Seed durchlaufenen Knoten zu isolieren (traverseCounter/used
-                    // akkumulieren sonst absichtlich ueber alle Seeds der Generation hinweg, siehe
-                    // Network::visitedNodesPerSeed). Rein additiv/lesend -- aendert das bestehende
-                    // Akkumulationsverhalten von used/traverseCounter nicht.
+                    // Snapshot so a diff isolates this seed's nodes (see Network::visitedNodesPerSeed)
                     std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size());
                     for(size_t n = 0; n < network.innerNodes.size(); ++n){
                         traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
@@ -2901,7 +2745,7 @@ class Population {
                 
                 //network.updateExperienceFromEpisode();
 
-                // Ueber alle Seeds gemittelter 5-D Ziel-Vektor fuer Population::lexicaseSelection().
+                // Seed-averaged 5-D objective vector for lexicaseSelection()
                 network.lexicaseObjectives.assign(objSum.size(), 0.0f);
                 for(size_t o = 0; o < objSum.size(); o++){
                     network.lexicaseObjectives[o] = objSum[o] / static_cast<float>(seeds.size());
@@ -2910,10 +2754,7 @@ class Population {
                 // Default aggregation: mean reward of the current generation's seed batch
                 float rawFitness = totalReward / static_cast<float>(seeds.size());
                 if(landingQuote){
-                    // Fitness_gesamt = Return * (Landeanzahl / N_seeds)^k
-                    // Skaliert (statt addiert) den Return mit der Landequote, damit
-                    // konservative "immer landet" Individuen hohe aggressive Scorer mit
-                    // vielen Crashes ausstechen koennen (siehe Docstring-Rechenbeispiel).
+                    // Return * landing rate^k is commented out; fitness is the plain landing rate
                     float landingRate = static_cast<float>(landingCount) / static_cast<float>(seeds.size());
                     // network.fitness = rawFitness * std::pow(landingRate, landingQuoteExponent);
                     network.fitness = landingRate;
@@ -2943,7 +2784,7 @@ class Population {
             }
         }
 
-        /**
+        /*
          * @brief Evaluates all individuals across multiple seeds in parallel using N cores.
          *
          * @details
@@ -3030,19 +2871,18 @@ class Population {
         */
 
         /**
-         * @brief Calculates Pareto objectives (landing rate, mean reward) from fitnessValues.
+         * @brief Calculates Pareto objectives (mean reward, minimum reward) from fitnessValues.
          * 
          * @details
          * For each individual, extracts two objectives from the per-seed rewards 
          * stored in fitnessValues:
-         *   - objectives[0] = landing rate (fraction of seeds with reward > landingThreshold)
-         *   - objectives[1] = mean reward across all seeds
+         *   - objectives[0] = mean reward across all seeds
+         *   - objectives[1] = minimum reward across all seeds (worst seed)
          *
-         * The scalar fitness is set as: landingRate * 1000 + meanReward
-         * This two-stage fitness ensures landing rate has priority while mean reward
-         * breaks ties.
+         * The scalar fitness is set to the mean reward.
          *
-         * @param landingThreshold Reward threshold above which a run counts as a landing (default: 100)
+         * @param landingThreshold Reward threshold above which a run counts as a landing (default: 100).
+         *        Currently unused.
          *
          * @pre gymnasiumMultiSeed() must have been called to populate fitnessValues
          */
@@ -3069,7 +2909,7 @@ class Population {
 
                 }
                 
-                // Median Reward berechnen
+                // Median reward
                 std::vector<float> sortedRewards = network.fitnessValues;
                 std::sort(sortedRewards.begin(), sortedRewards.end());
                 float medianReward;
@@ -3114,7 +2954,8 @@ class Population {
          * @brief Performs Pareto-based tournament selection with Utopia-point elitism.
          *
          * @details
-         * Extends paretoTournamentSelection with a single elite group:
+         * Each tournament winner is drawn at random from the tournament's non-dominated
+         * individuals (by Network::objectives). Elitism uses a single elite group:
          * The E best individuals are selected by their Euclidean distance
          * to the Utopia point (the vector of per-objective maxima across
          * the entire population). This preserves individuals that are
@@ -3195,7 +3036,7 @@ class Population {
          * The E closest individuals are added to the selection as elites.
          *
          * @param E Number of elite individuals
-         * @param individuals Current population (const reference)
+         * @param individuals Current population (nBest of each chosen elite is incremented)
          * @param selection New population being constructed (output)
          */
         void setEliteUtopia(
