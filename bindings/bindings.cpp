@@ -12,17 +12,10 @@
 
 namespace py = pybind11;
 
-// Prevent pybind11 from deep-copying the entire std::vector<Network> on every
-// Python access to pop.individuals.  With this macro the vector is treated as
-// an opaque type and py::bind_vector provides a thin, reference-based wrapper
-// instead.  This is the single biggest source of memory savings: without it,
-// every `for ind in pop.individuals` copied ALL Network objects (including
-// their node trees, edges, boundaries, decisions …).
+// Opaque so pop.individuals is accessed by reference instead of deep-copying every Network.
 PYBIND11_MAKE_OPAQUE(std::vector<Network>)
 
-// Helper: fill a reusable vec2d buffer from a numpy float32 array.
-// Uses a thread_local static buffer to avoid heap allocation/deallocation
-// churn that contributes to memory fragmentation over many generations.
+// Fills a reused buffer from a 2D float32 array to avoid allocation churn across generations.
 static void fill_vec2d_from_numpy(
         py::array_t<float, py::array::c_style | py::array::forcecast> &X,
         std::vector<std::vector<float>> &vec2d) {
@@ -38,17 +31,14 @@ static void fill_vec2d_from_numpy(
     }
 }
 
-// Helper: invoke Python's gc.collect() to reclaim cyclic garbage.
-// Called after heavy operations that create many temporary Python objects
-// (gymnasium env.step/reset, data conversion, etc.) to prevent memory
-// accumulation across generations.
+// Reclaims cyclic garbage left by many env.step()/env.reset() calls.
 static void force_gc_collect() {
     py::module_::import("gc").attr("collect")();
 }
 
 PYBIND11_MODULE(_core, m) {
 
-    // ─── EdgeExperience Struct ────────────────────────────────────────────────
+    // EdgeExperience
     py::class_<Node::EdgeExperience>(m, "EdgeExperience")
         .def(py::init<>())
         .def_readwrite("meanObs",    &Node::EdgeExperience::meanObs)
@@ -81,6 +71,7 @@ PYBIND11_MODULE(_core, m) {
             std::string,
             unsigned int>(),
          py::arg("generator"), py::arg("id"), py::arg("type"), py::arg("f"))
+    .def("rngPointer", &Node::rngPointer)   // diagnostic: shared-RNG identity
     .def_readwrite("id", &Node::id)
     .def_readwrite("type", &Node::type)
     .def_readwrite("f", &Node::f)
@@ -89,7 +80,14 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("productionRuleParameter", &Node::productionRuleParameter)
     .def_readwrite("k_d", &Node::k_d)
     .def_readwrite("used", &Node::used)
+    .def_readwrite("frozen", &Node::frozen)
     .def_readwrite("traverseCounter", &Node::traverseCounter)
+    .def_readwrite("lastVisitStep", &Node::lastVisitStep)
+    .def_readwrite("generationReceived", &Node::generationReceived)
+    .def_readwrite("everUsed", &Node::everUsed)         // grace period (addDelNodes)
+    .def_readwrite("unusedSince", &Node::unusedSince)   // grace period (addDelNodes)
+    .def_readwrite("transplantBlockID", &Node::transplantBlockID)   // Population::crossover(type="seedSpecialist")
+    .def_readwrite("isBlockEntry", &Node::isBlockEntry)             // Population::crossover(type="seedSpecialist")
     .def_readwrite("edgeExperience", &Node::edgeExperience)
     .def_readwrite("gamma", &Node::gamma)
     .def_readwrite("alpha", &Node::alpha)
@@ -108,13 +106,16 @@ PYBIND11_MODULE(_core, m) {
                 n.productionRuleParameter,
                 n.k_d,
                 n.used,
-                n.gamma,          // NEU
-                n.alpha,          // NEU
-                n.edgeExperience  // NEU
+                n.gamma,
+                n.alpha,
+                n.edgeExperience,
+                n.everUsed,       // grace period (addDelNodes)
+                n.unusedSince     // grace period (addDelNodes)
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 11)
+            // 11 = legacy pickles without grace-period fields, kept loadable for archived runs.
+            if (t.size() != 11 && t.size() != 13)
                 throw std::runtime_error("Invalid state for Node!");
 
             Node n(
@@ -129,9 +130,13 @@ PYBIND11_MODULE(_core, m) {
             n.productionRuleParameter = t[5].cast<std::vector<float>>();
             n.k_d                   = t[6].cast<std::pair<int, int>>();
             n.used                  = t[7].cast<bool>();
-            n.gamma                 = t[8].cast<float>();   // NEU
-            n.alpha                 = t[9].cast<float>();   // NEU
-            n.edgeExperience        = t[10].cast<std::vector<Node::EdgeExperience>>(); // NEU
+            n.gamma                 = t[8].cast<float>();
+            n.alpha                 = t[9].cast<float>();
+            n.edgeExperience        = t[10].cast<std::vector<Node::EdgeExperience>>();
+            if (t.size() == 13) {
+                n.everUsed    = t[11].cast<bool>();
+                n.unusedSince = t[12].cast<int>();
+            }
 
             return n;
         }
@@ -152,11 +157,18 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("pn", &Network::pn)
     .def_readwrite("pnf", &Network::pnf)
     .def_readwrite("fractalJudgment", &Network::fractalJudgment)
+    .def("rngPointer", &Network::rngPointer)   // diagnostic: shared-RNG identity
     .def_readwrite("innerNodes", &Network::innerNodes)
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
     .def_readwrite("fitnessValues", &Network::fitnessValues)
+    .def_readwrite("visitedNodesPerSeed", &Network::visitedNodesPerSeed) // per-seed active sub-graph (gymnasiumMultiSeed(), seedSpecialist crossover)
+    .def_readwrite("lastFitness", &Network::lastFitness)
+    .def_readwrite("lastFitnessII", &Network::lastFitnessII)
     .def_readwrite("objectives", &Network::objectives)       // Pareto objectives
+    .def_readwrite("lastEpisodeObjectives", &Network::lastEpisodeObjectives)   // lexicase: 5-D objectives of the last episode
+    .def_readwrite("lexicaseObjectives", &Network::lexicaseObjectives)         // lexicase: 5-D objectives averaged over seeds
+    .def_readwrite("objectivesPerSeed", &Network::objectivesPerSeed)           // lexicase: 5-D objectives per seed (type="objectivesPerSeed")
     .def_readwrite("lastStepRewards", &Network::lastStepRewards)
     .def_readwrite("decisions", &Network::decisions)
     .def_readwrite("currentNodeID", &Network::currentNodeID)
@@ -165,6 +177,16 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("nConsecutiveP", &Network::nConsecutiveP)
     .def_readwrite("nCrossovers", &Network::nCrossovers)
     .def_readwrite("frozenExperience", &Network::frozenExperience)
+    .def_readwrite("lineageMean", &Network::lineageMean)
+    .def_readwrite("lineageN", &Network::lineageN)
+    .def_readwrite("lineageM2", &Network::lineageM2)
+    .def_readwrite("lineageSuccessRate", &Network::lineageSuccessRate)
+    .def_readwrite("lineageSuccessN", &Network::lineageSuccessN)
+    .def_readwrite("structureChangedThisGen", &Network::structureChangedThisGen)
+    .def("lineageVariance", &Network::lineageVariance)
+    .def("lineageLCB", &Network::lineageLCB, "z"_a)
+    .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("landed"))
+    .def("blendLineageWith", &Network::blendLineageWith, py::arg("other"), py::arg("priorCap"))
     .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f)
     .def("decisionAndNextNode",
         [](Network &self, std::vector<double> obs, int dMax) -> int {
@@ -183,7 +205,7 @@ PYBIND11_MODULE(_core, m) {
         py::arg("X"), py::arg("dMax"))
     .def("clearUsedNodes", &Network::clearUsedNodes)
     .def("updateExperienceFromEpisode", &Network::updateExperienceFromEpisode)
-        // Pickle support – fixed: tuple has 12 elements (indices 0-11)
+    // pickle support (12-element tuple)
     .def(py::pickle(
         [](const Network &n) { // __getstate__
             return py::make_tuple(
@@ -217,9 +239,7 @@ PYBIND11_MODULE(_core, m) {
         }
     ));
 
-    // Opaque vector binding – gives Python list-like access by reference,
-    // no deep copies.  Pickle serialises to/from a plain Python list of
-    // Network objects.
+    // List-like access by reference; pickles as a plain list of Networks.
     py::bind_vector<std::vector<Network>>(m, "NetworkVector")
         .def(py::pickle(
             [](const std::vector<Network> &v) { // __getstate__
@@ -237,6 +257,14 @@ PYBIND11_MODULE(_core, m) {
             }
         ));
 
+    // Internal, exposed only to inspect the initial impulse in reset().
+    py::class_<GymEnvWrapper>(m, "GymEnvWrapper")
+        .def(py::init<const py::object&>(), py::arg("env"))
+        .def("reset", &GymEnvWrapper::reset,
+             py::arg("seed")=-1, py::arg("curriculumLevel")=1.0f,
+             py::arg("absoluteImpulseCurriculum")=false, py::arg("validation")=false,
+             py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngle")=0.0f);
+
     // Population
     py::class_<Population>(m, "Population")
         // Member
@@ -253,6 +281,8 @@ PYBIND11_MODULE(_core, m) {
                 >(),
              py::arg("seed"), py::arg("ni"), py::arg("jn"), py::arg("jnf"),
              py::arg("pn"), py::arg("pnf"), py::arg("fractalJudgment"), py::arg("useExperience") = false, py::arg("nFeatureValues"))
+        .def("rngState", &Population::rngState)     // diagnostic: full RNG state
+        .def("rngPointer", &Population::rngPointer) // diagnostic: shared-RNG identity
         .def_readonly("ni", &Population::ni)
         .def_readwrite("jn", &Population::jn)
         .def_readwrite("jnf", &Population::jnf)
@@ -265,12 +295,35 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
         .def_readwrite("maxNetworkSize", &Population::maxNetworkSize)
-        // Use def_property with return_value_policy::reference instead of
-        // def_readwrite (which uses reference_internal / keep_alive).
-        // reference_internal calls add_patient() on every property access,
-        // accumulating Py_INCREF entries in pybind11's internals.patients map.
-        // With plain reference, the wrapper simply points to the member
-        // without adding keep_alive bookkeeping each time.
+        .def_readwrite("nextTransplantBlockID", &Population::nextTransplantBlockID) // seedSpecialist crossover block-id counter
+        // Crossover diagnostics of the last crossover() call (filled by type="semantic" only)
+        .def_readonly("crossoverPairsApplied", &Population::crossoverPairsApplied)
+        .def_readonly("crossoverNodesMatched", &Population::crossoverNodesMatched)
+        .def_readonly("crossoverNodesExchanged", &Population::crossoverNodesExchanged)
+        .def_readonly("crossoverNodesSkipped", &Population::crossoverNodesSkipped)
+        // Counted in C++ because reading innerNodes from Python copies the whole node vector.
+        .def("networkSizes",
+            [](Population &self){
+                std::vector<int> sizes;
+                sizes.reserve(self.individuals.size());
+                for(auto& net : self.individuals) sizes.push_back(static_cast<int>(net.innerNodes.size()));
+                return sizes;
+            },
+            "Number of inner nodes per individual (index-aligned with individuals).")
+        .def("unusedNodeCounts",
+            [](Population &self){
+                std::vector<int> counts;
+                counts.reserve(self.individuals.size());
+                for(auto& net : self.individuals){
+                    int unused = 0;
+                    for(auto& node : net.innerNodes) if(!node.used) unused += 1;
+                    counts.push_back(unused);
+                }
+                return counts;
+            },
+            "Number of nodes never entered during the last evaluation, per individual "
+            "(dormant transplant blocks and junk DNA).")
+        // Plain reference avoids the keep_alive entry reference_internal adds on every access.
         .def_property("individuals",
             [](Population &self) -> std::vector<Network>& {
                 return self.individuals;
@@ -356,47 +409,45 @@ PYBIND11_MODULE(_core, m) {
                     int maxConsecutiveP,
                     int worstFitness,
                     int seed,
-                    float curriculumLevel=1.0f
+                    bool validation,
+                    float curriculumLevel=1.0f,
+                    bool absoluteImpulseCurriculum=false,
+                    bool uniformDirectionCurriculum=false,
+                    float directionAngle=0.0f,
+                    bool survivalMode=false,
+                    bool potential=false
                     ) {
                         GymEnvWrapper wrapper(env);
-                        self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed, validation, curriculumLevel);
-                        // Force GC to reclaim cyclic garbage from env.step()/env.reset()
-                        // calls that accumulate over the population loop.
+                        self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed, validation, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
                         force_gc_collect();
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f, py::arg("absoluteImpulseCurriculum")=false, py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngle")=0.0f, py::arg("survivalMode")=false, py::arg("potential")=false
             )
 
         .def("gymnasiumMultiSeed",
                 [](Population &self,
-                    py::object env_or_envs,
+                    py::object env,
                     int dMax,
                     int maxSteps,
                     int maxConsecutiveP,
                     int worstFitness,
                     std::vector<int> seeds,
-                    float curriculumLevel=1.0f
+                    bool validation,
+                    float curriculumLevel=1.0f,
+                    bool absoluteImpulseCurriculum=false,
+                    bool useLineageFitness=true,
+                    bool uniformDirectionCurriculum=false,
+                    std::vector<float> directionAngles={},
+                    bool survivalMode=false,
+                    bool potential=false,
+                    bool landingQuote=false,
+                    float landingQuoteExponent=2.0f
                     ) {
-                        if (py::isinstance<py::list>(env_or_envs)) {
-                            // Parallel path: list of environments, one per core.
-                            py::list env_list = env_or_envs.cast<py::list>();
-                            std::vector<GymEnvWrapper> wrappers;
-                            wrappers.reserve(py::len(env_list));
-                            for (auto item : env_list) {
-                                wrappers.emplace_back(item.cast<py::object>());
-                            }
-                            {
-                                py::gil_scoped_release release;
-                                //self.gymnasiumMultiSeed(wrappers, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds);
-                            }
-                        } else {
-                            // Single-env path (backward compatible).
-                            GymEnvWrapper wrapper(env_or_envs);
-                            self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds, validation, curriculumLevel);
-                        }
+                        GymEnvWrapper wrapper(env);
+                        self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds, validation, curriculumLevel, absoluteImpulseCurriculum, useLineageFitness, uniformDirectionCurriculum, directionAngles, survivalMode, potential, landingQuote, landingQuoteExponent);
                         force_gc_collect();
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f
+                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f, py::arg("absoluteImpulseCurriculum")=false, py::arg("useLineageFitness")=true, py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngles")=std::vector<float>{}, py::arg("survivalMode")=false, py::arg("potential")=false, py::arg("landingQuote")=false, py::arg("landingQuoteExponent")=2.0f
             )
 
         .def("calculateParetoObjectives", &Population::calculateParetoObjectives,
@@ -405,29 +456,58 @@ PYBIND11_MODULE(_core, m) {
 
         .def("paretoTournamentSelection", &Population::paretoTournamentSelection,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("N"), py::arg("E_reward"), py::arg("E_landing"))
+             py::arg("N"), py::arg("E"))
 
         .def("tournamentSelection", &Population::tournamentSelection,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("N"), py::arg("E"))
+             py::arg("N"), py::arg("E"), py::arg("useLineageFitness")=false, py::arg("minLineageN")=10, py::arg("lineageZ")=0.0f)
+        .def("lexicaseSelection", &Population::lexicaseSelection,
+             py::call_guard<py::gil_scoped_release>(),
+             // epsilon: reward margin (<0 = MAD), or rank positions for "seedsRank" (<0 = 3).
+             py::arg("E"), py::arg("epsilon")=-1.0f, py::arg("type")=std::string("objectives"))
+        .def("capLineageAfterMutation", &Population::capLineageAfterMutation,
+             py::call_guard<py::gil_scoped_release>(),
+             py::arg("priorCap")=5)
+        .def_static("seedRobustLineageSuccess", &Population::seedRobustLineageSuccess,
+             py::arg("ind"), py::arg("z")=1.0f)
+        .def_static("seedConsistentSuccess", &Population::seedConsistentSuccess,
+             py::arg("ind"), py::arg("requiredFraction")=1.0f, py::arg("z")=1.0f)
+        .def_static("batchThresholdSuccess", &Population::batchThresholdSuccess,
+             py::arg("ind"), py::arg("threshold")=900.0f, py::arg("requiredFraction")=1.0f)
+        .def_static("seedConsistencyRatio", &Population::seedConsistencyRatio,
+             py::arg("ind"))
+        .def("updateAdaptiveK", &Population::updateAdaptiveK,
+             py::arg("successCriterion") = Population::SuccessCriterion([](const Network& ind){ return Population::seedConsistencyRatio(ind); }),
+             py::arg("useRechenberg")=true,
+             py::arg("invert")=false,
+             py::arg("windowSize")=10,
+             py::arg("targetSuccessRate")=0.2f,
+             py::arg("incFactor")=1.22f,
+             py::arg("decFactor")=0.82f,
+             py::arg("kMin")=0.1f,
+             py::arg("kMax")=5.0f)
+        .def_readwrite("adaptiveK", &Population::adaptiveK_)
+        .def_property_readonly("successRateHistory", [](const Population& p){
+             return std::vector<float>(p.successRateHistory_.begin(), p.successRateHistory_.end());
+         })
         .def("callEdgeMutation", &Population::callEdgeMutation,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("k")=0)
+             py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("justUsedNodes")=false)
+             py::arg("probability"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def(
             "callBoundaryMutationFractal",
-            [](Population &p, float probability, py::list minF_py, py::list maxF_py, bool justUsedNodes)
+            [](Population &p, float probability, py::list minF_py, py::list maxF_py, bool justUsedNodes, float k)
             {
                 std::vector<float> minF;
                 std::vector<float> maxF;
@@ -440,13 +520,14 @@ PYBIND11_MODULE(_core, m) {
 
                 {
                     py::gil_scoped_release release;
-                    p.callBoundaryMutationFractal(probability, minF, maxF, justUsedNodes);
+                    p.callBoundaryMutationFractal(probability, minF, maxF, justUsedNodes, k);
                 }
             },
             py::arg("probability"),
             py::arg("minF"),
             py::arg("maxF"),
-            py::arg("justUsedNodes")=false
+            py::arg("justUsedNodes")=false,
+            py::arg("k")=1.0f
         )
 
         .def("callGammaMutation", &Population::callGammaMutation,
@@ -460,11 +541,18 @@ PYBIND11_MODULE(_core, m) {
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), 
              py::arg("type"), 
+             py::arg("currentGeneration")=0,
+             py::arg("crossoverProtection") = 0,
              py::arg("traversalNeighbor")=false, 
              py::arg("lowerBoundTraversalCounter")=0.9,
-             py::arg("upperBoundTraversalCounter")=1.1)
+             py::arg("upperBoundTraversalCounter")=1.1,
+             py::arg("lineagePriorCap")=5,
+             py::arg("boundaryTolerance")=1.0f,   // type="semantic" only
+             py::arg("matchOnlyUsed")=false,      // type="semantic" only
+             py::arg("nodeExchangeRate")=-1.0f)   // type="semantic" only; <0 = use probability
         .def(
             "callAddDelNodes",
+            [](Population &p, py::list minF_py, py::list maxF_py, float junk, bool noElite, int currentGeneration, int crossoverProtection, int nodeGracePeriod)
             {
                 std::vector<float> minF;
                 std::vector<float> maxF;
@@ -477,16 +565,21 @@ PYBIND11_MODULE(_core, m) {
 
                 {
                     py::gil_scoped_release release;
-                    p.callAddDelNodes(minF, maxF, junk, noElite);
+                    p.callAddDelNodes(minF, maxF, junk, noElite, currentGeneration, crossoverProtection, nodeGracePeriod);
                 }
             },
             py::arg("minF"),
             py::arg("maxF"),
             py::arg("junk")=0,
-            py::arg("noElite")=false
+            py::arg("noElite")=false,
+            py::arg("currentGeneration") = 0,
+            py::arg("crossoverProtection") = 3,
+            py::arg("nodeGracePeriod") = -1   // -1 = historical clusterLabels path
         )
+        .def("callAgeUnusedNodes", &Population::callAgeUnusedNodes,
+            py::call_guard<py::gil_scoped_release>())
 
-        // pickle support – serialise individuals as a plain Python list
+        // pickle support; individuals are stored as a plain Python list
         .def(py::pickle(
         [](const Population &p) { // __getstate__
             py::list ind_list;

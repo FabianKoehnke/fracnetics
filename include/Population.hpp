@@ -2,6 +2,7 @@
 #define POPULATION_HPP
 #include <algorithm>
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 #include <random>
@@ -9,6 +10,10 @@
 #include <utility>
 #include <cmath>
 #include <thread>
+#include <numeric>
+#include <stdexcept>
+#include <functional>
+#include <deque>
 #include "Network.hpp"
 #include "GymnasiumWrapper.hpp"
 
@@ -47,6 +52,17 @@ class Population {
         /** @endcond */
 
     public:
+        /** Diagnostic: serialised state of the shared RNG, for comparing two runs. */
+        std::string rngState() const {
+            std::ostringstream ss;
+            ss << *generator;
+            return ss.str();
+        }
+        /** Diagnostic: identity of the shared RNG, to detect individuals pointing elsewhere. */
+        std::uintptr_t rngPointer() const {
+            return reinterpret_cast<std::uintptr_t>(generator.get());
+        }
+
         /** @cond INTERNAL */
         const unsigned int ni; /**< Number of individuals in the population (constant after initialization) */
         unsigned int jn; /**< Initial number of judgment nodes per individual */
@@ -62,7 +78,27 @@ class Population {
         float minFitness; /**< Minimum fitness value in the current population */
         int maxNetworkSize; 
         std::vector<int> nFeatureValues; /** stores the number of feature values */
+        // Crossover diagnostics of the LAST crossover() call. Only type="semantic" fills
+        // them; all other types leave them at 0. They exist to tell "the operator had no
+        // effect" apart from "the operator never fired": if nodesSkipped dominates
+        // nodesExchanged, boundaryTolerance is too tight for a gene to travel with its
+        // whole neighbourhood (see the all-or-nothing rule in the semantic branch).
+        int crossoverPairsApplied = 0;   /**< Parent pairs that actually entered the exchange. */
+        int crossoverNodesMatched = 0;   /**< Node pairs the role matching found, summed over all pairs. */
+        int crossoverNodesExchanged = 0; /**< Nodes actually transferred donor -> recipient. */
+        int crossoverNodesSkipped = 0;   /**< Nodes drawn for exchange but skipped: an edge was untranslatable. */
+        int nextTransplantBlockID = 1; /**< Monotonically increasing counter used to tag each transplanted
+                                             sub-graph produced by crossover(type="seedSpecialist") with a unique
+                                             Node::transplantBlockID (0 is reserved / unused, -1 means "no block"). */
         /** @endcond */
+
+        /** @name Self-adaptive mutation strength (Rechenberg 1/5-success-rule) */
+        /** @{ */
+        using SuccessCriterion = std::function<float(const Network&)>; /**< Exchangeable per-individual scoring function for updateAdaptiveK(). May be a continuous score in [0,1] (e.g. seedConsistencyRatio()) or a legacy bool-returning predicate (implicitly converted to 1.0f/0.0f, e.g. seedConsistentSuccess()). */
+
+        float adaptiveK_ = 1.0f; /**< Current self-adapted k, used as the mutation-strength parameter (see updateAdaptiveK()). */
+        std::deque<float> successRateHistory_; /**< Rolling window of per-generation (mean) scores -- smooths the signal over multiple generations (see windowSize in updateAdaptiveK()). Most recent at the back. */
+        /** @} */
 
         /** @name Constructor */
         /** @{ */
@@ -124,6 +160,9 @@ class Population {
                     nFeatureValues
                 ));
             }
+            // Die Startnetze belegen bereits die innovationIDs 0..jn+pn-1 (jedes Individuum
+            // dieselben, siehe Network-Konstruktor). Der Zaehler fuer strukturell NEUE Knoten
+            // muss deshalb dahinter beginnen.
         }
         /** @} */
 
@@ -283,6 +322,19 @@ class Population {
          * @param maxConsecutiveP Maximum consecutive processing nodes allowed 
          * @param worstFitness Fitness value assigned when networks violate constraints
          * @param seed Random seed for environment initialization (currently unused in implementation)
+         * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization)
+         * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
+         * @param absoluteImpulseCurriculum See Network::fitGymnasium().
+         * @param uniformDirectionCurriculum If true, forces the impulse direction to directionAngle (see
+         *        Network::fitGymnasium()) -- lets renderVideos() visually reflect the same forced-direction
+         *        training conditions currently in effect, instead of always falling back to the natural seed
+         *        direction.
+         * @param directionAngle Forced impulse direction in radians, only used if uniformDirectionCurriculum=true.
+         * 
+         * @param survivalMode See Network::fitGymnasium(). Passed through unchanged so
+         *        renderVideos()/gymnasium() (video path) always matches the reward mode
+         *        used during training via gymnasiumMultiSeed().
+         * @param potential See Network::fitGymnasium().
          * 
          * @see Network::fitGymnasium()
          */
@@ -293,9 +345,16 @@ class Population {
             int maxConsecutiveP,
             int worstFitness,
             int seed,
-            float curriculumLevel = 1.0f
+            bool validation = false,
+            float curriculumLevel = 1.0f,
+            bool absoluteImpulseCurriculum = false,
+            bool uniformDirectionCurriculum = false,
+            float directionAngle = 0.0f,
+            bool survivalMode = false,
+            bool potential = false
                 ){
 
+            bool updateExperience = false;
             for(auto& network : individuals){
                 network.fitGymnasium(
                         env,
@@ -304,8 +363,21 @@ class Population {
                         maxConsecutiveP,
                         worstFitness,
                         seed,
-                        curriculumLevel
+                        true,
+                        validation,
+                        updateExperience,
+                        curriculumLevel,
+                        absoluteImpulseCurriculum,
+                        uniformDirectionCurriculum,
+                        directionAngle,
+                        survivalMode,
+                        potential
                         );
+                // Konsistenz mit gymnasiumMultiSeed(): auch der Einzel-Seed-Pfad (Video-
+                // Rendering) befuellt lexicaseObjectives, hier ohne Mittelung ueber
+                // mehrere Seeds (nur 1 Episode).
+                network.lexicaseObjectives = network.lastEpisodeObjectives;
+                network.objectivesPerSeed.assign(1, network.lastEpisodeObjectives);
             }
         }
 
@@ -362,12 +434,41 @@ class Population {
          * 
          * @param N Tournament size (number of individuals per tournament)
          * @param E Elite size (number of best individuals to preserve unchanged)
+         * @param useLineageFitness Wenn true, wird als Selektionskriterium bevorzugt
+         *        `lineageMean` (laufender Mittelwert ueber ALLE je gesehenen Seeds dieser
+         *        Linie) statt der rohen aktuellen Fitness verwendet -- macht die Selektion
+         *        robuster gegen Generalisierungs-Ausreisser (z.B. ein einzelner harter Crash-
+         *        Seed in der aktuellen Generation). Gilt NUR fuer Individuen mit
+         *        `lineageN >= minLineageN` (Bootstrap-Schutz); alle anderen (z.B. junge
+         *        Linien direkt nach Populationsinitialisierung) fallen automatisch auf die
+         *        rohe `fitness` zurueck, bis genug Beobachtungen vorliegen. Reporting-Groessen
+         *        (bestFit/meanFitness/minFitness) bleiben unabhaengig davon immer die rohe
+         *        Fitness des jeweiligen Turniersiegers (fuer konsistentes Logging/Plotting).
+         * @param minLineageN Minimale Anzahl an Lineage-Beobachtungen, ab der `lineageMean`
+         *        statt roher Fitness als Kriterium genutzt wird (nur relevant, wenn
+         *        `useLineageFitness == true`). Default 10.
          * 
          * @note N ≥ 2 for meaningful selection pressure
          * @note Population size remains constant at ni
          * 
          */
-        void tournamentSelection(int N, int E){
+        void tournamentSelection(int N, int E, bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
+            // Liefert das tatsaechliche Selektionskriterium fuer ein Individuum: entweder die
+            // rohe aktuelle Fitness (Standard) oder -- falls aktiviert und genug Beobachtungen
+            // vorliegen -- die untere Konfidenzgrenze (LCB) des Lineage-Mittelwerts. Die LCB
+            // bestraft Linien mit kleinem lineageN/hoher Unsicherheit automatisch (siehe
+            // Network::lineageLCB()) und verhindert so, dass frisch ueber minLineageN
+            // gekommene "Gluecks-Neulinge" durch reines Stichprobenrauschen etablierte,
+            // praeziser geschaetzte Linien bei der Selektion verdraengen (Winner's-Curse-Fix).
+            // lineageZ=0.0 (Default) reduziert lineageLCB() auf den reinen lineageMean
+            // (bisheriges Verhalten, abwaertskompatibel).
+            auto selectionCriterion = [&](const Network& ind) -> float {
+                if(useLineageFitness && ind.lineageN >= minLineageN){
+                    return ind.lineageLCB(lineageZ);
+                }
+                return ind.fitness;
+            };
+
             std::vector<Network> selection;
             selection.reserve(individuals.size()); 
             std::unordered_set<int> tournament;
@@ -382,7 +483,7 @@ class Population {
                 if(individuals[i].innerNodes.size() > maxNetworkSize){
                     maxNetworkSize = individuals[i].innerNodes.size();
                 }
-                float bestFitTournament = std::numeric_limits<float>::lowest();
+                float bestCriterionTournament = std::numeric_limits<float>::lowest();
                 int indexBestIndTournament = 0;
                 tournament.clear();
 
@@ -391,12 +492,16 @@ class Population {
                     tournament.insert(randomInt);
                 }
                 for(int k : tournament){
-                   if(individuals[k].fitness > bestFitTournament){
-                       bestFitTournament = individuals[k].fitness;
+                   float criterion = selectionCriterion(individuals[k]);
+                   if(criterion > bestCriterionTournament){
+                       bestCriterionTournament = criterion;
                        indexBestIndTournament = k;
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
+                // Reporting bleibt konsistent auf roher Fitness, unabhaengig vom
+                // verwendeten Selektionskriterium (siehe Doku oben).
+                float bestFitTournament = individuals[indexBestIndTournament].fitness;
                 meanFitness += bestFitTournament;
                 if (bestFitTournament < minFitness) {
                     minFitness = bestFitTournament;
@@ -405,6 +510,384 @@ class Population {
                     bestFit = bestFitTournament;
                 }
             }
+            setElite(E, individuals, selection, useLineageFitness, minLineageN, lineageZ);
+            individuals = std::move(selection);
+            // set frozenExperience flag back for non-elite
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
+                individuals[i].frozenExperience = isElite;
+            }
+            meanFitness /= individuals.size();
+        }
+
+        /**
+         * @brief Performs Epsilon-Lexicase Selection, either over 5 isolated fitness
+         *        objectives ("objectives") or over per-seed test cases with a
+         *        3-tier hierarchy ("seeds").
+         *
+         * @details
+         * Unlike tournamentSelection(), which compares individuals using a single
+         * aggregated fitness scalar, lexicaseSelection() selects individuals by
+         * filtering the candidate pool test case by test case, in a randomly
+         * shuffled order drawn independently for every selection event.
+         *
+         * See: Spector, "Assessment of Problem Modality by Differential Performance
+         * of Lexicase Selection in Genetic Programming", and La Cava et al.,
+         * "Epsilon-Lexicase Selection for Regression".
+         *
+         * **type = "objectives" (default)**: test cases are the isolated objectives of
+         * Network::lexicaseObjectives, each averaged over the seed batch. Five criteria,
+         * higher = better, and EVERY one of them is maximised by landing on the pad (see
+         * Network::lastEpisodeObjectives):
+         *   1. **Total Gymnasium reward** over the episode.
+         *   2. **Descent safety**: -|vy_end|, but only if the episode ended in a landing;
+         *      otherwise a fixed penalty.
+         *   3. **Lateral speed**: -|vx_end| under the same condition, kept separate from
+         *      the vertical one -- a combined term lets a network score on the vertical
+         *      part alone and slide off the pad sideways, which is what was measured.
+         *   4. **Horizontal precision**: -|x_end|, again only when landed.
+         *   5. **Landed**: 1.0 on a safe landing, 0.0 otherwise.
+         * The condition on 2-4 matters: measured without it, a network hovering over the
+         * pad until the step limit won four of the five test cases (it stands still, above
+         * the pad, and survives longest), and the population drifted there.
+         * Per selection event: shuffle the objective indices, then for each objective
+         * (while >1 candidate remains) find the best value among the remaining
+         * candidates, eliminate everyone below best-epsilon, continue to the next
+         * objective. Random tie-break if >1 candidate remains at the end.
+         *
+         * **type = "objectivesPerSeed"**: test cases are the (seed x objective) pairs --
+         * the 5 objectives above, kept separate for every seed
+         * (network.objectivesPerSeed[seedIdx][objIdx]), giving 5*nSeeds test cases instead
+         * of 5 or nSeeds. Motivation: with one scalar per seed, individuals on a converged
+         * plateau become indistinguishable (their total rewards lie closer together than
+         * the seed-to-seed noise), while the objectives still measure different things and
+         * separate them. The whole grid is shuffled as one, so neither seeds nor objectives
+         * are systematically decided first. Requires gymnasiumMultiSeed() to have run.
+         *
+         * **type = "seedsStandardized"**: same test cases as "seeds", but the rewards of each
+         * seed are z-transformed over the whole population once per generation, and the
+         * tolerance is a fixed number of standard deviations (`epsilon`, negative defaults to
+         * 0.5) instead of the MAD automatic. This makes the selection pressure independent of
+         * the shape and the scale of the reward and removes the seed difficulty, while --
+         * unlike a rank transform -- keeping the magnitudes that epsilon is meant to judge.
+         * Standardising over the population rather than over the shrinking candidate pool is
+         * deliberate, so a fixed epsilon does not get more permissive along the filter chain.
+         *
+         * **type = "seedsRank"**: same test cases as "seeds", but each filter cuts by RANK
+         * instead of by reward value: the remaining candidates are sorted by their reward on
+         * that seed and the best (epsilon + 1) ranks are kept, ties surviving together. The
+         * ranks are recomputed over the remaining pool at every step, so the selection
+         * pressure stays constant along the chain. `epsilon` is therefore a number of rank
+         * positions, not a reward margin, and the MAD automatic is not available (the MAD of
+         * ranks is ~n/4 whatever the data); a negative epsilon defaults to 3. Motivation: the
+         * reward is bimodal, so a value-based MAD mostly measures the distance between
+         * "landed" and "crashed" rather than the resolution among near-equal candidates.
+         * WARNING: an absolute rank cut collapses the pool to epsilon+1 candidates in a
+         * single step, after which every remaining test case filters nobody -- only the
+         * first one or two seeds ever decide a parent. Prefer "seedsStandardized".
+         *
+         * **type = "seeds"**: test cases are the individual seeds evaluated by
+         * gymnasiumMultiSeed() (network.fitnessValues[seedIdx], the raw/aggregated
+         * per-seed reward). For each seed in the shuffled order, the raw reward is
+         * maximized directly (MAD- or fixed-epsilon tolerance) -- no landing/
+         * landing-speed tiers, a single criterion per seed.
+         *
+         * **Algorithm per selection event** (both variants):
+         * 1. Start with the full population as candidate pool.
+         * 2. Draw a random permutation of test cases (objectives or seeds).
+         * 3. Filter the candidate pool test case by test case as described above.
+         * 4. If exactly 1 candidate remains, it is the selected parent. If more
+         *    than 1 remains after all test cases are exhausted (tie), pick
+         *    uniformly at random among the remaining candidates.
+         * 5. For the next parent, restart from step 1 -- including a freshly
+         *    drawn random shuffle of the test cases.
+         *
+         * @param E Elite size (number of best individuals to preserve unchanged, by aggregated fitness).
+         * @param epsilon Tolerance for the per-test-case filtering step. If negative
+         *                (default), an automatic MAD-based epsilon is computed per
+         *                test case/round (standard Epsilon-Lexicase). If >= 0, this
+         *                fixed value is used as the tolerance for every test case/round
+         *                instead.
+         * @param type One of "objectives" (default), "seeds", "seedsStandardized", "seedsRank"
+         *             or "objectivesPerSeed" -- selects which test
+         *             case decomposition to use (see above). Throws std::invalid_argument
+         *             for any other value.
+         *
+         * @pre For type="objectives": all individuals must have a non-empty, equally-sized
+         *      (5-D) lexicaseObjectives vector (populated by gymnasiumMultiSeed()/gymnasium()).
+         * @pre For type="seeds": all individuals must have a non-empty and equally-sized
+         *      fitnessValues vector (populated by gymnasiumMultiSeed()).
+         *
+         * @note Population size remains constant at ni.
+         * @note Elite handling and bestFit/meanFitness/minFitness bookkeeping mirror
+         *       tournamentSelection() for compatibility with the rest of the pipeline.
+         */
+        void lexicaseSelection(int E, float epsilon = -1.0f, std::string type = "objectives"){
+            if(type != "objectives" && type != "seeds" && type != "objectivesPerSeed"
+               && type != "seedsRank" && type != "seedsStandardized"){
+                throw std::invalid_argument("lexicaseSelection: unknown type \"" + type + "\" (expected \"objectives\", \"seeds\", \"seedsStandardized\", \"seedsRank\" or \"objectivesPerSeed\")");
+            }
+
+            // Berechnet die MAD-basierte Toleranz (oder den festen epsilon-Wert) fuer eine
+            // Menge von Werten -- identisch fuer jedes Ziel/jeden Seed/jede Runde benoetigt.
+            auto computeThreshold = [&](const std::vector<float>& values) -> float {
+                if(epsilon >= 0.0f) return epsilon;
+                std::vector<float> sortedValues = values;
+                std::sort(sortedValues.begin(), sortedValues.end());
+                size_t mid = sortedValues.size() / 2;
+                float median = sortedValues[mid];
+                if(sortedValues.size() % 2 == 0){
+                    median = (sortedValues[mid-1] + sortedValues[mid]) / 2.0f;
+                }
+                std::vector<float> absDevs;
+                absDevs.reserve(values.size());
+                for(float v : values){
+                    absDevs.push_back(std::abs(v - median));
+                }
+                std::sort(absDevs.begin(), absDevs.end());
+                size_t midDev = absDevs.size() / 2;
+                float threshold = absDevs[midDev];
+                if(absDevs.size() % 2 == 0){
+                    threshold = (absDevs[midDev-1] + absDevs[midDev]) / 2.0f;
+                }
+                return threshold;
+            };
+
+            std::vector<Network> selection;
+            selection.reserve(individuals.size());
+
+            meanFitness = 0;
+            minFitness = individuals[0].fitness;
+            bestFit = individuals[0].fitness;
+            maxNetworkSize = individuals[0].innerNodes.size();
+
+            std::vector<int> allIndices(individuals.size());
+            std::iota(allIndices.begin(), allIndices.end(), 0);
+
+            const size_t nObjectives = individuals[0].lexicaseObjectives.size(); // used if type=="objectives"
+            const size_t nSeeds = individuals[0].fitnessValues.size();          // used if type=="seeds"
+
+            std::vector<int> objectiveOrder(nObjectives);
+            std::iota(objectiveOrder.begin(), objectiveOrder.end(), 0);
+
+            std::vector<int> seedOrder(nSeeds);
+            std::iota(seedOrder.begin(), seedOrder.end(), 0);
+
+            // type=="seedsRank": epsilon is a number of RANK POSITIONS, not a reward margin.
+            // The MAD automatic is deliberately not available here -- the MAD of ranks is
+            // always about n/4 regardless of the data, so it would degenerate into "keep the
+            // upper half on every test case".
+            const int rankTolerance = (epsilon < 0.0f) ? 3 : static_cast<int>(std::lround(epsilon));
+
+            // type=="seedsStandardized": the rewards of each seed are z-transformed over the
+            // WHOLE population once per generation -- (value - mean) / sd. epsilon is then a
+            // number of standard deviations and means the same thing on every seed and in
+            // every generation, no matter how the rewards happen to be distributed.
+            //
+            // Why not the raw MAD of "seeds": the reward is bimodal (landed ~+200 against
+            // crashed ~-200), and a spread estimate on such a distribution mostly measures
+            // the distance between the two modes, not the resolution among the near-equal
+            // candidates that selection actually has to separate -- epsilon comes out far too
+            // large and the test case barely filters. Standardising is the established fix
+            // (La Cava et al., epsilon-lexicase); unlike a rank transform it keeps the
+            // magnitudes, which is exactly what epsilon is meant to judge.
+            //
+            // Standardising over the population and not over the shrinking candidate pool is
+            // deliberate (the "semi-dynamic" variant): a pool-based sd shrinks along the
+            // filter chain, so a fixed epsilon would silently get more permissive with every
+            // step.
+            std::vector<std::vector<float>> standardizedBySeed;
+            if(type == "seedsStandardized"){
+                standardizedBySeed.assign(nSeeds, std::vector<float>(individuals.size(), 0.0f));
+                for(size_t seedIdx = 0; seedIdx < nSeeds; seedIdx++){
+                    double sum = 0.0;
+                    for(const auto& ind : individuals) sum += ind.fitnessValues[seedIdx];
+                    double mean = sum / static_cast<double>(individuals.size());
+                    double sqSum = 0.0;
+                    for(const auto& ind : individuals){
+                        double d = ind.fitnessValues[seedIdx] - mean;
+                        sqSum += d * d;
+                    }
+                    double sd = std::sqrt(sqSum / static_cast<double>(individuals.size()));
+                    // Every individual identical on this seed: the test case carries no
+                    // information, leave it at 0 so it filters nobody.
+                    if(sd < 1e-9){
+                        continue;
+                    }
+                    for(size_t c = 0; c < individuals.size(); c++){
+                        standardizedBySeed[seedIdx][c] =
+                            static_cast<float>((individuals[c].fitnessValues[seedIdx] - mean) / sd);
+                    }
+                }
+            }
+            // epsilon in standard deviations; negative selects a sensible default.
+            const float sigmaTolerance = (epsilon < 0.0f) ? 0.5f : epsilon;
+
+            // type=="objectivesPerSeed": the test cases are the (seed, objective) pairs,
+            // flattened as t = seedIdx*nObjPerSeed + objIdx.
+            const size_t nObjPerSeed = individuals[0].objectivesPerSeed.empty()
+                ? 0 : individuals[0].objectivesPerSeed[0].size();
+            std::vector<int> gridOrder;
+            if(type == "objectivesPerSeed"){
+                if(individuals[0].objectivesPerSeed.empty()){
+                    throw std::invalid_argument(
+                        "lexicaseSelection(type=\"objectivesPerSeed\"): Network::objectivesPerSeed is "
+                        "empty -- call Population::gymnasiumMultiSeed() first");
+                }
+                gridOrder.resize(individuals[0].objectivesPerSeed.size() * nObjPerSeed);
+                std::iota(gridOrder.begin(), gridOrder.end(), 0);
+            }
+
+            // One filtering step on one test case: keep everyone within the epsilon/MAD
+            // tolerance of the best value. The tolerance is computed per test case, so the
+            // very different scales of the five objectives need no normalisation.
+            auto filterOnTestCase = [&](std::vector<int>& candidates, auto&& valueOf){
+                float best = std::numeric_limits<float>::lowest();
+                std::vector<float> values;
+                values.reserve(candidates.size());
+                for(int c : candidates){
+                    float v = valueOf(c);
+                    values.push_back(v);
+                    if(v > best) best = v;
+                }
+                float threshold = computeThreshold(values);
+                std::vector<int> filtered;
+                filtered.reserve(candidates.size());
+                for(int c : candidates){
+                    if(valueOf(c) >= best - threshold) filtered.push_back(c);
+                }
+                candidates = std::move(filtered);
+            };
+
+            for(int i=0; i<static_cast<int>(individuals.size())-E; i++){
+                if(individuals[i].innerNodes.size() > maxNetworkSize){
+                    maxNetworkSize = individuals[i].innerNodes.size();
+                }
+
+                std::vector<int> candidates = allIndices;
+
+                if(type == "objectives"){
+                    // Draw a fresh, independent objective evaluation order for this selection event
+                    std::shuffle(objectiveOrder.begin(), objectiveOrder.end(), *generator);
+
+                    for(int objIdx : objectiveOrder){
+                        if(candidates.size() <= 1) break;
+                        filterOnTestCase(candidates, [&](int c){
+                            return individuals[c].lexicaseObjectives[objIdx];
+                        });
+                    }
+                } else if(type == "objectivesPerSeed"){
+                    // Fresh, independent order over the whole (seed x objective) grid --
+                    // seeds and objectives are shuffled together, not nested, so no seed and
+                    // no objective is systematically decided before the others.
+                    std::shuffle(gridOrder.begin(), gridOrder.end(), *generator);
+
+                    for(int t : gridOrder){
+                        if(candidates.size() <= 1) break;
+                        const size_t seedIdx = static_cast<size_t>(t) / nObjPerSeed;
+                        const size_t objIdx  = static_cast<size_t>(t) % nObjPerSeed;
+                        filterOnTestCase(candidates, [&](int c){
+                            return individuals[c].objectivesPerSeed[seedIdx][objIdx];
+                        });
+                    }
+                } else if(type == "seedsStandardized"){
+                    // Wie "seeds", aber auf den z-transformierten Werten und mit einer festen
+                    // Toleranz in Standardabweichungen statt der MAD-Automatik.
+                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+
+                    for(int seedIdx : seedOrder){
+                        if(candidates.size() <= 1) break;
+                        const std::vector<float>& column = standardizedBySeed[seedIdx];
+                        float best = std::numeric_limits<float>::lowest();
+                        for(int c : candidates){
+                            if(column[c] > best) best = column[c];
+                        }
+                        std::vector<int> filtered;
+                        filtered.reserve(candidates.size());
+                        for(int c : candidates){
+                            if(column[c] >= best - sigmaTolerance) filtered.push_back(c);
+                        }
+                        candidates = std::move(filtered);
+                    }
+                } else if(type == "seedsRank"){
+                    // ─── Rangbasiert je Seed ──────────────────────────────────────────
+                    // Wie "seeds", aber der Filter schneidet nach RANG statt nach Rewardwert.
+                    //
+                    // Warum: Die MAD-Toleranz von "seeds" wird aus den Werten berechnet, und
+                    // der Reward ist zweigipflig (gelandet ~+200 gegen abgestuerzt ~-200).
+                    // Die MAD misst dort im Wesentlichen den Abstand der beiden Gipfel, nicht
+                    // die Aufloesung zwischen den fast gleichen Kandidaten, um die es bei der
+                    // Selektion geht -- das Epsilon faellt zu gross aus und der Testfall
+                    // trennt kaum. Auf Raengen ist die Schaerfe von der Form und der Skala
+                    // des Rewards unabhaengig, und die Seed-Schwierigkeit faellt vollstaendig
+                    // heraus: ein schwerer und ein leichter Seed liefern dieselbe
+                    // Rangverteilung.
+                    //
+                    // Die Raenge werden bei JEDEM Filterschritt neu ueber den verbliebenen
+                    // Kandidatenpool gebildet. Sonst liessen die spaeteren Testfaelle nach --
+                    // wer uebrig ist, liegt ohnehin eng beieinander, und eine feste
+                    // Rangtoleranz wuerde alle durchlassen. So bleibt die Pressung ueber die
+                    // ganze Kette konstant.
+                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+
+                    for(int seedIdx : seedOrder){
+                        if(candidates.size() <= 1) break;
+
+                        // Rangschnitt: die verbliebenen Werte absteigend sortieren und bei
+                        // Rang (rankTolerance + 1) abschneiden. Gleichstaende ueberleben
+                        // gemeinsam, die Zahl der Ueberlebenden kann also groesser sein.
+                        std::vector<float> values;
+                        values.reserve(candidates.size());
+                        for(int c : candidates){
+                            values.push_back(individuals[c].fitnessValues[seedIdx]);
+                        }
+                        std::sort(values.begin(), values.end(), std::greater<float>());
+                        size_t cutIndex = std::min(static_cast<size_t>(std::max(0, rankTolerance)),
+                                                   values.size() - 1);
+                        float cutoff = values[cutIndex];
+
+                        std::vector<int> filtered;
+                        filtered.reserve(candidates.size());
+                        for(int c : candidates){
+                            if(individuals[c].fitnessValues[seedIdx] >= cutoff){
+                                filtered.push_back(c);
+                            }
+                        }
+                        candidates = std::move(filtered);
+                    }
+                } else { // type == "seeds"
+                    // Draw a fresh, independent seed evaluation order for this selection event
+                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+
+                    for(int seedIdx : seedOrder){
+                        if(candidates.size() <= 1) break;
+                        // Single criterion per seed: maximise the raw reward.
+                        filterOnTestCase(candidates, [&](int c){
+                            return individuals[c].fitnessValues[seedIdx];
+                        });
+                    }
+                }
+
+                // Pick winner: single survivor, or uniform random tie-break among remaining candidates
+                int winnerIdx;
+                if(candidates.empty()){
+                    // safety fallback: should not happen with non-empty test-case data, but avoids a crash
+                    winnerIdx = allIndices[0];
+                } else if(candidates.size() == 1){
+                    winnerIdx = candidates[0];
+                } else {
+                    std::uniform_int_distribution<int> tieBreak(0, static_cast<int>(candidates.size())-1);
+                    winnerIdx = candidates[tieBreak(*generator)];
+                }
+
+                selection.push_back(individuals[winnerIdx]);
+
+                float winnerFitness = individuals[winnerIdx].fitness;
+                meanFitness += winnerFitness;
+                if(winnerFitness < minFitness) minFitness = winnerFitness;
+                if(winnerFitness > bestFit) bestFit = winnerFitness;
+            }
+
             setElite(E, individuals, selection);
             individuals = std::move(selection);
             // set frozenExperience flag back for non-elite
@@ -414,6 +897,7 @@ class Population {
             }
             meanFitness /= individuals.size();
         }
+
         /**
          * @brief Identifies and preserves the elite individuals in the selection.
          * 
@@ -427,22 +911,50 @@ class Population {
          * @param E Number of elite individuals to preserve
          * @param individuals Copy of current population (will be modified during extraction)
          * @param selection Reference to new population being constructed (elite will be appended)
+         * @param useLineageFitness Wenn true, wird zur Auswahl/Rangierung der Elite
+         *        `lineageMean` statt der rohen `fitness` verwendet -- aber nur fuer
+         *        Individuen, deren `lineageN >= minLineageN` (sonst Fallback auf rohe
+         *        Fitness fuer dieses Individuum). Default false = bisheriges Verhalten
+         *        (reine rohe Fitness), damit andere Aufrufer (z.B. lexicaseSelection())
+         *        unveraendert bleiben.
+         * @param minLineageN Mindestanzahl an Lineage-Beobachtungen, ab der lineageMean
+         *        statt roher Fitness fuer die Elite-Rangierung genutzt wird (nur relevant,
+         *        wenn useLineageFitness=true).
+         * @param lineageZ Konfidenz-Multiplikator fuer die untere Konfidenzgrenze (LCB)
+         *        des Lineage-Mittelwerts (siehe Network::lineageLCB()). 0.0 (Default) =
+         *        reiner lineageMean ohne Unsicherheitsabschlag (bisheriges Verhalten).
+         *        Groesseres lineageZ bestraft Linien mit kleinem lineageN/hoher Varianz
+         *        staerker -- verhindert, dass frisch ueber minLineageN gekommene
+         *        "Gluecks-Neulinge" durch Stichprobenrauschen etablierte Champions
+         *        verdraengen (Winner's-Curse-Fix).
          * 
          * @note Elite indices are used to protect elite from mutation operations
+         * @note bestFit wird immer aus der rohen Fitness des gewaehlten Elite-Kandidaten
+         *       aktualisiert, unabhaengig vom Rangierungskriterium -- Reporting bleibt so
+         *       konsistent auf roher Fitness (siehe tournamentSelection()).
          */
-        void setElite(int E, const std::vector<Network>& individuals, std::vector<Network>& selection){
+        void setElite(int E, const std::vector<Network>& individuals, std::vector<Network>& selection,
+                      bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
             indicesElite.clear();
+
+            auto selectionCriterion = [&](const Network& ind) -> float {
+                if(useLineageFitness && ind.lineageN >= minLineageN){
+                    return ind.lineageLCB(lineageZ);
+                }
+                return ind.fitness;
+            };
             
             std::vector<unsigned int> candidateIndices(individuals.size());
             std::iota(candidateIndices.begin(), candidateIndices.end(), 0);
 
             for(int counter = 0; counter < E; ++counter){
-                float eliteFit = std::numeric_limits<float>::lowest();
+                float eliteCriterion = std::numeric_limits<float>::lowest();
                 unsigned int bestCandIdx = 0;
                 for(unsigned int c = 0; c < candidateIndices.size(); ++c){
                     unsigned int idx = candidateIndices[c];
-                    if(individuals[idx].fitness > eliteFit){
-                        eliteFit = individuals[idx].fitness;
+                    float criterion = selectionCriterion(individuals[idx]);
+                    if(criterion > eliteCriterion){
+                        eliteCriterion = criterion;
                         bestCandIdx = c;
                     }
                 }
@@ -451,6 +963,7 @@ class Population {
 
                 indicesElite.push_back(selection.size()); // because of push_back of elite the index is the old size
                 selection.push_back(individuals[eliteIndex]);
+                float eliteFit = individuals[eliteIndex].fitness; // rohe Fitness fuer bestFit-Reporting
                 if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will be forgotten in bestFit calculation
             }
         }
@@ -486,11 +999,305 @@ class Population {
          * @warning tournamentSelection() must have been called to set indicesElite
          * 
          */
-        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, int k = 0){
+        /**
+         * @brief Deckelt die Lineage-Beobachtungszahl (lineageN/lineageSuccessN) NUR bei
+         *        Individuen, die diese Generation TATSAECHLICH mutiert oder per Crossover
+         *        veraendert wurden (individuals[i].structureChangedThisGen == true) -- das
+         *        Mutations-Pendant zum priorCap in crossover(). Soll einmal pro Generation
+         *        aufgerufen werden, NACHDEM alle Mutationsoperatoren dieser Generation
+         *        gelaufen sind (unabhaengig davon, wie viele/welche Mutationsoperatoren
+         *        genutzt wurden -- die Operation ist rein monoton und daher robust gegen
+         *        Mehrfachaufruf).
+         *
+         * @details Ohne diesen (auf tatsaechliche Veraenderung bedingten) Cap wuerde entweder
+         * (a) eine reine Mutations-Linie ihre `lineageMean` unbegrenzt akkumulieren und
+         * dadurch nach vielen Generationen sehr traege gegenueber neuen Beobachtungen werden,
+         * ODER (b) -- falls der Cap blanket auf ALLE nicht-elitaeren Individuen angewendet
+         * wuerde, unabhaengig von echter struktureller Veraenderung (frueherer Bug) -- auch
+         * unveraenderte Individuen jede Generation unnoetig Historie verlieren, was
+         * lineageMean staerker vom aktuellen (verrauschten) Seed-Batch dominieren laesst als
+         * beabsichtigt. Der Cap wird daher NUR bei tatsaechlich veraenderten Linien
+         * angewendet; unveraenderte Linien behalten ihre volle akkumulierte Historie.
+         *
+         * Das Flag `structureChangedThisGen` wird nach dem Auslesen (unabhaengig davon, ob
+         * gecappt wurde) hier fuer ALLE Individuen zurueckgesetzt, damit die naechste
+         * Generation wieder bei false startet.
+         *
+         * @param priorCap Obergrenze fuer lineageN/lineageSuccessN. Default 5 (wie crossover()).
+         */
+        void capLineageAfterMutation(int priorCap = 5) {
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
+                if (!isElite && individuals[i].structureChangedThisGen) {
+                    individuals[i].capLineageStats(priorCap);
+                }
+                individuals[i].structureChangedThisGen = false; // Reset fuer die naechste Generation
+            }
+        }
+
+        /**
+         * @brief Seed-robust default success criterion for updateAdaptiveK().
+         *
+         * @details
+         * Instead of comparing an individual's raw fitness of THIS generation against a
+         * single (equally noisy, differently-seeded) prior generation's raw fitness --
+         * which would just re-inject the seed-sampling noise this whole mechanism is meant
+         * to filter out -- this criterion compares against the individual's own lineage's
+         * long-run, uncertainty-aware baseline (Network::lineageLCB()), aggregated over
+         * ALL seed-generations this lineage has ever been evaluated on.
+         *
+         * "Success" = fitness this generation is at or above that robust historical baseline,
+         * i.e. the lineage is (still) performing consistently with -- or better than -- its
+         * own track record, rather than reacting to a single lucky/unlucky seed draw.
+         *
+         * @param ind Individual to evaluate.
+         * @param z   Confidence multiplier passed to Network::lineageLCB() (larger z = more
+         *            conservative baseline). Default 1.0.
+         * @return true if lineageN <= 1 (not enough history yet -- neutral/optimistic default),
+         *         or if ind.fitness >= ind.lineageLCB(z).
+         * @see Network::lineageLCB()
+         */
+        static bool seedRobustLineageSuccess(const Network& ind, float z = 1.0f) {
+            if (ind.lineageN <= 1) return true; // not enough history yet -> neutral, do not count as failure
+            return ind.fitness >= ind.lineageLCB(z);
+        }
+
+        /**
+         * @brief Seed-consistent success criterion for updateAdaptiveK() (bundled DEFAULT).
+         *
+         * @details
+         * Stronger than seedRobustLineageSuccess(): instead of judging success on the
+         * AVERAGE fitness across this generation's seed batch (which a single very good or
+         * very bad seed can dominate), this criterion requires the improvement to be
+         * CONSISTENT across the individual seeds of the current evaluation --
+         * i.e. at least `requiredFraction` of this generation's per-seed rewards
+         * (Network::fitnessValues) must individually reach or exceed the lineage's robust
+         * long-run baseline (Network::lineageLCB()).
+         *
+         * This directly targets "sampling luck": a mutation that only looks good because it
+         * happened to draw a few easy seeds this generation (while still failing hard seeds)
+         * is NOT counted as a success, even if the mean fitness looks fine.
+         *
+         * @param ind               Individual to evaluate.
+         * @param requiredFraction  Minimum fraction of per-seed rewards that must be
+         *                          >= lineageLCB(z) for the generation to count as a success.
+         *                          1.0 = ALL seeds must be consistent, lower values (e.g. 0.8)
+         *                          relax this to "most" seeds. Default 1.0.
+         * @param z                 Confidence multiplier passed to Network::lineageLCB().
+         *                          Default 1.0.
+         * @return true if lineageN <= 1 or fitnessValues is empty (not enough history/data yet
+         *         -- neutral/optimistic default), otherwise true iff the fraction of per-seed
+         *         rewards >= lineageLCB(z) is >= requiredFraction.
+         * @see Network::lineageLCB()
+         * @see seedRobustLineageSuccess()
+         */
+        static bool seedConsistentSuccess(const Network& ind, float requiredFraction = 1.0f, float z = 1.0f) {
+            if (ind.lineageN <= 1 || ind.fitnessValues.empty()) return true; // not enough history/data yet -> neutral
+
+            float baseline = ind.lineageLCB(z);
+            int nAtOrAbove = 0;
+            for (float v : ind.fitnessValues) {
+                if (v >= baseline) nAtOrAbove++;
+            }
+            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.fitnessValues.size());
+            return fraction >= requiredFraction;
+        }
+
+        /**
+         * @brief Batch-only, absolute-threshold success criterion for updateAdaptiveK().
+         *
+         * @details
+         * Unlike seedConsistentSuccess()/seedRobustLineageSuccess(), this criterion does NOT
+         * depend on Network::lineage* stats at all -- it only looks at THIS generation's
+         * per-seed rewards (Network::fitnessValues). Useful when lineage tracking is disabled
+         * (Population::gymnasiumMultiSeed(..., useLineageFitness=false, ...), e.g. because
+         * seed identity is not stable across generations (see uniformDirectionCurriculum)),
+         * which would otherwise leave lineageN permanently at 0 and make seedConsistentSuccess()
+         * always return its neutral "true" default -- silently saturating the success rate at
+         * ~100% and driving adaptiveK_ to kMin/kMax immediately.
+         *
+         * Success requires at least `requiredFraction` of this generation's per-seed rewards
+         * to individually reach or exceed a fixed, absolute `threshold` -- i.e. "(almost) all
+         * seeds this generation were (near-)perfect", with no dependency on any running history.
+         *
+         * @param ind               Individual to evaluate.
+         * @param threshold         Absolute per-seed reward threshold to count as "successful"
+         *                          for that seed. Default 900.0 (near-perfect for the 1000-cap
+         *                          LunarLander fitness scale used in this codebase).
+         * @param requiredFraction  Minimum fraction of per-seed rewards that must be >= threshold
+         *                          for the generation to count as a success. 1.0 = ALL seeds.
+         *                          Default 1.0.
+         * @return true if fitnessValues is empty (no data yet -- neutral/optimistic default),
+         *         otherwise true iff the fraction of per-seed rewards >= threshold is
+         *         >= requiredFraction.
+         * @see seedConsistentSuccess()
+         */
+        static bool batchThresholdSuccess(const Network& ind, float threshold = 900.0f, float requiredFraction = 1.0f) {
+            if (ind.fitnessValues.empty()) return true; // no data yet -> neutral
+
+            int nAtOrAbove = 0;
+            for (float v : ind.fitnessValues) {
+                if (v >= threshold) nAtOrAbove++;
+            }
+            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.fitnessValues.size());
+            return fraction >= requiredFraction;
+        }
+
+        /**
+         * @brief Continuous, scale-independent seed-consistency score for updateAdaptiveK() (bundled DEFAULT).
+         *
+         * @details
+         * Unlike seedConsistentSuccess()/batchThresholdSuccess(), which are BINARY and (for
+         * batchThresholdSuccess()) depend on an absolute fitness threshold that is only
+         * reachable late in training (early/mid-training generations would then always count
+         * as "failure" regardless of how seed-consistent the individual actually already is),
+         * this returns a CONTINUOUS score in [0,1] purely from the RELATIVE spread of THIS
+         * generation's per-seed rewards (Network::fitnessValues) -- meaningful from generation 1
+         * onward, at any absolute fitness level:
+         *
+         *     consistency = max(0, min(fitnessValues)) / max(fitnessValues)
+         *
+         * 1.0 = the worst seed this generation did just as well as the best seed (perfectly
+         * consistent, regardless of whether that level is low or high). Values near 0 mean a
+         * severe outlier seed relative to the best one (fragile/non-robust structure).
+         *
+         * Averaged over the non-elite population by updateAdaptiveK() and then smoothed over
+         * `windowSize` generations via its rolling window -- i.e. "consistency over multiple
+         * generations", not just a single noisy snapshot.
+         *
+         * @param ind Individual to evaluate.
+         * @return 1.0 if fewer than 2 fitnessValues or max(fitnessValues) <= 0 (not enough
+         *         data / degenerate case -- neutral/optimistic default), otherwise
+         *         max(0, min(fitnessValues)) / max(fitnessValues), clamped to [0,1].
+         * @see batchThresholdSuccess()
+         * @see seedConsistentSuccess()
+         */
+        static float seedConsistencyRatio(const Network& ind) {
+            if (ind.fitnessValues.size() < 2) return 1.0f; // not enough seeds this gen -> neutral
+
+            float minV = *std::min_element(ind.fitnessValues.begin(), ind.fitnessValues.end());
+            float maxV = *std::max_element(ind.fitnessValues.begin(), ind.fitnessValues.end());
+            if (maxV <= 0.0f) return 1.0f; // degenerate (all non-positive) -> neutral, avoid div-by-zero/negative ratio
+
+            minV = std::max(minV, 0.0f); // clamp negative worst-seed rewards to 0 so the ratio stays in [0,1]
+            return std::min(1.0f, minV / maxV);
+        }
+
+
+
+        /**
+         * @brief Self-adaptive mutation-strength k, following Rechenberg's 1/5-success-rule,
+         *        with a fully exchangeable, seed-robust success criterion.
+         *
+         * @details
+         * Must be called once per generation, AFTER this generation's evaluation/selection
+         * (gymnasiumMultiSeed()/lexicaseSelection() etc. -- so that individuals[i].fitness
+         * reflects the CURRENT generation) and BEFORE this generation's mutation operators
+         * are applied (callEdgeMutation()/callBoundaryMutation*() should then be called with
+         * `k = pop.adaptiveK_`).
+         *
+         * **Procedure**:
+         * 1. For every non-elite individual, evaluates `successCriterion(individual)` -- a
+         *    score in [0,1] (bool predicates are implicitly treated as 1.0/0.0).
+         * 2. Records the population-average score this generation in a rolling window of
+         *    size `windowSize` (successRateHistory_) -- this is what provides "consistency
+         *    over multiple generations" rather than reacting to a single noisy generation.
+         * 3. If `useRechenberg == true`: compares the window-averaged score against
+         *    `targetSuccessRate` and multiplies adaptiveK_ by `incFactor` or `decFactor`,
+         *    then clamps to [kMin, kMax]. Which factor is applied when depends on `invert`:
+         *    - `invert == false` (classical Rechenberg, convergence-speed-oriented):
+         *      score > target -> mutation too weak -> `incFactor` (grow k);
+         *      score < target -> mutation too disruptive -> `decFactor` (shrink k).
+         *    - `invert == true` (stability-oriented, recommended when the success criterion
+         *      is already seed-robust, e.g. seedConsistencyRatio()): score > target
+         *      -> already consistently succeeding -> `decFactor` (shrink k, preserve/stabilize
+         *      the working structure); score < target -> not consistently succeeding
+         *      -> `incFactor` (grow k, explore out of the insufficient structure).
+         * 4. If `useRechenberg == false`: history is still recorded (for diagnostics/plots),
+         *    but adaptiveK_ is left untouched -- use setAdaptiveK() to set a fixed value
+         *    manually in that case.
+         *
+         * The scoring function is fully exchangeable: pass any `(const Network&) -> float`
+         * (or legacy `-> bool`) callable. The bundled default (seedConsistencyRatio()) is a
+         * CONTINUOUS, scale-independent measure of this generation's per-seed spread
+         * (worst/best seed ratio) -- meaningful from generation 1 onward, unlike the
+         * threshold-based alternatives (batchThresholdSuccess()) which require near-maximal
+         * absolute fitness to ever register as "successful" and therefore stay stuck at one
+         * extreme for as long as that absolute level hasn't been reached yet. The
+         * lineage-based alternatives (seedConsistentSuccess()/seedRobustLineageSuccess())
+         * remain available but require Population::gymnasiumMultiSeed(..., useLineageFitness=true, ...).
+         *
+         * @param successCriterion  Per-individual scoring function, [0,1] (or bool). Default: seedConsistencyRatio().
+         * @param useRechenberg     If false, only records history; adaptiveK_ stays unchanged. Default true.
+         * @param invert            If true, swaps which factor is applied above/below target
+         *                          (stability-first: success -> shrink k, struggling -> grow k).
+         *                          Default false (classical Rechenberg direction).
+         * @param windowSize        Number of past generations kept in the rolling score window
+         *                          -- the "consistency over multiple generations" smoothing. Default 10.
+         * @param targetSuccessRate Target (window-averaged) score. Default 0.2 (= classical 1/5 Rechenberg optimum).
+         * @param incFactor         Multiplicative "grow k" factor, applied above target when
+         *                          `invert==false`, or below target when `invert==true`. Default 1.22.
+         * @param decFactor         Multiplicative "shrink k" factor, applied below target when
+         *                          `invert==false`, or above target when `invert==true`. Default 0.82.
+         * @param kMin              Lower clamp for adaptiveK_. Default 0.1.
+         * @param kMax              Upper clamp for adaptiveK_. Default 5.0.
+         *
+         * @see seedConsistencyRatio()
+         * @see batchThresholdSuccess()
+         * @see seedConsistentSuccess()
+         * @see adaptiveK_
+         */
+        void updateAdaptiveK(
+                SuccessCriterion successCriterion = [](const Network& ind){ return seedConsistencyRatio(ind); },
+                bool useRechenberg = true,
+                bool invert = false,
+                int windowSize = 10,
+                float targetSuccessRate = 0.2f,
+                float incFactor = 1.22f,
+                float decFactor = 0.82f,
+                float kMin = 0.1f,
+                float kMax = 5.0f)
+        {
+            float sumScore = 0.0f;
+            int total = 0;
+            for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
+                if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end())
+                    continue; // elite was not mutated -> excluded from the success statistic
+                sumScore += successCriterion(individuals[i]);
+                total++;
+            }
+            if (total == 0) return; // nothing to adapt on (e.g. everyone is elite)
+
+            float rateThisGen = sumScore / static_cast<float>(total);
+            successRateHistory_.push_back(rateThisGen);
+            while (static_cast<int>(successRateHistory_.size()) > windowSize) {
+                successRateHistory_.pop_front();
+            }
+
+            if (!useRechenberg) return; // diagnostics only, adaptiveK_ stays as manually set
+
+            float meanRate = 0.0f;
+            for (float r : successRateHistory_) meanRate += r;
+            meanRate /= static_cast<float>(successRateHistory_.size());
+
+            bool aboveTarget = meanRate > targetSuccessRate;
+            bool belowTarget = meanRate < targetSuccessRate;
+            if (invert) std::swap(aboveTarget, belowTarget);
+
+            if (aboveTarget) {
+                adaptiveK_ *= incFactor;
+            } else if (belowTarget) {
+                adaptiveK_ *= decFactor;
+            }
+            adaptiveK_ = std::min(kMax, std::max(kMin, adaptiveK_));
+        }
+
+
+        void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, float k = 0.0f){
             for(int i=0; i<individuals.size(); i++){
 
                 int N;
-                if(k > 0){
+                if(k > 0.0f){
                     N = individuals[i].countEdges(justUsedNodes);
                 }
                 else {
@@ -498,17 +1305,23 @@ class Population {
                 }
 
                 if(std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()){// preventing elite
+                    bool changed = false;
                     for(auto& node : individuals[i].innerNodes){
+
+                        if (node.frozen > 0) continue;
+
                         if(justUsedNodes == true && node.used == false){
                             continue;
                         } else {
-                            node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), k, N);
+                            if(node.edgeMutation(probInnerNodes, individuals[i].innerNodes.size(), k, N, &individuals[i].innerNodes)) changed = true;
                         }
                     }
-                    individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size(), k, N);
+                    if(individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size(), k, N, &individuals[i].innerNodes)) changed = true;
+                    if(changed) individuals[i].structureChangedThisGen = true;
                  }
              }
         }
+
 
          /**
          * @brief Applies a generic boundary mutation function to all judgment nodes in non-elite individuals.
@@ -532,26 +1345,38 @@ class Population {
          * @tparam FuncMutation Callable type that accepts (Node&, const additionalMutationParam&)
          * @param func Mutation function to apply to each judgment node
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
-         * 
+         *
          * @note This is an internal template used by specialized boundary mutation methods
          */
         template <typename FuncMutation>
-        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false) {
+        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false, float k = 0.0f, int N = 1) {
             for (int i = 0; i < individuals.size(); ++i) {
+
+                if (k > 0.0f) {
+                    N = individuals[i].countEdges(justUsedNodes);
+                } else {
+                    N = 0;
+                }
+
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {
                     additionalMutationParam amp;
                     amp.networkSize = individuals[i].innerNodes.size();
+                    bool changed = false;
                     for (auto& node : individuals[i].innerNodes) {
+                        
+                        if (node.frozen > 0) continue;
+
                         if (node.type == "J" || node.type == "JE") {
                            if (justUsedNodes == true) {
                                 if (node.used == true) {
-                                    func(node, amp, justUsedNodes);
+                                    if (func(node, amp, justUsedNodes, k, N)) changed = true;
                                 }
                             } else { 
-                           func(node, amp, justUsedNodes); 
+                                if (func(node, amp, justUsedNodes, k, N)) changed = true;
                             }
                         }
                     }
+                    if (changed) individuals[i].structureChangedThisGen = true;
                 }
             }
         }
@@ -570,12 +1395,12 @@ class Population {
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * 
          */
-        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){ 
-                node.boundaryMutationUniform(probability);
-            });
+        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false, float k = 0.0f){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){ 
+                return node.boundaryMutationUniform(probability, k, N);
+            }, justUsedNodes, k); 
         }
-       
+      
         /**
          * @brief Applies normal (Gaussian) boundary mutation to all judgment nodes in the population.
          * 
@@ -594,10 +1419,10 @@ class Population {
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */
-        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
-                node.boundaryMutationNormal(probability, sigma);
-            });
+        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
+                return node.boundaryMutationNormal(probability, sigma, k, N);
+            }, justUsedNodes, k); 
         }
 
         /**
@@ -623,11 +1448,11 @@ class Population {
          * @note Effective for problems where network size evolves during optimization
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes){
+        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(amp.networkSize));
-                node.boundaryMutationNormal(probability, sigmaNew);
-            });
+                return node.boundaryMutationNormal(probability, sigmaNew, k, N);
+            }, justUsedNodes, k);
         }
 
         /**
@@ -654,11 +1479,11 @@ class Population {
          * @note Particularly useful when networks have heterogeneous judgment node structures
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
+        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(node.edges.size()));
-                node.boundaryMutationNormal(probability, sigmaNew);
-            });
+                return node.boundaryMutationNormal(probability, sigmaNew, k, N);
+            }, justUsedNodes, k);
         }
         
         /**
@@ -683,10 +1508,10 @@ class Population {
          * @warning Only applicable if fractalJudgment is enabled (fractalJudgment = True)
          * @see Node::boundaryMutationFractal()
          */
-        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes){
-            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes){
-                node.boundaryMutationFractal(probability, minF, maxF);
-            });
+        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes, float k = 0.0f){
+            applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
+                return node.boundaryMutationFractal(probability, minF, maxF);
+            }, justUsedNodes, k);
         }
 
         /**
@@ -726,30 +1551,409 @@ class Population {
          * - changeFalseEdges() redirects any dangling edges to valid random nodes
          * - Prevents graph structure corruption after recombination
          * 
-         * @param propability Probability (in [0.0, 1.0]) that each node position will be exchanged (used for "uniform" type only). Default is 1.
+         * @param propability Probability (in [0.0, 1.0]), interpreted per crossover type. Default is 1
+         *  (i.e. crossover is always applied). Values outside [0.0, 1.0] throw std::invalid_argument,
+         *  since std::bernoulli_distribution would otherwise be undefined behaviour.
+         *  - "uniform": per NODE POSITION -- each of the min(size1, size2) positions is exchanged with
+         *    this probability, so it controls HOW MUCH of the genotype is exchanged per pair.
+         *  - "semantic": TWO rates. This value gates the PAIR (one draw decides whether the pair
+         *    recombines at all); `nodeExchangeRate` then decides how many of the role-matched
+         *    nodes inside that pair are transferred. Passing a negative nodeExchangeRate couples
+         *    the two, i.e. the effective rate per matched node becomes propability^2.
+         *    recombined at all; if it fails the pair is left completely untouched. What is exchanged
+         *    afterwards (cutpoint, subnetwork depth, cluster blocks) stays uniformly random.
+         *  - "seedSpecialist" / "seedSpecialistAppend" / "seedSpecialistReplace": per INDIVIDUAL --
+         *    one draw per host decides whether that host receives a transplant this generation.
+         *    Drawn before the donor search, so a low value also skips the O(populationSize) search
+         *    for that host.
          * @param type Type of the crossover:
+         *  - "innovation": NEAT-style crossover aligned on Node::innovationID (historical markings,
+         *    Stanley & Miikkulainen 2002) instead of the array position. Genes present in BOTH parents
+         *    (matching) are inherited from the donor with probability 0.5; genes present in only one
+         *    parent (disjoint/excess) are taken from the FITTER parent, measured as the mean over
+         *    fitnessValues (falling back to Network::fitness when per-seed data is missing). The fitter
+         *    parent survives unchanged and the weaker one is overwritten by the child, so the operator is
+         *    one-directional per pair; if one parent is elite, the elite always donates. Edge targets of
+         *    inherited nodes are translated donor-position -> innovationID -> recipient-position, i.e. the
+         *    LINKAGE between genes is transferred rather than an index pattern; targets whose gene is
+         *    absent in the recipient are repaired like in the other types. Requires unique markings per
+         *    individual, which ensureInnovationIDs() establishes on the fly.
          *  - "uniform": selects each node and exchanges them with given probability
          *  - "onepoint": draws a random cutpoint from the genotype and exchanges all nodes until this point
          *  - "randomWidth": exchanges subnetworks of different widths where all succesor nodes of a randomly selected node are exchanged
+         *    subgraph. A random number of cluster-block pairs (1..min(#clusters1, #clusters2)) is drawn and
+         *    exchanged, one cluster picked independently (no size-matching -- asymmetric swaps of many vs. few
+         *    nodes are intentional) from each parent per pair. Requires both parents to carry valid, up-to-date
+         *    another crossover type). Dangling boundary edges after the swap(s) are repaired via changeFalseEdges(),
+         *    exactly as for "randomWidth".
          *  @param traversalNeighbor If true, the crossover is only applied to pairs of individuals that are neighbors in the traversal space 
          *  calculated by traverseCounter.
          *  @param lowerBoundTraversalCounter Lower bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
          *  @param upperBoundTraversalCounter Upper bound for traverseCounter ratio to consider individuals as neighbors (used if traversalNeighbor is true)
+          *  @param boundaryTolerance Only used by type="semantic": maximum normalised distance
+          *         between the inner boundaries of two same-role nodes for them to still count
+          *         as the same gene. 1.0 (default) matches everything within a role; smaller
+          *         values additionally require that both cut the feature at a similar place.
+          *  @param nodeExchangeRate Only used by type="semantic": rate at which a MATCHED node is
+          *         transferred, inside a pair that already passed the per-pair gate
+          *         (`propability`). Negative (default) means "use propability", reproducing the
+          *         historical behaviour where one value was applied twice.
+          *  @param matchOnlyUsed Only used by type="semantic": if true, nodes never entered
+          *         during the last evaluation (Node::used == false) take no part in the
+          *         matching, so dormant material is not exchanged.
          * 
          * @note tournamentSelection() must have been called to set indicesElite
          * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
-         * @note For "randomWidth", parent networks must have more than 2 inner nodes to safely use changeFalseEdges()
+         *  - "seedSpecialistReplace": same donor search and same donor-side sub-graph as
+         *    "seedSpecialistAppend" (see below), but the sub-graph does not become a dormant
+         *    appendix -- it OVERWRITES the host's own deficit-exclusive sub-graph, i.e. the nodes
+         *    the host traverses ONLY on the deficit seeds and not on the seeds where the host
+         *    itself is the better one. The shared backbone is therefore preserved, and with it the
+         *    host's strength on its good seeds; only the seed-specific structure that fails is
+         *    swapped out. If that set is empty (the host uses the same nodes everywhere), the host
+         *    is left unchanged. Because this variant is destructive for the host, ELITE hosts are
+         *    skipped (unlike the additive variant). The donor is never modified -- it only hands
+         *    out copies, so one donor can serve several hosts in the same generation. Sub-graphs of
+         *    unequal size are handled exactly like the elite branch of "randomWidth"
+         *    (addOverhangNodes()/deleteOverhangNodes()), so the host grows or shrinks by the size
+         *    difference. The replaced nodes are wired into the existing graph and are therefore
+         *    active immediately: they carry NO transplantBlockID/isBlockEntry, and the host's
+         *    them). Like the other types it obeys crossoverProtection via generationReceived.
+         *  - "seedSpecialist" / "seedSpecialistAppend" (identical, the short name is kept for
+         *    backward compatibility): for EVERY individual (host, including elite) independently searches the whole
+         *    population for the single donor individual maximizing the summed positive per-seed fitness
+         *    difference (donor.fitnessValues[s] - host.fitnessValues[s], summed over all s where positive).
+         *    If such a donor exists, the union of nodes the donor actually traversed (Network::visitedNodesPerSeed,
+         *    see gymnasiumMultiSeed()) across those deficit seeds is copied (never removed from the donor) and
+         *    APPENDED as new, additional nodes to the host -- the host's existing nodes/edges are left completely
+         *    untouched. The appended nodes are protected from further crossover via generationReceived (same
+         *    crossoverProtection mechanism as the other types) and tagged with a shared Node::transplantBlockID;
+         *    exactly one of them (the donor's own traversal start node, always part of the copied set) is marked
+         *    Node::isBlockEntry. Because the block is appended without being wired into any existing edge, it
+         *    stays a dormant, fitness-neutral addition (analogous to "junk DNA" from callAddDelNodes()) until a
+         *    LATER mutation call happens to redirect an existing host edge onto the block's entry node --
+         *    Node::changeEdge()/edgeMutation() are extended so that only the entry node (never an interior node)
+         *    of a block can be chosen as a mutation target from outside the block. Once entered this way, the
+         *    block behaves like any other part of the network (its own internal edges mutate normally, are not
+         *    frozen). This type has its OWN partner-search/insertion logic and completely bypasses the
+         *    shuffle-based pairing loop used by the other types (see @note below).
          */
 
-        void crossover(float propability = 1, std::string type = "", bool traversalNeighbor = false, float lowerBoundTraversalCounter = 0.9, float upperBoundTraversalCounter = 1.1){
+        void crossover(
+                float propability = 1, 
+                std::string type = "", 
+                int currentGeneration = 0, 
+                int crossoverProtection = 0,
+                bool traversalNeighbor = false, 
+                float lowerBoundTraversalCounter = 0.9, 
+                float upperBoundTraversalCounter = 1.1,
+                int lineagePriorCap = 5,
+                float boundaryTolerance = 1.0f,
+                bool matchOnlyUsed = false,
+                float nodeExchangeRate = -1.0f
+                ){
+
+            // type="semantic" uses TWO rates, and they used to be the same value applied
+            // twice: `propability` gated the pair AND decided every node inside it, so the
+            // effective exchange rate per matched node was propability^2 (0.05 -> 0.0025).
+            // They are separate now. nodeExchangeRate < 0 keeps the old coupling, so every
+            // existing call reproduces its previous behaviour bit for bit.
+            const float nodeRate = (nodeExchangeRate < 0.0f) ? propability : nodeExchangeRate;
+            std::bernoulli_distribution distributionNodeExchange(nodeRate);
+
+            crossoverPairsApplied = 0;
+            crossoverNodesMatched = 0;
+            crossoverNodesExchanged = 0;
+            crossoverNodesSkipped = 0;
+
+            if(propability < 0.0f || propability > 1.0f){
+                throw std::invalid_argument("crossover(): propability must be in [0.0, 1.0]");
+            }
 
             std::bernoulli_distribution distributionBernoulli(propability);
+
+            // ─── "seedSpecialist*": own partner search + insertion logic, fully independent ───
+            // of the shuffle-based pairing below (per-individual best-donor search over the whole
+            // population -- see class-level docstring for details). Both variants share the donor
+            // search and the donor-side sub-graph; they differ only in HOW that sub-graph enters
+            // the host: "…Append" adds it as a dormant block, "…Replace" overwrites the host's own
+            // deficit-exclusive sub-graph with it.
+            // Early return keeps every other crossover type's code path byte-for-byte unchanged.
+            const bool seedSpecialistAppend  = (type == "seedSpecialist" || type == "seedSpecialistAppend");
+            const bool seedSpecialistReplace = (type == "seedSpecialistReplace");
+
+            if(seedSpecialistAppend || seedSpecialistReplace){
+                for(int hostIdx = 0; hostIdx < static_cast<int>(individuals.size()); hostIdx++){
+                    auto& host = individuals[hostIdx];
+                    if(host.fitnessValues.empty()) continue; // no per-seed data yet this generation
+
+                    // Elite ist nur bei der ERSETZENDEN Variante geschuetzt: dort verliert der Host
+                    // eigenes Genmaterial und koennte dabei genau die Fitness einbuessen, die der
+                    // Elitismus bewahren soll. Das additive Anhaengen ist fitness-neutral (dormanter
+                    // Block) und laeuft deshalb weiterhin fuer jedes Individuum inklusive Elite.
+                    if(seedSpecialistReplace &&
+                       std::find(indicesElite.begin(), indicesElite.end(), hostIdx) != indicesElite.end()){
+                        continue;
+                    }
+
+                    // Per-INDIVIDUAL application gate: with probability (1 - propability) this host
+                    // receives no transplant this generation. Drawn before the (expensive) donor
+                    // search over the whole population, so a low propability also saves the search.
+                    if(!distributionBernoulli(*generator)) continue;
+
+                    int bestDonorIdx = -1;
+                    float bestScore = 0.0f; // must stay > 0 to be accepted (donor must help on >=1 seed)
+                    std::vector<int> bestDeficitSeeds;
+
+                    for(int donorIdx = 0; donorIdx < static_cast<int>(individuals.size()); donorIdx++){
+                        if(donorIdx == hostIdx) continue;
+                        auto& donor = individuals[donorIdx];
+                        if(donor.fitnessValues.size() != host.fitnessValues.size()) continue; // seed batches must line up
+                        if(donor.visitedNodesPerSeed.size() != donor.fitnessValues.size()) continue; // tracking not (yet) populated
+
+                        float score = 0.0f;
+                        std::vector<int> deficitSeeds;
+                        for(size_t s = 0; s < host.fitnessValues.size(); s++){
+                            float diff = donor.fitnessValues[s] - host.fitnessValues[s];
+                            if(diff > 0.0f){
+                                score += diff;
+                                deficitSeeds.push_back(static_cast<int>(s));
+                            }
+                        }
+
+                        if(score > bestScore){
+                            bestScore = score;
+                            bestDonorIdx = donorIdx;
+                            bestDeficitSeeds = std::move(deficitSeeds);
+                        }
+                    }
+
+                    if(bestDonorIdx == -1) continue; // no individual improves on any seed -> nothing to transplant
+
+                    auto& donor = individuals[bestDonorIdx];
+
+                    // Union of nodes the donor actually traversed on its deficit seeds -- the donor's
+                    // "active sub-graph" for exactly the seeds where it outperforms the host.
+                    std::unordered_set<int> subGraphSet;
+                    for(int s : bestDeficitSeeds){
+                        for(int n : donor.visitedNodesPerSeed[s]){
+                            if(n >= 0 && n < static_cast<int>(donor.innerNodes.size())) subGraphSet.insert(n);
+                        }
+                    }
+                    if(subGraphSet.empty()) continue;
+
+                    std::vector<int> subGraphNodes(subGraphSet.begin(), subGraphSet.end());
+                    std::sort(subGraphNodes.begin(), subGraphNodes.end());
+
+                    // ─── Variante "seedSpecialistReplace": ersetzen statt anhaengen ───────────
+                    // Der Donor-Sub-Graph (oben, identisch zur additiven Variante) ueberschreibt
+                    // den DEFIZIT-EXKLUSIVEN Sub-Graphen des Hosts: die Knoten, die der Host NUR
+                    // auf den Defizit-Seeds durchlaeuft, nicht aber auf den Seeds, auf denen er
+                    // selbst besser ist. Damit bleibt das gemeinsam genutzte Backbone -- und
+                    // damit die Staerke des Hosts auf seinen guten Seeds -- erhalten; ersetzt
+                    // wird nur die seed-spezifische Teilstruktur, die dort versagt. Ist diese
+                    // Menge leer (der Host benutzt ueberall dieselben Knoten), gibt es nichts
+                    // seed-Spezifisches zu ersetzen und der Host bleibt unveraendert.
+                    if(seedSpecialistReplace){
+                        if(host.visitedNodesPerSeed.size() != host.fitnessValues.size()) continue;
+
+                        std::vector<char> isDeficitSeed(host.fitnessValues.size(), 0);
+                        for(int s : bestDeficitSeeds) isDeficitSeed[s] = 1;
+
+                        std::unordered_set<int> hostDeficitNodes, hostOtherNodes;
+                        for(size_t s = 0; s < host.visitedNodesPerSeed.size(); s++){
+                            auto& target = isDeficitSeed[s] ? hostDeficitNodes : hostOtherNodes;
+                            for(int n : host.visitedNodesPerSeed[s]){
+                                if(n >= 0 && n < static_cast<int>(host.innerNodes.size())) target.insert(n);
+                            }
+                        }
+
+                        std::vector<int> hostBlock;
+                        for(int n : hostDeficitNodes){
+                            if(hostOtherNodes.find(n) == hostOtherNodes.end()) hostBlock.push_back(n);
+                        }
+                        if(hostBlock.empty()) continue; // keine defizit-exklusive Teilstruktur vorhanden
+                        std::sort(hostBlock.begin(), hostBlock.end()); // Voraussetzung von add/deleteOverhangNodes()
+
+                        // Ab hier exakt das Vorgehen des Elite-Zweigs von "randomWidth": einseitige
+                        // Uebernahme (der Donor gibt nur Kopien ab und bleibt unveraendert), gleiche
+                        // Ueberhang-Behandlung fuer unterschiedlich grosse Sub-Graphen.
+                        const size_t minSubNodes = std::min(subGraphNodes.size(), hostBlock.size());
+                        std::unordered_map<int, int> replaceMap =
+                            initNodeSwapMap(subGraphNodes, hostBlock, static_cast<int>(host.innerNodes.size()));
+
+                        for(size_t j = 0; j < minSubNodes; j++){
+                            auto& node = host.innerNodes[hostBlock[j]];
+                            node = donor.innerNodes[subGraphNodes[j]];
+                            node.generationReceived = currentGeneration;
+                            // Aktiv eingebaut statt dormant: keine Block-Kennung, damit
+                            // Node::changeEdge() die Knoten nicht als "nur ueber den Entry-Knoten
+                            // erreichbar" behandelt (siehe Node::transplantBlockID/isBlockEntry).
+                            node.transplantBlockID = -1;
+                            node.isBlockEntry = false;
+                            node.frozen = 0;
+                            // used wird bewusst auf false gesetzt und NICHT vom Donor uebernommen:
+                            // der Knoten lag auf einem aktiven Pfad des SPENDERS, im Empfaenger ist
+                            // er dagegen noch nie durchlaufen worden. Wuerde er als used markiert
+                            // bleiben, waere er fuer die Loeschbranche von addDelNodes() (die nur
+                            // used == false entfernt) dauerhaft unsichtbar -- auch dann, wenn der
+                            // Host ihn nie erreicht. Genau darueber sammeln sich sonst Generation
+                            // fuer Generation nie durchlaufene Transplantat-Knoten an, ohne dass
+                            // die junk-Quote sie je abbauen kann.
+                            //
+                            // Vor verfruehtem Loeschen schuetzt stattdessen generationReceived in
+                            // Verbindung mit crossoverProtection: solange currentGeneration -
+                            // generationReceived < crossoverProtection ist, ueberspringt
+                            // addDelNodes() den Knoten (siehe Network::addDelNodes()). Der Knoten
+                            // ueberlebt damit garantiert bis zur naechsten Evaluation, die sein
+                            // used-Flag anhand der tatsaechlichen Traversierung im Host setzt.
+                            // ACHTUNG: Mit crossoverProtection == 0 entfaellt dieser Schutz und das
+                            // direkt nachfolgende callAddDelNodes() koennte das Transplantat noch in
+                            // derselben Generation wieder entfernen.
+                            node.used = false;
+                            // traverseCounter/lastVisitStep gehoeren dem Donor und wuerden die
+                            // Statistik des Hosts verfaelschen.
+                            node.traverseCounter = 0;
+                            node.lastVisitStep = 0;
+                        }
+
+                        std::vector<int> replaceIndices;
+                        replaceIndices.reserve(replaceMap.size());
+                        for(auto const& [key, val] : replaceMap) replaceIndices.push_back(val);
+
+                        if(subGraphNodes.size() > hostBlock.size()){
+                            const size_t sizeBeforeOverhang = host.innerNodes.size();
+                            addOverhangNodes(subGraphNodes, hostBlock, donor, host, true, currentGeneration);
+                            for(size_t k = sizeBeforeOverhang; k < host.innerNodes.size(); k++){
+                                host.innerNodes[k].transplantBlockID = -1;
+                                host.innerNodes[k].isBlockEntry = false;
+                                host.innerNodes[k].frozen = 0;
+                                // Gleiche Begruendung wie beim Ersetzen oben: addOverhangNodes()
+                                // kopiert die Donor-Knoten samt used-Flag. Die Ueberhang-Knoten sind
+                                // im Host aber ebenso wenig durchlaufen worden wie die ersetzten --
+                                // und da genau dieser Zweig den Host wachsen laesst, waere ein
+                                // uebernommenes used == true hier die Hauptquelle dauerhaft
+                                // unloeschbarer Knoten. generationReceived (von addOverhangNodes()
+                                // gesetzt) schuetzt sie bis zur naechsten Evaluation.
+                                host.innerNodes[k].used = false;
+                                host.innerNodes[k].traverseCounter = 0;
+                                host.innerNodes[k].lastVisitStep = 0;
+                            }
+                        }
+
+                        host.remapNodeIdsAndEdges(replaceMap, replaceIndices, false);
+
+                        if(subGraphNodes.size() < hostBlock.size()){
+                            deleteOverhangNodes(hostBlock, subGraphNodes, host);
+                        }
+
+                        host.changeFalseEdges();
+
+                        // Positionen im Host haben sich verschoben (Ueberhang angehaengt bzw.
+                        // Sie werden verworfen statt mitgefuehrt: callFindTransitionClusters()
+                        // berechnet sie ohnehin jede Generation neu, und ein verschobener Vektor
+                        // schuetzt in addDelNodes() die falschen Knoten vor dem Loeschen.
+
+                        host.nCrossovers += 1;
+                        host.structureChangedThisGen = true;
+                        host.blendLineageWith(donor, lineagePriorCap); // nur der Host uebernimmt (Donor unveraendert)
+                        continue;
+                    }
+
+                    // Build old(donor index) -> new(host index) map for the appended copies.
+                    std::unordered_map<int, int> swapMap;
+                    swapMap.reserve(subGraphNodes.size());
+                    size_t baseIndex = host.innerNodes.size();
+                    for(size_t k = 0; k < subGraphNodes.size(); k++){
+                        swapMap[subGraphNodes[k]] = static_cast<int>(baseIndex + k);
+                    }
+
+                    // Append deep copies of the donor's sub-graph nodes -- the donor itself is never modified.
+                    std::vector<int> newIndices;
+                    newIndices.reserve(subGraphNodes.size());
+                    for(int oldIdx : subGraphNodes){
+                        host.innerNodes.push_back(donor.innerNodes[oldIdx]);
+                        newIndices.push_back(static_cast<int>(host.innerNodes.size()) - 1);
+                    }
+
+                    int blockID = nextTransplantBlockID++;
+                    for(int ni : newIndices){
+                        auto& node = host.innerNodes[ni];
+                        node.id = ni;
+                        node.generationReceived = currentGeneration; // protected via crossoverProtection, like the other types
+                        node.transplantBlockID = blockID;
+                        node.isBlockEntry = false;
+                        node.used = false;         // dormant: not (yet) part of any traversal in the host
+                        node.traverseCounter = 0;
+                        node.lastVisitStep = 0;
+                        node.frozen = 0;            // internal edges stay normally mutable once integrated
+                    }
+
+                    // Remap internal edges to the new host indices; any edge leaving the copied sub-graph
+                    // (e.g. an untraveled branch of a judgment node) is redirected to a random valid host
+                    // node, same repair strategy as changeFalseEdges() for the other crossover types.
+                    for(int ni : newIndices){
+                        auto& node = host.innerNodes[ni];
+                        for(auto& e : node.edges){
+                            auto it = swapMap.find(e);
+                            if(it != swapMap.end()){
+                                e = it->second;
+                            } else {
+                                e = node.changeEdge(static_cast<int>(host.innerNodes.size()), e, &host.innerNodes);
+                            }
+                        }
+                    }
+
+                    // The donor's own traversal always starts at the same node (its startNode.edges[0]),
+                    // so it is guaranteed to be part of every seed's visited set -- this is the single
+                    // node through which the block may later be entered via mutation.
+                    auto entryIt = swapMap.find(donor.startNode.edges[0]);
+                    if(entryIt != swapMap.end()){
+                        host.innerNodes[entryIt->second].isBlockEntry = true;
+                    } else if(!newIndices.empty()){
+                        host.innerNodes[newIndices.front()].isBlockEntry = true; // defensive fallback, should not trigger
+                    }
+
+                    host.nCrossovers += 1;
+                    host.structureChangedThisGen = true;
+                    host.blendLineageWith(donor, lineagePriorCap); // only host absorbs donor's lineage stats (donor unaffected)
+                }
+                return;
+            }
+
             int nNodesToExchange;
             std::vector<unsigned int> inds;
             for(int i=0; i<individuals.size(); i++){
                 inds.push_back(i);
             }
             std::shuffle(inds.begin(), inds.end(), *generator);
+
+            // Vermischt die Lineage-Statistik zweier Individuen SYMMETRISCH (beide erhalten
+            // Gene voneinander), ohne dass die Reihenfolge zweier nacheinander ausgefuehrter
+            // blendLineageWith()-Aufrufe zu einer Asymmetrie fuehrt (sonst wuerde der zweite
+            // Aufruf bereits die veraenderten Werte des ersten Individuums sehen). Dazu werden
+            // zunaechst beide Original-Werte zwischengespeichert und danach beide Individuen
+            // unabhaengig voneinander aktualisiert.
+            auto blendLineageBidirectional = [lineagePriorCap](Network& a, Network& b){
+                float aMean = a.lineageMean, bMean = b.lineageMean;
+                int aN = a.lineageN, bN = b.lineageN;
+                float aSuccessRate = a.lineageSuccessRate, bSuccessRate = b.lineageSuccessRate;
+                int aSuccessN = a.lineageSuccessN, bSuccessN = b.lineageSuccessN;
+
+                int aNCapped = std::min(aN, lineagePriorCap), bNCapped = std::min(bN, lineagePriorCap);
+                int totalN = std::max(1, aNCapped + bNCapped);
+                float pooledMean = (aNCapped * aMean + bNCapped * bMean) / static_cast<float>(totalN);
+
+                int aSuccessNCapped = std::min(aSuccessN, lineagePriorCap), bSuccessNCapped = std::min(bSuccessN, lineagePriorCap);
+                int totalSuccessN = std::max(1, aSuccessNCapped + bSuccessNCapped);
+                float pooledSuccessRate = (aSuccessNCapped * aSuccessRate + bSuccessNCapped * bSuccessRate) / static_cast<float>(totalSuccessN);
+
+                a.lineageMean = pooledMean; a.lineageN = aNCapped + bNCapped;
+                a.lineageSuccessRate = pooledSuccessRate; a.lineageSuccessN = aSuccessNCapped + bSuccessNCapped;
+                b.lineageMean = pooledMean; b.lineageN = aNCapped + bNCapped;
+                b.lineageSuccessRate = pooledSuccessRate; b.lineageSuccessN = aSuccessNCapped + bSuccessNCapped;
+            };
+
             for(int i=0; i<inds.size()-1; i+=2){ // for each individual pair 
                 
                 std::vector<int> nodesToExchange;
@@ -779,7 +1983,209 @@ class Population {
                     parent2IsLarger = false;
                 }
 
-                if(type == "uniform"){
+                if(type == "semantic"){
+                    // ─── Rollenbasiertes Crossover: Homologie aus dem Knoteninhalt ──────────
+                    //
+                    // Warum ueberhaupt: "uniform"/"onepoint" paaren nach ARRAY-POSITION, und
+                    // "innovation" nach HERKUNFT (Node::innovationID). Beides ist fuer GNP
+                    // schwach begruendet. Die Netze starten klein und wachsen/schrumpfen ueber
+                    // addDelNodes(); jede Loeschung verschiebt alle nachfolgenden Indizes, also
+                    // bezeichnet dieselbe Position in zwei Individuen nach einigen hundert
+                    // Generationen nichts Gemeinsames mehr. Herkunftsmarker wiederum verhindern
+                    // zwar, dass "competing conventions" NEU entstehen, koennen aber KONVERGENTE
+                    // Loesungen nicht erkennen: zwei Linien, die unabhaengig voneinander dieselbe
+                    // Entscheidungsregel entwickeln, tragen verschiedene IDs und gelten als
+                    // verschiedene Gene.
+                    //
+                    // Ein GNP-Knoten braucht das alles nicht -- er traegt seine Rolle explizit:
+                    //   type            "J"/"JE" (Urteil) oder "P" (Aktion)
+                    //   f               Feature-Index (J) bzw. Aktion (P)
+                    //   edges.size()    Stelligkeit: in wie viele Intervalle geteilt wird
+                    //   boundaries      wo genau geschnitten wird (boundaries.size() == edges+1)
+                    // (type, f, edges.size()) ist die grobe Rolle, boundaries die Feinjustierung
+                    // darin. Die Stelligkeit gehoert zwingend in die Rolle: sonst wuerde ein
+                    // Austausch die Kantenzahl des Empfaengers aendern, und die Schwellenvektoren
+                    // waeren nicht vergleichbar.
+                    //
+                    // Ablauf: (1) beide Eltern nach der Rolle gruppieren, (2) innerhalb einer
+                    // Gruppe ueber den Schwellenabstand paaren, (3) je Paar mit `propability`
+                    // tauschen, (4) die Kanten des uebernommenen Knotens ueber die Paarungs-
+                    // tabelle uebersetzen. Nicht zuordenbare Knoten bleiben, wo sie sind -- im
+                    // Gegensatz zu "innovation" wird NICHTS angehaengt, dieses Crossover laesst
+                    // das Netz also nicht wachsen.
+                    if(!distributionBernoulli(*generator)) continue; // Gate PRO PAAR (= propability)
+
+                    auto meanFitnessOf = [](const Network& net) -> float {
+                        if(net.fitnessValues.empty()) return net.fitness;
+                        float sum = 0.0f;
+                        for(float v : net.fitnessValues) sum += v;
+                        return sum / static_cast<float>(net.fitnessValues.size());
+                    };
+
+                    // Elite gibt nur ab und empfaengt nie; sonst spendet der fittere Elternteil
+                    // und bleibt unveraendert -- wie bei "innovation".
+                    Network* recipient = nullptr;
+                    Network* donorNet  = nullptr;
+                    if(parent1IsElite){
+                        donorNet = &parent1; recipient = &parent2;
+                    } else if(parent2IsElite){
+                        donorNet = &parent2; recipient = &parent1;
+                    } else if(meanFitnessOf(parent1) >= meanFitnessOf(parent2)){
+                        donorNet = &parent1; recipient = &parent2;
+                    } else {
+                        donorNet = &parent2; recipient = &parent1;
+                    }
+
+                    // Rollenschluessel eines Knotens. Als String, damit er direkt als Map-Key
+                    // taugt; die Gruppen sind klein, das ist nicht performancekritisch.
+                    auto roleKey = [](const Node& node) -> std::string {
+                        return node.type + "|" + std::to_string(node.f)
+                                         + "|" + std::to_string(node.edges.size());
+                    };
+
+                    // Abstand zweier Knoten derselben Rolle: mittlere, auf den Feature-Bereich
+                    // normierte Abweichung der INNEREN Schwellen. Der erste und letzte Wert von
+                    // boundaries sind Unter- und Obergrenze des Features und tragen keine
+                    // Information ueber die Entscheidungsregel. Die Normierung sorgt dafuer, dass
+                    // ein Feature mit Spanne 20 nicht staerker gewichtet wird als eines mit
+                    // Spanne 5. P-Knoten haben keine Schwellen -> Abstand 0, sie sind innerhalb
+                    // ihrer Rolle austauschbar.
+                    auto boundaryDistance = [](const Node& a, const Node& b) -> float {
+                        if(a.boundaries.size() < 3 || a.boundaries.size() != b.boundaries.size()){
+                            return 0.0f;
+                        }
+                        double rangeA = a.boundaries.back() - a.boundaries.front();
+                        double rangeB = b.boundaries.back() - b.boundaries.front();
+                        double range = std::max(1e-9, 0.5 * (rangeA + rangeB));
+                        double sum = 0.0;
+                        size_t n = 0;
+                        for(size_t k = 1; k + 1 < a.boundaries.size(); k++){
+                            sum += std::abs(a.boundaries[k] - b.boundaries[k]) / range;
+                            n++;
+                        }
+                        return (n == 0) ? 0.0f : static_cast<float>(sum / static_cast<double>(n));
+                    };
+
+                    // Kandidaten je Rolle einsammeln. matchOnlyUsed blendet Knoten aus, die in
+                    // der letzten Auswertung nie betreten wurden -- dann wird keine tote Masse
+                    // getauscht (siehe der hohe Anteil dormanter Knoten im Wachstumsplot).
+                    std::unordered_map<std::string, std::vector<int>> donorByRole, recipientByRole;
+                    for(size_t k = 0; k < donorNet->innerNodes.size(); k++){
+                        if(matchOnlyUsed && !donorNet->innerNodes[k].used) continue;
+                        donorByRole[roleKey(donorNet->innerNodes[k])].push_back(static_cast<int>(k));
+                    }
+                    for(size_t k = 0; k < recipient->innerNodes.size(); k++){
+                        if(matchOnlyUsed && !recipient->innerNodes[k].used) continue;
+                        recipientByRole[roleKey(recipient->innerNodes[k])].push_back(static_cast<int>(k));
+                    }
+
+                    // Paarungstabelle Spender-Index -> Empfaenger-Index. Innerhalb einer Rolle
+                    // wird global gierig zugeordnet: alle Kreuzpaare nach Abstand sortieren und
+                    // von vorn nehmen, solange beide Partner noch frei sind. Eine optimale
+                    // Zuordnung (ungarische Methode) waere theoretisch sauberer, aber die Gruppen
+                    // umfassen typischerweise nur wenige Knoten, und dort stimmen beide Verfahren
+                    // fast immer ueberein -- der Aufwand lohnt hier nicht.
+                    std::unordered_map<int, int> donorToRecipient;
+                    for(auto const& [role, donorIdxs] : donorByRole){
+                        auto it = recipientByRole.find(role);
+                        if(it == recipientByRole.end()) continue; // Rolle nur beim Spender -> disjunkt
+                        const std::vector<int>& recipientIdxs = it->second;
+
+                        struct Candidate { float distance; int donorIdx; int recipientIdx; };
+                        std::vector<Candidate> candidates;
+                        candidates.reserve(donorIdxs.size() * recipientIdxs.size());
+                        for(int d : donorIdxs){
+                            for(int r : recipientIdxs){
+                                float distance = boundaryDistance(donorNet->innerNodes[d],
+                                                                  recipient->innerNodes[r]);
+                                // Gleiche Rolle, aber zu unterschiedliche Schwellen: die beiden
+                                // schneiden das Feature an ganz verschiedenen Stellen und sind
+                                // dann eben NICHT dasselbe Gen.
+                                if(distance > boundaryTolerance) continue;
+                                candidates.push_back({distance, d, r});
+                            }
+                        }
+                        std::sort(candidates.begin(), candidates.end(),
+                                  [](const Candidate& a, const Candidate& b){ return a.distance < b.distance; });
+
+                        std::unordered_set<int> donorTaken, recipientTaken;
+                        for(const Candidate& c : candidates){
+                            if(donorTaken.count(c.donorIdx) || recipientTaken.count(c.recipientIdx)) continue;
+                            donorTaken.insert(c.donorIdx);
+                            recipientTaken.insert(c.recipientIdx);
+                            donorToRecipient.emplace(c.donorIdx, c.recipientIdx);
+                        }
+                    }
+
+                    if(donorToRecipient.empty()) continue; // keine gemeinsame Rolle -> Paar unveraendert
+                    crossoverNodesMatched += static_cast<int>(donorToRecipient.size());
+
+                    // Austausch, ALLES-ODER-NICHTS pro Knoten.
+                    //
+                    // Bei einem Judgment-Knoten gehoeren `boundaries` und `edges` zusammen: Kante k
+                    // heisst "faellt das Feature in Intervall k, gehe dorthin". Uebernaehme man die
+                    // Schwellen des Spenders, liesse aber einzelne Kanten des Empfaengers stehen,
+                    // entstuende ein Knoten mit Spender-Intervallen und teils Empfaenger-Zielen --
+                    // eine Kombination, die KEIN Elternteil je getestet hat. Deshalb wird ein Knoten
+                    // nur dann uebernommen, wenn sich JEDE seiner Kanten uebersetzen laesst.
+                    //
+                    // Das hat eine Kettenwirkung, die boundaryTolerance zum eigentlichen Regler
+                    // macht: die Paarungstabelle enthaelt nur Paare INNERHALB der Toleranz, also ist
+                    // eine Kante auf einen nicht gepaarten Knoten nicht uebersetzbar. Ein Gen wandert
+                    // damit nur, wenn es UND alle seine direkten Nachfolger eine nahe Entsprechung
+                    // haben -- es wandert immer ein vollstaendiges, im Spender erprobtes Teilstueck.
+                    //
+                    // Zwei getrennte Raten: `propability` entscheidet weiter oben, OB ein Paar
+                    // ueberhaupt rekombiniert, `nodeExchangeRate` hier, WIE VIEL innerhalb eines
+                    // ausgewaehlten Paares wandert. Das ist Absicht -- ein Paar rekombiniert
+                    // entweder spuerbar oder gar nicht, statt ueber die ganze Population duenn
+                    // zu streuen.
+                    bool changed = false;
+                    for(auto const& [donorIdx, recipientIdx] : donorToRecipient){
+                        if(!distributionNodeExchange(*generator)) continue;
+
+                        const Node& donorNode = donorNet->innerNodes[donorIdx];
+
+                        // Erst uebersetzen, dann entscheiden -- der Empfaengerknoten wird nicht
+                        // angefasst, solange nicht feststeht, dass das ganze Gen passt.
+                        std::vector<int> translatedEdges;
+                        translatedEdges.reserve(donorNode.edges.size());
+                        bool translatable = true;
+                        for(int donorTarget : donorNode.edges){
+                            auto mapped = donorToRecipient.find(donorTarget);
+                            if(mapped == donorToRecipient.end()){
+                                translatable = false;
+                                break;
+                            }
+                            translatedEdges.push_back(mapped->second);
+                        }
+                        if(!translatable){
+                            crossoverNodesSkipped++;
+                            continue;
+                        }
+
+                        Node& targetNode = recipient->innerNodes[recipientIdx];
+                        unsigned int keptPosition = targetNode.id;
+                        targetNode = donorNode;
+                        targetNode.id = keptPosition;              // die Position gehoert dem Empfaenger
+                        targetNode.edges = std::move(translatedEdges);
+                        targetNode.generationReceived = currentGeneration;
+                        targetNode.traverseCounter = 0;
+                        targetNode.lastVisitStep = 0;
+                        crossoverNodesExchanged++;
+                        changed = true;
+                    }
+
+                    if(!changed) continue;
+                    crossoverPairsApplied++;
+
+                    recipient->changeFalseEdges();
+                    recipient->nCrossovers += 1;
+                    recipient->structureChangedThisGen = true;
+                    recipient->blendLineageWith(*donorNet, lineagePriorCap);
+                    continue;
+
+                } else if(type == "uniform"){
                     nNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
                     // set nodesToExchange
                     for(int k=0; k<nNodesToExchange; k++){
@@ -790,6 +2196,12 @@ class Population {
                     }
 
                 } else if (type == "onepoint") {
+                    // with probability (1 - propability) this pair is left untouched. Once the pair
+                    // is selected, the cutpoint itself stays uniformly drawn.
+                    if(!distributionBernoulli(*generator)){
+                        continue; // onepoint crossover should not be applied, skip to next pair
+                    }
+
                     int maxNodesToExchange = std::min(parent1.innerNodes.size(), parent2.innerNodes.size());
                     std::uniform_int_distribution<int> distributionUniform(0, maxNodesToExchange-1);
                     nNodesToExchange = distributionUniform(*generator);
@@ -810,8 +2222,29 @@ class Population {
                         continue; // random width crossover should not be applied, skip to next pair
                     }
 
-                    std::vector<int> successor1 = findSuccessorNodes(parent1); // getting the node indices of subnetwork
-                    std::vector<int> successor2 = findSuccessorNodes(parent2); // getting the node indices of subnetwork
+                    int maxNodesToExchange = std::max(parent1.innerNodes.size(), parent2.innerNodes.size());
+                    std::uniform_int_distribution<int> distributionUniform(2, maxNodesToExchange);
+                    int depthI = distributionUniform(*generator);
+                    int depthII = distributionUniform(*generator);
+
+                    std::vector<int> successor1 = findSuccessorNodes(
+                            parent1, 
+                            -1, 
+                            -1, 
+                            traversalNeighbor, 
+                            depthI,
+                            lowerBoundTraversalCounter, 
+                            upperBoundTraversalCounter
+                            ); // getting the node indices of subnetwork
+                    std::vector<int> successor2 = findSuccessorNodes(
+                            parent2, 
+                            -1, 
+                            -1, 
+                            traversalNeighbor, 
+                            depthII, 
+                            lowerBoundTraversalCounter, 
+                            upperBoundTraversalCounter
+                            ); // getting the node indices of subnetwork
 
                     // prevent networks <= 2 inner nodes otherwise the crossover would delete to many nodes
                     if((int)successor1.size() - (int)successor2.size() >= (int)parent1.innerNodes.size() - 2 ||
@@ -820,9 +2253,21 @@ class Population {
                         continue;
                     }
 
-                    if(parent1IsElite){
+                    // prevent crossover of unused AND protected nodes
+                    if(successor1.size() == 1 && 
+                            currentGeneration - parent1.innerNodes[successor1[0]].generationReceived < crossoverProtection) continue;
+
+                    if(successor2.size() == 1 && 
+                            currentGeneration - parent2.innerNodes[successor2[0]].generationReceived < crossoverProtection) continue;
+
+
+                    if(parent1IsElite && successor1.size() > 1){
                         // parent1 is elite → only parent2 receives genes
                         parent2.nCrossovers += 1;
+                        parent2.structureChangedThisGen = true;
+                        // Elite bleibt selbst unveraendert; nur der Empfaenger (parent2)
+                        // vermischt seine Lineage-Statistik mit der des Elite-Spenders.
+                        parent2.blendLineageWith(parent1, lineagePriorCap);
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
 
@@ -831,6 +2276,7 @@ class Population {
                         // Copy nodes from parent1 to parent2
                         for(int j=0; j<minSubNodes; j++){
                             parent2.innerNodes[successor2[j]] = parent1.innerNodes[successor1[j]];
+                            parent2.innerNodes[successor2[j]].generationReceived = currentGeneration;
                         }
 
                         std::vector<int> indices1;
@@ -840,7 +2286,7 @@ class Population {
                         }
 
                         if(successor1.size() > successor2.size()){
-                            addOverhangNodes(successor1, successor2, parent1, parent2, true);
+                            addOverhangNodes(successor1, successor2, parent1, parent2, true, currentGeneration);
                         }
 
                         parent2.remapNodeIdsAndEdges(swapMap1, indices1, false);
@@ -851,9 +2297,13 @@ class Population {
 
                         parent2.changeFalseEdges();
 
-                    } else if(parent2IsElite){
+                    } else if(parent2IsElite && successor2.size() > 1){
                         // parent2 is elite → only parent1 receives genes
                         parent1.nCrossovers += 1;
+                        parent1.structureChangedThisGen = true;
+                        // Elite bleibt selbst unveraendert; nur der Empfaenger (parent1)
+                        // vermischt seine Lineage-Statistik mit der des Elite-Spenders.
+                        parent1.blendLineageWith(parent2, lineagePriorCap);
 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
 
@@ -862,6 +2312,7 @@ class Population {
                         // Copy nodes from parent2 to parent1
                         for(int j=0; j<minSubNodes; j++){
                             parent1.innerNodes[successor1[j]] = parent2.innerNodes[successor2[j]];
+                            parent2.innerNodes[successor2[j]].generationReceived = currentGeneration;
                         }
 
                         std::vector<int> indices2;
@@ -871,7 +2322,7 @@ class Population {
                         }
 
                         if(successor2.size() > successor1.size()){
-                           addOverhangNodes(successor2, successor1, parent2, parent1, true);
+                           addOverhangNodes(successor2, successor1, parent2, parent1, true, currentGeneration);
                         }
 
                         parent1.remapNodeIdsAndEdges(swapMap2, indices2, false);
@@ -891,18 +2342,23 @@ class Population {
 
                         parent1.nCrossovers += 1;
                         parent2.nCrossovers += 1;
+                        parent1.structureChangedThisGen = true;
+                        parent2.structureChangedThisGen = true;
+                        blendLineageBidirectional(parent1, parent2);
 
                         // exchange all nodes until same subnetwork size is reached 
                         int minSubNodes = std::min(successor1.size(), successor2.size());
                         for(int j=0; j<minSubNodes; j++){ 
                             std::swap(parent1.innerNodes[successor1[j]], parent2.innerNodes[successor2[j]]);
+                            parent1.innerNodes[successor1[j]].generationReceived = currentGeneration;
+                            parent2.innerNodes[successor2[j]].generationReceived = currentGeneration;
                         }
 
                         // add overhang nodes
                         if(successor1.size() > successor2.size()){
-                           addOverhangNodes(successor1, successor2, parent1, parent2);
+                           addOverhangNodes(successor1, successor2, parent1, parent2, false, currentGeneration);
                         } else if (successor1.size() < successor2.size()) {
-                           addOverhangNodes(successor2, successor1, parent2, parent1);
+                           addOverhangNodes(successor2, successor1, parent2, parent1, false, currentGeneration);
                         }
 
                         // initialize swap maps for remapping nodes and edges of both individuals
@@ -932,7 +2388,7 @@ class Population {
                         parent1.changeFalseEdges();
                         parent2.changeFalseEdges();
                     }
-                   
+
                 } else {
 
                     for(int k : nodesToExchange){
@@ -945,6 +2401,24 @@ class Population {
                         } else {
                             // Neither elite → normal bidirectional swap
                             std::swap(parent1.innerNodes[k], parent2.innerNodes[k]);
+                        }
+                    }
+
+                    // Lineage-Statistik entsprechend der tatsaechlichen Genflussrichtung
+                    // vermischen (einmal pro Paar, nicht pro ausgetauschtem Knoten).
+                    // nCrossovers wird ebenfalls hier (einmal pro Paar) erhoeht, analog zum
+                    // "randomWidth"-Zweig, damit die Analyse-Zaehlung fuer alle Crossover-Typen konsistent ist.
+                    if(!nodesToExchange.empty()){
+                        if(parent1IsElite){
+                            parent2.blendLineageWith(parent1, lineagePriorCap);
+                            parent2.nCrossovers += 1;
+                        } else if(parent2IsElite){
+                            parent1.blendLineageWith(parent2, lineagePriorCap);
+                            parent1.nCrossovers += 1;
+                        } else {
+                            blendLineageBidirectional(parent1, parent2);
+                            parent1.nCrossovers += 1;
+                            parent2.nCrossovers += 1;
                         }
                     }
 
@@ -961,6 +2435,7 @@ class Population {
                 }
             }
         }
+
 
         /**
          * @brief Initializes a node index mapping between two subnode vectors for crossover operations.
@@ -1017,7 +2492,8 @@ class Population {
                 const std::vector<int>& successor2,
                 Network& parent1, 
                 Network& parent2,
-                bool copy = false
+                bool copy = false,
+                int currentGeneration = 0
                 ){
 
             int overhang = successor1.size() - successor2.size();
@@ -1028,6 +2504,8 @@ class Population {
                 } else {
                     parent2.innerNodes.push_back(parent1.innerNodes[nodeIndex]);
                 }
+                parent2.innerNodes.back().generationReceived = currentGeneration;
+                // Keep parent2's coactivation matrix in sync so that
             }
         }
 
@@ -1072,7 +2550,7 @@ class Population {
                     map[i+1] = i;
                 }
                 // random number for deleted node
-                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size(), nodeIndex);
+                map[nodeIndex] = parent1.innerNodes[0].changeEdge(parent1.innerNodes.size(), nodeIndex, &parent1.innerNodes);
                 // remap nodes
                 std::vector<int> indices; 
                 for(int k=0; k<parent1.innerNodes.size(); k++){// all node must be checked for remaping 
@@ -1100,7 +2578,15 @@ class Population {
          * @return A sorted vector of node indices comprising the start node and up to
          *         @p nSelectedNodes successors.
          */
-        std::vector<int> findSuccessorNodes(auto& individual, int subNodesStart = -1, int nSelectedNodes = -1, bool traversalNeighbor = false){
+        std::vector<int> findSuccessorNodes(
+                auto& individual, 
+                int subNodesStart = -1, 
+                int nSelectedNodes = -1, 
+                bool traversalNeighbor = false, 
+                int graphDepth = -1,
+                float lowerBoundTraversalCounter = 0.9,
+                float upperBoundTraversalCounter = 1.1
+                ){
 
             if(subNodesStart == -1){
                 std::uniform_int_distribution<int> distributionUniform(0, individual.innerNodes.size()-1);
@@ -1115,15 +2601,79 @@ class Population {
             std::vector<int> nodeIndices;
             if (individual.innerNodes[subNodesStart].used == false){
                 nodeIndices.push_back(subNodesStart);
+                // If the node is frozen, all nodes with the same frozen value are considered successors.
+                if (individual.innerNodes[subNodesStart].frozen > 0){
+                    for(auto& node : individual.innerNodes){
+                        if (individual.innerNodes[subNodesStart].frozen == node.frozen){
+                            nodeIndices.push_back(node.id);
+                        }
+                    }
+                }
+
                 return nodeIndices; // if the node is unused, no successor nodes can be found
             }
 
             nodeIndices.push_back(subNodesStart);
+
+            //std::uniform_int_distribution<int> distributionUniformII(2, 10);
+            //graphDepth = distributionUniformII(*generator);
+            // Graph-depth-based BFS traversal through actual node edges
+            if (graphDepth != -1) {
+                std::unordered_set<int> visited;
+                std::queue<std::pair<int, int>> bfsQueue; // {node_index, current_depth}
+                bfsQueue.push({subNodesStart, 0});
+                visited.insert(subNodesStart);
+
+                while (!bfsQueue.empty()) {
+                    auto [nodeIdx, currentDepth] = bfsQueue.front();
+                    bfsQueue.pop();
+
+                    if (nodeIdx != subNodesStart) {
+                        nodeIndices.push_back(nodeIdx);
+                        // respect nSelectedNodes as an upper bound (start node excluded from count)
+                        if ((int)nodeIndices.size() - 1 >= nSelectedNodes) {
+                            break;
+                        }
+                    }
+
+                    if (currentDepth < graphDepth) {
+                        for (int edgeTarget : individual.innerNodes[nodeIdx].edges) {
+                            if (visited.find(edgeTarget) == visited.end()) {
+                                visited.insert(edgeTarget);
+                                bfsQueue.push({edgeTarget, currentDepth + 1});
+                            }
+                        }
+                    }
+                }
+                std::sort(nodeIndices.begin(), nodeIndices.end());
+                return nodeIndices;
+            }
+
+
+            // Zwei getrennte Kriterien, zwei getrennte Felder (siehe Node::traverseCounter /
+            // Node::lastVisitStep): die Reihenfolge entlang des Pfades ("nach dem Startknoten
+            // besucht") kommt aus dem Zeitstempel lastVisitStep, die Nutzungs-Aehnlichkeit
+            // ("etwa gleich oft besucht") aus der Haeufigkeit traverseCounter. Vor der Trennung
+            // trug traverseCounter in decisionAndNextNode() den Zeitstempel, weshalb das
+            // Verhaeltnis-Kriterium unten faktisch Zeitstempel verglichen hat.
+            int lastVisitStepStart = individual.innerNodes[subNodesStart].lastVisitStep;
             int traverseCounterStart = individual.innerNodes[subNodesStart].traverseCounter;
+            int lastFrozenValue = individual.innerNodes[subNodesStart].frozen;
             for(int i=0; i<individual.innerNodes.size(); i++){
+                int lastVisitStepNode = individual.innerNodes[i].lastVisitStep;
                 int traverseCounterNode = individual.innerNodes[i].traverseCounter;
+                int frozenValueNode = individual.innerNodes[i].frozen;
+                // Die frozen-Klausel haelt eingefrorene Bloecke zusammen und darf nur fuer
+                // TATSAECHLICH eingefrorene Knoten (frozen > 0) greifen. Ohne das
+                // frozen > 0 ist sie bei einem Netz ohne eingefrorene Knoten (frozen
+                // ueberall 0, der Normalfall) IMMER wahr -- dann liefert
+                // findSuccessorNodes() unabhaengig vom Pfad einfach die ersten
+                // nSelectedNodes Knoten, und "randomWidth" tauscht einen beliebigen
+                // Indexbereich statt eines Sub-Netzes.
+                bool sameFrozenBlock = (frozenValueNode > 0 && frozenValueNode == lastFrozenValue);
+
                 if(traversalNeighbor == false){
-                    if(traverseCounterNode > traverseCounterStart){
+                    if(lastVisitStepNode > lastVisitStepStart || sameFrozenBlock){
                         nodeIndices.push_back(i);
                         nSelectedNodes --;
                         if (nSelectedNodes == 0){
@@ -1131,10 +2681,14 @@ class Population {
                         }
                     }
                 } else {
-                    if(traverseCounterStart * 0.9 <= traverseCounterNode && traverseCounterNode <= traverseCounterStart * 1.1){
-                        nodeIndices.push_back(i);
+                    if(sameFrozenBlock ||
+                            (traverseCounterStart * lowerBoundTraversalCounter <= traverseCounterNode && traverseCounterNode <= traverseCounterStart * upperBoundTraversalCounter)){
+                        if(i != subNodesStart){ // exclude the start node itself from being considered a neighbor
+                            nodeIndices.push_back(i);
+                        }
                     }
                 }
+                lastFrozenValue = frozenValueNode;
             }
             std::sort(nodeIndices.begin(), nodeIndices.end());
             return nodeIndices;
@@ -1181,13 +2735,39 @@ class Population {
          * @note This operator has not influence on the individuals fitness  
          * @see Network::addDelNodes()
          */
-        void callAddDelNodes(std::vector<float>& minF, std::vector<float>& maxF, float junk=0, bool noElite = false){
+        void callAddDelNodes(
+                std::vector<float>& minF, 
+                std::vector<float>& maxF, 
+                float junk=0, 
+                bool noElite = false,
+                int currentGeneration = 0,
+                int crossoverProtection = 3,
+                int nodeGracePeriod = -1
+                ){
 
             for(int i=0; i<individuals.size(); i++){
 
-                if (std::find(indicesElite.begin(), indicesElite.end(), i) == indicesElite.end()) {continue;} // skip elite individuals if noElite is true
-                individuals[i].addDelNodes(minF, maxF, junk, nFeatureValues);
+                if (noElite && std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) {continue;}// skip elite individuals if noElite is true
 
+                if(individuals[i].addDelNodes(minF, maxF, junk, nFeatureValues, currentGeneration, crossoverProtection, nodeGracePeriod)){
+                    individuals[i].structureChangedThisGen = true;
+                }
+
+            }
+        }
+
+        /**
+         * @brief Advances the grace-period counters of every individual by one generation.
+         *
+         * @details
+         * Call once per generation between the evaluation and callAddDelNodes(), while
+         * Node::used still reflects the generation that just finished.
+         *
+         * @see Network::ageUnusedNodes()
+         */
+        void callAgeUnusedNodes(){
+            for(auto& network : individuals){
+                network.ageUnusedNodes();
             }
         }
 
@@ -1205,6 +2785,22 @@ class Population {
          * @param maxConsecutiveP Maximum consecutive processing nodes allowed
          * @param worstFitness Fitness value assigned when networks violate constraints
          * @param seeds Vector of random seeds for environment initialization
+         * @param survivalMode See Network::fitGymnasium(). Passed through unchanged so
+         *        gymnasium()/renderVideos() (video path) always matches the reward mode
+         *        used here during training.
+         * @param potential See Network::fitGymnasium().
+         * @param landingQuote If true, aggregates fitness as
+         *        Return * (landings / nSeeds)^k instead of the plain mean reward.
+         *        This scales (rather than additively combines) the raw return with
+         *        the landing rate, so an individual that lands on every seed but
+         *        flies conservatively (e.g. 120 * 1.0^2 = 120) can outrank one that
+         *        posts higher raw scores but crashes on some seeds (e.g. 8/10 landings,
+         *        160 * 0.8^2 = 102.4), while a "suicidal" high-scorer that rarely lands
+         *        (5/10, 200 * 0.5^2 = 50.0) is penalized heavily. Default: false (mean
+         *        reward, unchanged behavior).
+         * @param landingQuoteExponent The exponent k in (landings/nSeeds)^k, expected
+         *        in [2,3]. Only used when landingQuote is true. Default: 2.0f.
+         * 
          */
         void gymnasiumMultiSeed(
             GymEnvWrapper& env,
@@ -1214,7 +2810,15 @@ class Population {
             int worstFitness,
             const std::vector<int>& seeds,
             bool validation = false,
-            float curriculumLevel = 1.0f
+            float curriculumLevel = 1.0f,
+            bool absoluteImpulseCurriculum = false,
+            bool useLineageFitness = true,
+            bool uniformDirectionCurriculum = false,
+            const std::vector<float>& directionAngles = {},
+            bool survivalMode = false,
+            bool potential = false,
+            bool landingQuote = false,
+            float landingQuoteExponent = 2.0f
                 ){
 
             for(auto& network : individuals){
@@ -1222,32 +2826,120 @@ class Population {
                 network.lastStepRewards.clear();
                 network.lastStepRewardsII.clear();
                 network.episodeLog.clear();
+                network.visitedNodesPerSeed.clear();
+                network.objectivesPerSeed.clear();
                 float totalReward = 0.0f;
                 float minReward = std::numeric_limits<float>::max();
+                int landingCount = 0;
                 bool firstSeed = true;
+                // Akkumulatoren fuer den ueber alle Seeds gemittelten Epsilon-Lexicase
+                // Ziel-Vektor (siehe Network::lastEpisodeObjectives / lexicaseObjectives).
+                std::vector<float> objSum(Network::N_OBJECTIVES, 0.0f);
 
-                for(int s : seeds){
+                for(size_t seedIdx = 0; seedIdx < seeds.size(); ++seedIdx){
+                    int s = seeds[seedIdx];
+                    // directionAngles[i] enthaelt den Winkel, der Seed seeds[i] fuer
+                    // diese Generation zugewiesen wurde (siehe drawSeeds()/lunarlander.py)
+                    // -- garantiert eine gleichverteilte Abdeckung aller Richtungen ueber
+                    // das Batch hinweg, statt der natuerlichen (quadratisch verteilten)
+                    // Seed-Richtung.
+                    float directionAngle = (uniformDirectionCurriculum && seedIdx < directionAngles.size())
+                        ? directionAngles[seedIdx] : 0.0f;
+
+                    // Snapshot der traverseCounter VOR diesem Seed, um im Anschluss per Diff genau
+                    // die fuer DIESEN Seed durchlaufenen Knoten zu isolieren (traverseCounter/used
+                    // akkumulieren sonst absichtlich ueber alle Seeds der Generation hinweg, siehe
+                    // Network::visitedNodesPerSeed). Rein additiv/lesend -- aendert das bestehende
+                    // Akkumulationsverhalten von used/traverseCounter nicht.
+                    std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size());
+                    for(size_t n = 0; n < network.innerNodes.size(); ++n){
+                        traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
+                    }
 
                     if(firstSeed == true){
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true, validation, false);
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true, validation, false, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
                     } else {
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false, validation, false);
+                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false, validation, false, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
                     }
+
+                    std::vector<int> visitedThisSeed;
+                    for(size_t n = 0; n < network.innerNodes.size(); ++n){
+                        if(network.innerNodes[n].traverseCounter != traverseCounterBefore[n]){
+                            visitedThisSeed.push_back(static_cast<int>(n));
+                        }
+                    }
+                    network.visitedNodesPerSeed.push_back(std::move(visitedThisSeed));
+
+                    //if (!network.frozenExperience)
+                      //  network.updateExperienceFromEpisode();
+                    //else
+                      //  network.episodeLog.clear();
 
                     network.fitnessValues.push_back(network.fitness);
                     network.lastStepRewards.push_back(network.lastFitness);
                     network.lastStepRewardsII.push_back(network.lastFitnessII);
+                    for(size_t o = 0; o < objSum.size() && o < network.lastEpisodeObjectives.size(); o++){
+                        objSum[o] += network.lastEpisodeObjectives[o];
+                    }
+                    // Keep the per-seed vector as well: averaging it away (lexicaseObjectives)
+                    // costs exactly the seed-by-seed resolution lexicase lives on.
+                    network.objectivesPerSeed.push_back(network.lastEpisodeObjectives);
+                    bool landedThisSeed = network.fitness > Network::LANDING_SUCCESS_THRESHOLD;
+                    if(landedThisSeed){
+                        landingCount++;
+                    }
+                    if(useLineageFitness){
+                        network.updateLineageStats(network.fitness, landedThisSeed);
+                    }
                     totalReward += network.fitness;
                     firstSeed = false;
+
+                    if(network.fitness < minReward){
+                        minReward = network.fitness;
+                    }
+                }
+                
+                //network.updateExperienceFromEpisode();
+
+                // Ueber alle Seeds gemittelter 5-D Ziel-Vektor fuer Population::lexicaseSelection().
+                network.lexicaseObjectives.assign(objSum.size(), 0.0f);
+                for(size_t o = 0; o < objSum.size(); o++){
+                    network.lexicaseObjectives[o] = objSum[o] / static_cast<float>(seeds.size());
                 }
 
-                // Nach ALLEN Seeds: einmalig Erfahrung aus allen Episoden aktualisieren
-                if (!network.frozenExperience)
-                    network.updateExperienceFromEpisode();
-                else
-                    network.episodeLog.clear();
-                // Default aggregation: mean reward
-                network.fitness = totalReward / static_cast<float>(seeds.size());
+                // Default aggregation: mean reward of the current generation's seed batch
+                float rawFitness = totalReward / static_cast<float>(seeds.size());
+                if(landingQuote){
+                    // Fitness_gesamt = Return * (Landeanzahl / N_seeds)^k
+                    // Skaliert (statt addiert) den Return mit der Landequote, damit
+                    // konservative "immer landet" Individuen hohe aggressive Scorer mit
+                    // vielen Crashes ausstechen koennen (siehe Docstring-Rechenbeispiel).
+                    float landingRate = static_cast<float>(landingCount) / static_cast<float>(seeds.size());
+                    // network.fitness = rawFitness * std::pow(landingRate, landingQuoteExponent);
+                    network.fitness = landingRate;
+                } else {
+                    network.fitness = rawFitness;
+                }
+                // network.fitness = minReward;
+                // float rawFitness = minReward;
+
+                // EMA über Generationen hinweg: network.fitness bleibt bis zur Zuweisung
+                // unangetastet, damit die vorige EMA-Historie (network.emaFitness) beim
+                // Update noch verfuegbar ist. network.alpha ist ein individuelles Member
+                // (spaeter aehnlichkeitsbasiert bei Mutation/Crossover anpassbar).
+                // if (!validation) {
+                //     if (!network.emaInitialized) {
+                //         network.emaFitness = rawFitness;  // Erstinitialisierung
+                //         network.emaInitialized = true;
+                //     } else {
+                //         network.emaFitness = network.alpha * rawFitness
+                //                             + (1.0f - network.alpha) * network.emaFitness;
+                //     }
+                //     network.fitness = network.emaFitness;
+                // } else {
+                //     network.fitness = rawFitness;  // Validierung: kein EMA
+                // }
+                //
             }
         }
 
@@ -1282,7 +2974,8 @@ class Population {
             int maxSteps,
             int maxConsecutiveP,
             int worstFitness,
-            const std::vector<int>& seeds
+            const std::vector<int>& seeds,
+            bool useLineageFitness = true
                 ){
 
             int nCores = static_cast<int>(envs.size());
@@ -1309,6 +3002,9 @@ class Population {
                         }
                         network.fitnessValues.push_back(network.fitness);
                         network.lastStepRewards.push_back(network.lastFitness);
+                        if(useLineageFitness){
+                            network.updateLineageStats(network.fitness, network.fitness > Network::LANDING_SUCCESS_THRESHOLD);
+                        }
                         totalReward += network.fitness;
                         firstSeed = false;
                     }
@@ -1355,23 +3051,43 @@ class Population {
                 if(network.fitnessValues.empty()) continue;
 
                 float totalReward = 0.0f;
-                int landings = 0;
+                float minReward = std::numeric_limits<float>::max();
+                float maxReward = std::numeric_limits<float>::min();
+                float totalVelocity = 0.0f;
+                float totalAbsX   = 0.0f;
 
                 for(size_t i = 0; i < network.fitnessValues.size(); i++){
                     totalReward += network.fitnessValues[i];
-                    if(network.lastStepRewards[i] >= landingThreshold){  // ← EXAKT: letzter Step ≥ 100
-                        landings++;
+                    totalVelocity += network.lastStepRewards[i] * -1;
+                    totalAbsX   += network.lastStepRewardsII[i] * -1;
+                    if(network.fitnessValues[i] < minReward){
+                        minReward = network.fitnessValues[i];
                     }
+                    if(network.fitnessValues[i] > maxReward){
+                        maxReward = network.fitnessValues[i];
+                    }
+
                 }
-              
+                
+                // Median Reward berechnen
+                std::vector<float> sortedRewards = network.fitnessValues;
+                std::sort(sortedRewards.begin(), sortedRewards.end());
+                float medianReward;
+
+                size_t n = sortedRewards.size();
+                if(n % 2 == 0){
+                    medianReward = (sortedRewards[n / 2 - 1] + sortedRewards[n / 2]) / 2.0f;
+                } else {
+                    medianReward = sortedRewards[n / 2];
+                }
+                     
                 float meanReward = totalReward / static_cast<float>(network.fitnessValues.size());
-                float landingRate = static_cast<float>(landings) / static_cast<float>(network.fitnessValues.size());
+                float meanVelocity = totalVelocity / static_cast<float>(network.fitnessValues.size());
+                float meanAbsX   = totalAbsX / static_cast<float>(network.fitnessValues.size());
+                float diffReward = maxReward - minReward;
 
-                // Store objectives: [0] = landing rate, [1] = mean reward
-                network.objectives = {landingRate, meanReward};
-
-                // Two-stage scalar fitness for elitism sorting
-                network.fitness = landingRate * 10000.0f + meanReward;
+                network.objectives = {meanReward, minReward};
+                network.fitness = meanReward;
             }
         }
 
@@ -1395,19 +3111,19 @@ class Population {
         }
 
         /**
-         * @brief Performs Pareto-based tournament selection with dual elitism.
+         * @brief Performs Pareto-based tournament selection with Utopia-point elitism.
          *
          * @details
-         * Extends paretoTournamentSelection with two elite groups:
-         * - E_reward best individuals by mean reward (exploitation)
-         * - E_landing best individuals by landing rate (exploration)
-         * This ensures that landing behavior is never lost through mutation.
+         * Extends paretoTournamentSelection with a single elite group:
+         * The E best individuals are selected by their Euclidean distance
+         * to the Utopia point (the vector of per-objective maxima across
+         * the entire population). This preserves individuals that are
+         * well-rounded across all objectives.
          *
          * @param N Tournament size
-         * @param E_reward Number of elite individuals by mean reward
-         * @param E_landing Number of elite individuals by landing rate
+         * @param E Number of elite individuals by Utopia distance
          */
-        void paretoTournamentSelection(int N, int E_reward, int E_landing){
+        void paretoTournamentSelection(int N, int E){
             std::vector<Network> selection;
             selection.reserve(individuals.size());
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
@@ -1415,8 +3131,6 @@ class Population {
             minFitness = individuals[0].fitness;
             bestFit = individuals[0].fitness;
             maxNetworkSize = 0;
-
-            int E = E_reward + E_landing;
 
             for(size_t i = 0; i < individuals.size() - E; i++){
                 if (individuals[i].innerNodes.size() > maxNetworkSize){
@@ -1486,7 +3200,7 @@ class Population {
          */
         void setEliteUtopia(
                 int E,
-                const std::vector<Network>& individuals,
+                std::vector<Network>& individuals,
                 std::vector<Network>& selection){
 
             indicesElite.clear();
@@ -1536,6 +3250,7 @@ class Population {
                 if(alreadySelected.count(idx)) continue;
                 indicesElite.push_back(selection.size());
                 selection.push_back(individuals[idx]);
+                individuals[idx].nBest++;
                 alreadySelected.insert(idx);
                 if(individuals[idx].fitness > bestFit) bestFit = individuals[idx].fitness;
                 added++;
@@ -1550,11 +3265,13 @@ class Population {
         void callGammaMutation(float probability, bool justUsedNodes = false) {
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
+                bool changed = false;
                 for (auto& node : individuals[i].innerNodes) {
                     if (node.type != "JE") continue;
                     if (justUsedNodes && !node.used) continue;
-                    node.gammaMutation(probability);
+                    if (node.gammaMutation(probability)) changed = true;
                 }
+                if (changed) individuals[i].structureChangedThisGen = true;
             }
         }
 
@@ -1566,13 +3283,17 @@ class Population {
         void callAlphaMutation(float probability, bool justUsedNodes = false) {
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
+                bool changed = false;
                 for (auto& node : individuals[i].innerNodes) {
                     if (node.type != "JE") continue;
                     if (justUsedNodes && !node.used) continue;
-                    node.alphaMutation(probability);
+                    if (node.alphaMutation(probability)) changed = true;
                 }
+                if (changed) individuals[i].structureChangedThisGen = true;
             }
         }
+
+
 
 };
 
