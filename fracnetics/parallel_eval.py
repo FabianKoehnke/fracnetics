@@ -147,10 +147,10 @@ class ParallelEvaluator:
         self.workers = workers or os.cpu_count() or 1
         self.chunksPerWorker = chunksPerWorker
         # fork, not spawn: spawn re-imports the caller's module in every worker, which
-        # would re-run lunarlander.py's 2400 lines of top-level code (it has no
-        # __main__ guard) and needs this file on the worker's sys.path. fork inherits
-        # both, costs no interpreter start-up, and is safe here because the parent is
-        # single-threaded -- Box2D and gymnasium spawn no threads of their own.
+        # would re-run an experiment script's top-level code (the LunarLander script has
+        # no __main__ guard). fork inherits the parent state, costs no interpreter
+        # start-up, and is safe here because the parent is single-threaded -- Box2D and
+        # gymnasium spawn no threads of their own.
         self.pool = ProcessPoolExecutor(
             max_workers=self.workers,
             mp_context=get_context(startMethod),

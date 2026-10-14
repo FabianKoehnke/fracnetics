@@ -12,17 +12,13 @@ both missed it. test_growth_path_matches therefore runs addDelNodes as well, so 
 growth path is covered and not just the evaluation results.
 """
 
-import os
 import random
-import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples"))
-
 gym = pytest.importorskip("gymnasium")
 import fracnetics as fn
-from parallel_eval import ParallelEvaluator
+from fracnetics.parallel_eval import ParallelEvaluator
 
 ENV = dict(id="LunarLander-v3", continuous=False, gravity=-10.0, enable_wind=False)
 POPKW = dict(seed=5, jn=8, jnf=8, pn=4, pnf=4, fractalJudgment=False,

@@ -8,8 +8,6 @@ dist
 videos
 gui
 build*/
-runs
-research/results
 
 # rendered episodes (kept locally, not versioned)
 *.mp4

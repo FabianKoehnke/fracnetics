@@ -17,9 +17,15 @@ alike. Chat with the maintainer stays German.
 |---|---|
 | `include/*.hpp` | **The entire core, header-only.** `Population.hpp` (selection, crossover, mutation, evaluation), `Network.hpp` (graph, traversal, clustering), `Node.hpp` (nodes, edges, boundaries), `Fractal.hpp`, `GymnasiumWrapper.hpp` |
 | `bindings/bindings.cpp` | pybind11 bindings — the **only** translation unit |
-| `fracnetics/` | Python package. `__init__.py` is versioned, `_core*.so` is built |
+| `fracnetics/` | Python package. `__init__.py`, `utilsModel.py` and `parallel_eval.py` (process-parallel evaluation) are versioned, `_core*.so` is built |
 | `tests/` | `*.cpp` GoogleTest, `test_*.py` pytest |
-| `examples/lunarlander.py` | Main experiment; the notebook variant is often older |
+| `examples/` | Notebooks (CartPole, IRIS, MountainCar) |
+
+This repository is the library only. The LunarLander experiment, the studies, the runs and
+the reports live in the dissertation repository under
+`../dissertation/paper/LunarLander - Interval Boundaries/` and import the installed
+`fracnetics`. Library changes must keep its `code/lunarlander.py` bit-identical to
+`runs/run_20260915_025833` (first 60 generations, all 8 columns of `curves.csv`).
 
 Everything is header-only, so **any** header change forces a full recompile of
 `bindings.cpp`. There are no incremental partial builds.

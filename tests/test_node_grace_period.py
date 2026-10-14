@@ -107,10 +107,9 @@ def test_pickle_carries_grace_fields():
 def test_archived_pickles_still_load(run):
     """Node.__setstate__ must accept the old 11-field tuples."""
     import pickle
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "runs", run, "final.pkl")
-    if not os.path.exists(path):
-        pytest.skip(f"{run} not present")
+    # Final networks of two runs saved before the grace period existed.
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures",
+                        f"{run}_final.pkl")
     net = pickle.load(open(path, "rb"))
     assert len(net.innerNodes) > 0
     assert net.innerNodes[0].unusedSince == 0     # default for pre-grace-period pickles
