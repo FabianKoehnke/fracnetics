@@ -122,27 +122,23 @@ class Network {
          *
          *  Five criteria, EVERY ONE of which is maximised by landing on the pad:
          *    [0] total Gymnasium reward    -- holistic, and it already rewards landing
-         *    [1] -|vy_end| if landed       -- descent safety (vertical)
-         *    [2] -|vx_end| if landed       -- lateral speed, the one that makes a lander
-         *                                     touch down softly and then slide off the pad
+         *    [1] -|vy_end| if landed       -- vertical speed at the end
+         *    [2] -|vx_end| if landed       -- lateral speed at the end
          *    [3] -|x_end|  if landed       -- horizontal precision
          *    [4] landed (1.0 / 0.0)        -- the goal itself
          *
-         *  vx and vy are deliberately SEPARATE. Measured on a trained network over 1000
-         *  seeds: successful landings end at a combined speed of exactly 0.00, failures at
-         *  0.49, and the failures touch down ON the pad before sliding off it -- so what
-         *  is left over is lateral. A combined -(|vx|+|vy|) lets a network score on the
-         *  vertical part alone and ignore the horizontal one, which is what it did.
+         *  "Landed" is Gymnasium's +100 bonus, which is paid only once the lander has come
+         *  to rest. On every landing [1] and [2] are therefore exactly 0 (measured on 4582
+         *  landings of the best LunarLander network): they only separate landed from not
+         *  landed and repeat [4]. Among landed networks only [0] and [3] differ.
          *
          *  THE CONDITION ON [1]-[3] IS THE POINT. An earlier version measured them
-         *  unconditionally in the final frame, and a network that hovered over the pad
-         *  until the step limit won them all: it stands still (vy, vx near zero) above the
-         *  pad (x near zero) and survives the longest. Four of five test cases went to a
-         *  hoverer, and the population drifted there -- measured over 50 generations, the
-         *  share of episodes reaching the step limit rose from 0.1% to 2.9% while the
-         *  fitness fell from -375 to -592. Without a landing these three now yield a fixed
-         *  penalty instead, so hovering can win none of them, and among the landings they
-         *  resolve exactly the differences that decide pad or no pad.
+         *  unconditionally in the final frame and used survived steps instead of the reward
+         *  as [0]. Episodes that hovered until the step limit then beat landings on two of
+         *  the five objectives on average (steps and lateral speed), and the population
+         *  drifted there: over 50 generations the share of episodes reaching the step limit
+         *  rose from 0.1% to 2.9% while the fitness fell from -375 to -592. Without a
+         *  landing these three now yield a fixed penalty, so hovering wins none of them.
          *
          *  The penalties are only slightly worse than the worst achievable real value, not
          *  hugely worse: epsilon-lexicase derives its tolerance from the spread of the

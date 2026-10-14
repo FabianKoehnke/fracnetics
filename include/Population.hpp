@@ -532,14 +532,13 @@ class Population {
          *   1. **Total Gymnasium reward** over the episode.
          *   2. **Descent safety**: -|vy_end|, but only if the episode ended in a landing;
          *      otherwise a fixed penalty.
-         *   3. **Lateral speed**: -|vx_end| under the same condition, kept separate from
-         *      the vertical one -- a combined term lets a network score on the vertical
-         *      part alone and slide off the pad sideways, which is what was measured.
+         *   3. **Lateral speed**: -|vx_end| under the same condition.
          *   4. **Horizontal precision**: -|x_end|, again only when landed.
          *   5. **Landed**: 1.0 on a safe landing, 0.0 otherwise.
-         * The condition on 2-4 matters: measured without it, a network hovering over the
-         * pad until the step limit won four of the five test cases (it stands still, above
-         * the pad, and survives longest), and the population drifted there.
+         * On every landing 2 and 3 are exactly 0 (the lander is at rest), so they repeat 5;
+         * see Network::lastEpisodeObjectives. The condition on 2-4 matters: without it,
+         * hovering until the step limit beat landing on two of the five objectives and the
+         * population drifted there.
          * Per selection event: shuffle the objective indices, then for each objective
          * (while >1 candidate remains) find the best value among the remaining
          * candidates, eliminate everyone below best-epsilon, continue to the next
@@ -560,10 +559,12 @@ class Population {
          * 0.5) instead of the MAD automatic. This makes the selection pressure independent of
          * the shape and the scale of the reward and removes the seed difficulty, while --
          * unlike a rank transform -- keeping the magnitudes that epsilon is meant to judge.
-         * Why not the raw MAD of "seeds": the reward is bimodal (landed ~+200, crashed ~-200),
-         * so a spread estimate mostly measures the distance between the two modes, not the
-         * resolution among near-equal candidates -- epsilon comes out far too large and the test
-         * case barely filters. Standardising is the established fix (La Cava et al.).
+         * Why not the raw MAD of "seeds": the reward is bimodal (landed above +200, crashed
+         * below 0). The MAD then describes the spread of whichever group holds the median, not
+         * the resolution among near-equal candidates, and near an even split it jumps
+         * erratically, up to almost the gap between the groups -- the test case then only
+         * separates landed from crashed. The standard deviation changes smoothly with the
+         * split, so a small fixed fraction of it keeps resolving among the landers.
          * Standardising over the population rather than over the shrinking candidate pool is
          * deliberate (the "semi-dynamic" variant), so a fixed epsilon does not get more
          * permissive along the filter chain. Seeds on which all individuals are identical carry
@@ -576,8 +577,8 @@ class Population {
          * pressure stays constant along the chain. `epsilon` is therefore a number of rank
          * positions, not a reward margin, and the MAD automatic is not available (the MAD of
          * ranks is ~n/4 whatever the data); a negative epsilon defaults to 3. Motivation: the
-         * reward is bimodal, so a value-based MAD mostly measures the distance between
-         * "landed" and "crashed" rather than the resolution among near-equal candidates.
+         * reward is bimodal, so a value-based MAD depends on how the population splits into
+         * landed and crashed rather than on the resolution among near-equal candidates.
          * On ranks the sharpness is independent of the shape and scale of the reward, and the
          * seed difficulty drops out: a hard and an easy seed give the same rank distribution.
          * Without re-ranking, later test cases would let everyone through, since the survivors
@@ -1291,6 +1292,11 @@ class Population {
          * @tparam FuncMutation Callable type that accepts (Node&, const additionalMutationParam&)
          * @param func Mutation function to apply to each judgment node
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
+         * @param k If > 0, each boundary is mutated with min(1, k/N). N is the number of EDGES of
+         *  the eligible nodes (countEdges()), not of boundaries: a judgment node has one boundary
+         *  fewer than edges and processing nodes count too, so k = 1 moves fewer than one boundary
+         *  per network (0.74 measured in the LunarLander experiment).
+         * @param N Overwritten when k > 0.
          *
          * @note This is an internal template used by specialized boundary mutation methods
          */
@@ -1360,8 +1366,10 @@ class Population {
          * @see Node::boundaryMutationNormal()
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
-         * @param sigma Standard deviation of the normal distribution
+         * @param sigma Relative standard deviation, multiplied by the smaller gap to the neighbouring
+         *  boundaries (see Node::boundaryMutationNormal()).
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
+         * @param k If > 0, replaces probability with min(1, k/N); see applyBoundaryMutation() for N.
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */

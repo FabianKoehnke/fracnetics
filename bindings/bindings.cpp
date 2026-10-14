@@ -184,7 +184,7 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("lineageSuccessN", &Network::lineageSuccessN)
     .def_readwrite("structureChangedThisGen", &Network::structureChangedThisGen)
     .def("lineageVariance", &Network::lineageVariance)
-    .def("lineageLCB", &Network::lineageLCB, "z"_a)
+    .def("lineageLCB", &Network::lineageLCB, py::arg("z"))
     .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("landed"))
     .def("blendLineageWith", &Network::blendLineageWith, py::arg("other"), py::arg("priorCap"))
     .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f)
@@ -463,7 +463,8 @@ PYBIND11_MODULE(_core, m) {
              py::arg("N"), py::arg("E"), py::arg("useLineageFitness")=false, py::arg("minLineageN")=10, py::arg("lineageZ")=0.0f)
         .def("lexicaseSelection", &Population::lexicaseSelection,
              py::call_guard<py::gil_scoped_release>(),
-             // epsilon: reward margin (<0 = MAD), or rank positions for "seedsRank" (<0 = 3).
+             // epsilon: reward margin (<0 = MAD); standard deviations for "seedsStandardized"
+             // (<0 = 0.5); rank positions for "seedsRank" (<0 = 3).
              py::arg("E"), py::arg("epsilon")=-1.0f, py::arg("type")=std::string("objectives"))
         .def("capLineageAfterMutation", &Population::capLineageAfterMutation,
              py::call_guard<py::gil_scoped_release>(),
@@ -574,7 +575,7 @@ PYBIND11_MODULE(_core, m) {
             py::arg("noElite")=false,
             py::arg("currentGeneration") = 0,
             py::arg("crossoverProtection") = 3,
-            py::arg("nodeGracePeriod") = -1   // -1 = historical clusterLabels path
+            py::arg("nodeGracePeriod") = -1   // -1 disables the grace period
         )
         .def("callAgeUnusedNodes", &Population::callAgeUnusedNodes,
             py::call_guard<py::gil_scoped_release>())

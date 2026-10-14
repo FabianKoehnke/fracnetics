@@ -466,7 +466,8 @@ class Node {
          *
          * @param propability Probability (in range [0.0, 1.0]) that boundary will be mutated
          * @param k If > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation()).
-         * @param N Number of eligible boundaries for the k/N rate.
+         * @param N Normalisation of the k/N rate; Population passes the number of edges of the
+         * eligible nodes (see Population::applyBoundaryMutation()).
          *
          */
         bool boundaryMutationUniform(float propability, float k=0.0f, int N=1){
@@ -611,7 +612,8 @@ class Node {
          * @param sigma Relative standard deviation; multiplied by the smaller gap to the neighbouring
          * boundaries. JE nodes ignore it and use an experience-based sigma in [0.05, 0.5].
          * @param k optional adaptive parameter: if > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation())
-         * @param N optional total number of eligible boundaries (used for adaptive probability scaling)
+         * @param N Normalisation of the k/N rate; Population passes the number of edges of the
+         * eligible nodes (see Population::applyBoundaryMutation()).
          */
         bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1){
 
