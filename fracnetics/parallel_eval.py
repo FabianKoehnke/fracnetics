@@ -5,10 +5,15 @@ pybind11 callback, so every step re-acquires the GIL. Threads therefore serialis
 Individuals within a generation are independent -- no shared state until selection --
 so they can be split across processes, each holding its own environment.
 
-Only the fields that selection and mutation read are sent back (see COLLECTED below);
+Only the fields that selection and mutation read are sent back (see _collect below);
 Network's own pickle state does not carry them.
+
+Small populations (the elite re-scoring, the one-individual validation) are split by seeds
+as well, so every worker gets work. Episodes are independent given the network, so the seed
+blocks of one individual are stitched back together exactly (see _mergeBlocks).
 """
 
+import gc
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor
@@ -18,7 +23,7 @@ import gymnasium as gym
 
 import fracnetics as fn
 
-# Per-worker state, built once by _initWorker and reused for every chunk.
+# Per-worker state, built once by _initWorker and reused for every task.
 _env = None
 _pop = None
 _envKwargs = None
@@ -32,6 +37,10 @@ def _initWorker(envKwargs, popKwargs):
     # The population is only a container for gymnasiumMultiSeed; its own nodes are
     # replaced by the individuals we send in, so ni=1 is enough.
     _pop = fn.Population(**{**popKwargs, "ni": 1})
+    # A forked worker inherits the parent's whole heap (matplotlib, pandas, ...). Left in
+    # the GC's generations it is traversed over and over; freezing it made small tasks
+    # 3-4x faster in the LunarLander script. Results are unaffected.
+    gc.freeze()
 
 
 def _collect(net):
@@ -79,9 +88,9 @@ def _collect(net):
     }
 
 
-def _evalChunk(payload):
-    """Evaluate one block of individuals on the shared seed batch."""
-    nets = pickle.loads(payload["nets"])
+def _evalTask(payload):
+    """Evaluate a few individuals on one block of the seed batch."""
+    nets = [pickle.loads(b) for b in payload["nets"]]
     # Node::traverseCounter and lastVisitStep ACCUMULATE across generations --
     # clearUsedNodes() resets only `used`. Neither survives Node.__getstate__, so a
     # freshly unpickled net would start counting from 0 while the sequential run
@@ -100,7 +109,34 @@ def _evalChunk(payload):
         net.lineageMean, net.lineageM2, net.lineageN, net.lineageSuccessN = lin
     _pop.individuals = nets
     _pop.gymnasiumMultiSeed(_env, seeds=payload["seeds"], **payload["kwargs"])
-    return payload["index"], [_collect(n) for n in _pop.individuals]
+    return payload["task"], [_collect(n) for n in _pop.individuals]
+
+
+def _mergeBlocks(blocks):
+    """Stitch the results of consecutive seed blocks of one individual together.
+
+    Every block started with a fresh traversal (fitGymnasium(newRun=True)), so per node the
+    visit counts add up, `used` is an OR, and lastVisitStep -- a timestamp of the
+    network-wide step counter -- is shifted by the counter's advance in all earlier blocks.
+    Every advance enters exactly one node, so a block's advance is the sum of its node
+    counters.
+    fitness and lexicaseObjectives are recomputed by Network.aggregateSeedResults().
+    """
+    merged = dict(blocks[-1])  # state after the last episode: currentNodeID, invalid, ...
+    for key in ("fitnessValues", "lastStepRewards", "objectivesPerSeed", "visitedNodesPerSeed"):
+        merged[key] = [value for block in blocks for value in block[key]]
+    nNodes = len(blocks[0]["used"])
+    used, counters, visits = [False] * nNodes, [0] * nNodes, [0] * nNodes
+    offset = 0
+    for block in blocks:
+        for i in range(nNodes):
+            used[i] = used[i] or block["used"][i]
+            if block["traverseCounter"][i] > 0:
+                counters[i] += block["traverseCounter"][i]
+                visits[i] = offset + block["lastVisitStep"][i]
+        offset += sum(block["traverseCounter"])
+    merged["used"], merged["traverseCounter"], merged["lastVisitStep"] = used, counters, visits
+    return merged
 
 
 def applyResult(net, result):
@@ -158,35 +194,74 @@ class ParallelEvaluator:
             initargs=(envKwargs, popKwargs),
         )
 
+    def _tasks(self, n, nSeeds, splitSeeds):
+        """(individual indices, first seed, end seed) per task, about chunksPerWorker per worker.
+
+        Episode cost varies by an order of magnitude (early crash vs. full flight), so
+        there are more tasks than workers and the pool balances them. With fewer
+        individuals than tasks, each individual's seeds are cut into blocks.
+        """
+        target = max(1, self.workers * self.chunksPerWorker)
+        if n >= target or not splitSeeds or nSeeds <= 1:
+            size = (n + min(n, target) - 1) // min(n, target)
+            return [(list(range(start, min(start + size, n))), 0, nSeeds)
+                    for start in range(0, n, size)]
+        nBlocks = min(nSeeds, (target + n - 1) // n)
+        bounds = [(b * nSeeds // nBlocks, (b + 1) * nSeeds // nBlocks) for b in range(nBlocks)]
+        return [([i], lo, hi) for i in range(n) for lo, hi in bounds]
+
     def evaluate(self, pop, seeds, **kwargs):
         """Evaluate pop.individuals on seeds, writing results back in place."""
         individuals = list(pop.individuals)
         n = len(individuals)
         if n == 0:
             return
+        seeds = list(seeds)
+        # Lineage statistics are a running mean over the seeds in order; a split would
+        # have to replay them, so lineage runs keep all seeds of an individual together.
+        splitSeeds = not kwargs.get("useLineageFitness", True)
+        angles = list(kwargs.get("directionAngles", []))
 
-        # Episode cost varies by an order of magnitude (early crash vs. full flight),
-        # so hand out more chunks than workers and let the pool balance them.
-        nChunks = min(n, max(self.workers, self.workers * self.chunksPerWorker))
-        size = (n + nChunks - 1) // nChunks
+        netBytes = [pickle.dumps(net, protocol=pickle.HIGHEST_PROTOCOL) for net in individuals]
+        # Carried separately because Node.__getstate__ drops them (see _evalTask)
+        counters = [[node.traverseCounter for node in net.innerNodes] for net in individuals]
+        visits = [[node.lastVisitStep for node in net.innerNodes] for net in individuals]
+        lineage = [(net.lineageMean, net.lineageM2, net.lineageN, net.lineageSuccessN)
+                   for net in individuals]
+
         payloads = []
-        for start in range(0, n, size):
-            block = individuals[start:start + size]
+        for indices, lo, hi in self._tasks(n, len(seeds), splitSeeds):
+            taskKwargs = kwargs
+            if angles:
+                taskKwargs = {**kwargs, "directionAngles": angles[lo:hi]}
             payloads.append({
-                "index": start,
-                "nets": pickle.dumps(block, protocol=pickle.HIGHEST_PROTOCOL),
-                # Carried separately because Node.__getstate__ drops them (see _evalChunk)
-                "traverseCounter": [[n.traverseCounter for n in net.innerNodes] for net in block],
-                "lastVisitStep": [[n.lastVisitStep for n in net.innerNodes] for net in block],
-                "lineage": [(net.lineageMean, net.lineageM2, net.lineageN, net.lineageSuccessN)
-                            for net in block],
-                "seeds": list(seeds),
-                "kwargs": kwargs,
+                "task": (indices, lo),
+                "nets": [netBytes[i] for i in indices],
+                # A later block must start from zero counters: the first seed's visited-node
+                # snapshot is taken before fitGymnasium resets them, and in the sequential
+                # run nothing is reset between seeds.
+                "traverseCounter": [counters[i] if lo == 0 else [0] * len(counters[i])
+                                    for i in indices],
+                "lastVisitStep": [visits[i] if lo == 0 else [0] * len(visits[i])
+                                  for i in indices],
+                "lineage": [lineage[i] for i in indices],
+                "seeds": seeds[lo:hi],
+                "kwargs": taskKwargs,
             })
 
-        for start, results in self.pool.map(_evalChunk, payloads):
-            for offset, result in enumerate(results):
-                applyResult(individuals[start + offset], result)
+        blocks = [[] for _ in range(n)]
+        for (indices, lo), results in self.pool.map(_evalTask, payloads):
+            for i, result in zip(indices, results):
+                blocks[i].append((lo, result))
+
+        for net, netBlocks in zip(individuals, blocks):
+            netBlocks.sort(key=lambda block: block[0])
+            if len(netBlocks) == 1:
+                applyResult(net, netBlocks[0][1])
+            else:
+                applyResult(net, _mergeBlocks([result for _, result in netBlocks]))
+                net.aggregateSeedResults(kwargs.get("landingQuote", False),
+                                         kwargs.get("landingQuoteExponent", 2.0))
 
         # individuals[] yields references into the opaque NetworkVector, so the writes
         # above already landed in the population -- nothing to reassign.

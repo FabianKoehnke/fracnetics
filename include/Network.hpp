@@ -494,6 +494,54 @@ class Network {
         }
 
         /**
+         * @brief Aggregates the per-seed results of a multi-seed evaluation into fitness and
+         *        lexicaseObjectives.
+         *
+         * @details Reads fitnessValues and objectivesPerSeed in seed order, so the float sums are
+         * the same as accumulating them during the evaluation. Called at the end of
+         * Population::gymnasiumMultiSeed(); parallel_eval.py calls it after stitching together
+         * seed blocks that were evaluated in different processes.
+         *
+         * @param landingQuote If true, fitness is the landing rate (landings / nSeeds) instead of
+         *        the mean reward (see Population::gymnasiumMultiSeed()).
+         * @param landingQuoteExponent Exponent k of the commented-out Return * rate^k variant.
+         */
+        void aggregateSeedResults(bool landingQuote = false, float landingQuoteExponent = 2.0f){
+            const size_t nSeeds = fitnessValues.size();
+            float totalReward = 0.0f;
+            int landingCount = 0;
+            for(float value : fitnessValues){
+                totalReward += value;
+                if(value > LANDING_SUCCESS_THRESHOLD){
+                    landingCount++;
+                }
+            }
+            std::vector<float> objSum(N_OBJECTIVES, 0.0f);
+            for(const auto& seedObjectives : objectivesPerSeed){
+                for(size_t o = 0; o < objSum.size() && o < seedObjectives.size(); o++){
+                    objSum[o] += seedObjectives[o];
+                }
+            }
+
+            // Seed-averaged 5-D objective vector for lexicaseSelection()
+            lexicaseObjectives.assign(objSum.size(), 0.0f);
+            for(size_t o = 0; o < objSum.size(); o++){
+                lexicaseObjectives[o] = objSum[o] / static_cast<float>(nSeeds);
+            }
+
+            // Default aggregation: mean reward of the current generation's seed batch
+            float rawFitness = totalReward / static_cast<float>(nSeeds);
+            if(landingQuote){
+                // Return * landing rate^k is commented out; fitness is the plain landing rate
+                float landingRate = static_cast<float>(landingCount) / static_cast<float>(nSeeds);
+                // network.fitness = rawFitness * std::pow(landingRate, landingQuoteExponent);
+                fitness = landingRate;
+            } else {
+                fitness = rawFitness;
+            }
+        }
+
+        /**
          * @brief Returns the unbiased sample variance behind lineageMean, from the Welford
          *        accumulator lineageM2.
          *
@@ -841,7 +889,8 @@ class Network {
 
             // Curriculum applies only in training; validation sees the real environment
             auto reset_out = env.reset(seed=seed, curriculumLevel, absoluteImpulseCurriculum, validation, uniformDirectionCurriculum, directionAngle);// Initial observation for the episode
-            auto obs = reset_out[0].cast<std::vector<double>>();   
+            std::vector<double> obs;
+            GymEnvWrapper::readObservation(reset_out[0], obs);
             std::vector<double> prevObs = obs;  // previous step
 
             if(newRun == true){
@@ -920,12 +969,16 @@ class Network {
 
                 auto result = env.step(dec);
                 prevObs = obs;
-                obs = result[0].cast<std::vector<double>>(); 
+                GymEnvWrapper::readObservation(result[0], obs);
+                // Unpacked once; every branch below reads these
+                const float gymStepReward = result[1].cast<float>();
+                const bool terminated = result[2].cast<bool>();
+                const bool truncated = result[3].cast<bool>();
 
                 // --- Epsilon-lexicase objectives, accumulated in EVERY reward mode; landing
                 // is read off Gymnasium's raw reward (+100), independent of the branch below
                 {
-                    float rawStepReward = result[1].cast<float>();
+                    float rawStepReward = gymStepReward;
                     objGymRewardSum += rawStepReward;
                     if(rawStepReward >= 90.0f) landedThisEpisode = true;
                 }
@@ -962,9 +1015,9 @@ class Network {
 
                     // Exact PBRS (Ng et al. 1999); truncation counts as terminal so the
                     // offset stays seed-only (see docstring, tests/test_potential_shaping.py)
-                    float gymReward = result[1].cast<float>();
+                    float gymReward = gymStepReward;
 
-                    bool episodeEnds = result[2].cast<bool>() || result[3].cast<bool>()
+                    bool episodeEnds = terminated || truncated
                                        || (steps + 1) >= maxSteps;
 
                     float phi_next = 0.0f;
@@ -986,7 +1039,7 @@ class Network {
 
                 } else {
 
-                    float stepReward = result[1].cast<float>();
+                    float stepReward = gymStepReward;
                     steps ++;
                     episodeLog.push_back({currentStepJEVisits, stepReward});
                     currentStepJEVisits.clear(); 
@@ -1011,7 +1064,7 @@ class Network {
                 // float vy = static_cast<float>(obs[3]);
                 // lastFitness += std::abs(std::sqrt(vx * vx + vy * vy)); // Betrag der Geschwindigkeit 
 
-                if(result[2].cast<bool>() || result[3].cast<bool>() || steps >= maxSteps) done = true; 
+                if(terminated || truncated || steps >= maxSteps) done = true; 
                 // if(result[2].cast<bool>() || result[3].cast<bool>()) done = true; 
 
                 // if(done == true && result[1].cast<float>() > 95){

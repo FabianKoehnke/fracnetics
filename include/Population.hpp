@@ -2689,12 +2689,7 @@ class Population {
                 network.episodeLog.clear();
                 network.visitedNodesPerSeed.clear();
                 network.objectivesPerSeed.clear();
-                float totalReward = 0.0f;
-                float minReward = std::numeric_limits<float>::max();
-                int landingCount = 0;
                 bool firstSeed = true;
-                // Sums for the seed-averaged lexicase objective vector
-                std::vector<float> objSum(Network::N_OBJECTIVES, 0.0f);
 
                 for(size_t seedIdx = 0; seedIdx < seeds.size(); ++seedIdx){
                     int s = seeds[seedIdx];
@@ -2730,45 +2725,20 @@ class Population {
                     network.fitnessValues.push_back(network.fitness);
                     network.lastStepRewards.push_back(network.lastFitness);
                     network.lastStepRewardsII.push_back(network.lastFitnessII);
-                    for(size_t o = 0; o < objSum.size() && o < network.lastEpisodeObjectives.size(); o++){
-                        objSum[o] += network.lastEpisodeObjectives[o];
-                    }
                     // Keep the per-seed vector as well: averaging it away (lexicaseObjectives)
                     // costs exactly the seed-by-seed resolution lexicase lives on.
                     network.objectivesPerSeed.push_back(network.lastEpisodeObjectives);
                     bool landedThisSeed = network.fitness > Network::LANDING_SUCCESS_THRESHOLD;
-                    if(landedThisSeed){
-                        landingCount++;
-                    }
                     if(useLineageFitness){
                         network.updateLineageStats(network.fitness, landedThisSeed);
                     }
-                    totalReward += network.fitness;
                     firstSeed = false;
-
-                    if(network.fitness < minReward){
-                        minReward = network.fitness;
-                    }
                 }
                 
                 //network.updateExperienceFromEpisode();
 
-                // Seed-averaged 5-D objective vector for lexicaseSelection()
-                network.lexicaseObjectives.assign(objSum.size(), 0.0f);
-                for(size_t o = 0; o < objSum.size(); o++){
-                    network.lexicaseObjectives[o] = objSum[o] / static_cast<float>(seeds.size());
-                }
-
-                // Default aggregation: mean reward of the current generation's seed batch
-                float rawFitness = totalReward / static_cast<float>(seeds.size());
-                if(landingQuote){
-                    // Return * landing rate^k is commented out; fitness is the plain landing rate
-                    float landingRate = static_cast<float>(landingCount) / static_cast<float>(seeds.size());
-                    // network.fitness = rawFitness * std::pow(landingRate, landingQuoteExponent);
-                    network.fitness = landingRate;
-                } else {
-                    network.fitness = rawFitness;
-                }
+                // Shared with parallel_eval.py, which stitches seed blocks together
+                network.aggregateSeedResults(landingQuote, landingQuoteExponent);
                 // network.fitness = minReward;
                 // float rawFitness = minReward;
 

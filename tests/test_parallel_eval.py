@@ -18,6 +18,7 @@ import pytest
 
 gym = pytest.importorskip("gymnasium")
 import fracnetics as fn
+from fracnetics import parallel_eval
 from fracnetics.parallel_eval import ParallelEvaluator
 
 ENV = dict(id="LunarLander-v3", continuous=False, gravity=-10.0, enable_wind=False)
@@ -117,3 +118,40 @@ def test_parallel_survives_growth_and_selection(seeds):
         return trace
 
     assert run(True) == run(False)
+
+
+def _exact(pop):
+    """Everything the evaluator writes back, compared bit for bit."""
+    return [parallel_eval._collect(pop.individuals[i]) for i in range(len(pop.individuals))]
+
+
+@pytest.mark.parametrize("ni", [1, 3])
+@pytest.mark.parametrize("extra", [
+    {},
+    {"landingQuote": True},
+    {"uniformDirectionCurriculum": True, "absoluteImpulseCurriculum": True,
+     "curriculumLevel": 0.7},
+], ids=["plain", "landingQuote", "directionAngles"])
+def test_seed_split_matches_sequential(seeds, ni, extra):
+    """Fewer individuals than tasks: seeds are cut into blocks and stitched back together.
+
+    Runs two evaluations, so the second one starts from carried-over node counters --
+    the case where the first seed's visited-node snapshot depends on them.
+    """
+    kwargs = {**EVAL, **extra}
+    if extra.get("uniformDirectionCurriculum"):
+        kwargs["directionAngles"] = [0.3, 1.9, 3.4, 5.0]
+
+    def build():
+        pop = fn.Population(ni=ni, **POPKW)
+        pop.setAllNodeBoundaries(MINF, MAXF)
+        return pop
+
+    seqPop, parPop = build(), build()
+    env = gym.make(**ENV)
+    with ParallelEvaluator(ENV, POPKW, workers=2) as ev:
+        assert all(len(t[0]) == 1 for t in ev._tasks(ni, len(seeds), True))
+        for batch in (seeds, seeds[::-1]):
+            seqPop.gymnasiumMultiSeed(env, seeds=batch, **kwargs)
+            ev.evaluate(parPop, seeds=batch, **kwargs)
+            assert _exact(parPop) == _exact(seqPop)

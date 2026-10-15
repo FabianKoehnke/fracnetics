@@ -193,6 +193,36 @@ public:
         return reset_out;
     }
 
+    /**
+     * @brief Copies an observation into out, reusing its storage.
+     *
+     * @details 1-D float32/float64 numpy arrays are read through the buffer; the generic
+     * sequence cast creates one Python float per element, which was most of the per-step
+     * cost on the C++ side. The values are the same: float32 -> double is exact.
+     * Anything else falls back to the sequence cast.
+     *
+     * @param src Observation as returned by reset()/step().
+     * @param out Destination, resized to the observation length.
+     */
+    static void readObservation(const py::handle& src, std::vector<double>& out) {
+        if (py::isinstance<py::array_t<float, py::array::c_style>>(src)) {
+            auto arr = py::reinterpret_borrow<py::array_t<float, py::array::c_style>>(src);
+            if (arr.ndim() == 1) {
+                const float* p = arr.data();
+                out.assign(p, p + arr.size());
+                return;
+            }
+        } else if (py::isinstance<py::array_t<double, py::array::c_style>>(src)) {
+            auto arr = py::reinterpret_borrow<py::array_t<double, py::array::c_style>>(src);
+            if (arr.ndim() == 1) {
+                const double* p = arr.data();
+                out.assign(p, p + arr.size());
+                return;
+            }
+        }
+        out = src.cast<std::vector<double>>();
+    }
+
     py::tuple step(const py::object& action) {
         return env.attr("step")(action);
     }

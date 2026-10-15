@@ -186,6 +186,8 @@ PYBIND11_MODULE(_core, m) {
     .def("lineageVariance", &Network::lineageVariance)
     .def("lineageLCB", &Network::lineageLCB, py::arg("z"))
     .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("landed"))
+    .def("aggregateSeedResults", &Network::aggregateSeedResults,
+        py::arg("landingQuote") = false, py::arg("landingQuoteExponent") = 2.0f)
     .def("blendLineageWith", &Network::blendLineageWith, py::arg("other"), py::arg("priorCap"))
     .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f)
     .def("decisionAndNextNode",

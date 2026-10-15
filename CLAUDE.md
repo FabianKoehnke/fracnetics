@@ -20,6 +20,7 @@ alike. Chat with the maintainer stays German.
 | `fracnetics/` | Python package. `__init__.py`, `utilsModel.py` and `parallel_eval.py` (process-parallel evaluation) are versioned, `_core*.so` is built |
 | `tests/` | `*.cpp` GoogleTest, `test_*.py` pytest |
 | `examples/` | Notebooks (CartPole, IRIS, MountainCar) |
+| `benchmarks/` | `bench_lunarlander.py`: times the first N generations of the LunarLander script and checks them bit for bit against the reference run |
 
 This repository is the library only. The LunarLander experiment, the studies, the runs and
 the reports live in the dissertation repository under
@@ -68,6 +69,16 @@ That is the complete procedure. No further steps are needed.
 
 The C++ tests are commented out in CI but run locally from the existing `build/`. After header
 changes: `cmake --build build`.
+
+Performance changes are checked on a short LunarLander run, not the full 2000 generations:
+
+```bash
+./venv/bin/python -I benchmarks/bench_lunarlander.py 60           # installed package
+./venv/bin/python -I benchmarks/bench_lunarlander.py 10 --local   # local build, quick check
+```
+
+It must print `BIT-IDENTICAL`. Timings on this laptop are noisy (background load), so compare
+variants in alternating runs.
 
 ## Conventions
 
