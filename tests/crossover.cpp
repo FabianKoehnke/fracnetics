@@ -95,21 +95,21 @@ TEST(PopulationTest, BasicAssertions) {
 
 
 
-// seedSpecialist: host is much weaker than the donor on one seed -> the donor's
+// caseSpecialist: host is much weaker than the donor on one seed -> the donor's
 // visited sub-graph for that seed must be appended (additively) to the host,
 // protected via generationReceived, tagged with a shared transplantBlockID and
 // exactly one isBlockEntry node (the donor's own traversal start node).
-TEST(PopulationTest, SeedSpecialistTransplantsDeficitSeedSubgraphAdditively) {
+TEST(PopulationTest, CaseSpecialistTransplantsDeficitSeedSubgraphAdditively) {
     Population pop(123, 2, 0, 0, 8, 2, false);
 
     auto& host  = pop.individuals[0];
     auto& donor = pop.individuals[1];
 
     // Host is weak on seed 0, donor is strong on seed 0 -- donor should be picked.
-    host.fitnessValues  = {-100.0f, 50.0f};
-    donor.fitnessValues = { 200.0f, 40.0f}; // only better on seed 0 -> seed 1 must be ignored
+    host.caseScores  = {-100.0f, 50.0f};
+    donor.caseScores = { 200.0f, 40.0f}; // only better on seed 0 -> seed 1 must be ignored
 
-    donor.visitedNodesPerSeed = {
+    donor.visitedNodesPerCase = {
         {0, 2, 5}, // seed 0: donor's active sub-graph (must include its own start node)
         {0, 1, 3}  // seed 1: irrelevant, host is not deficient here
     };
@@ -119,7 +119,7 @@ TEST(PopulationTest, SeedSpecialistTransplantsDeficitSeedSubgraphAdditively) {
     size_t hostSizeBefore = host.innerNodes.size();
     std::vector<int> genMaterialDonorBefore = storeGenMaterial(donor);
 
-    pop.crossover(1.0, "seedSpecialist", /*currentGeneration=*/7, /*crossoverProtection=*/3);
+    pop.crossover(1.0, "caseSpecialist", /*currentGeneration=*/7, /*crossoverProtection=*/3);
 
     // Donor must stay completely unmodified (purely additive transplant).
     EXPECT_EQ(genMaterialDonorBefore, storeGenMaterial(donor));
@@ -152,19 +152,19 @@ TEST(PopulationTest, SeedSpecialistTransplantsDeficitSeedSubgraphAdditively) {
 }
 
 // If no individual in the population improves on any of the host's seeds
-// (no positive fitness difference anywhere), seedSpecialist must be a no-op.
-TEST(PopulationTest, SeedSpecialistNoOpWhenNoDonorImproves) {
+// (no positive fitness difference anywhere), caseSpecialist must be a no-op.
+TEST(PopulationTest, CaseSpecialistNoOpWhenNoDonorImproves) {
     Population pop(123, 2, 0, 0, 8, 2, false);
 
     auto& host  = pop.individuals[0];
     auto& donor = pop.individuals[1];
 
-    host.fitnessValues  = {100.0f, 100.0f};
-    donor.fitnessValues = { 10.0f,  10.0f}; // strictly worse on both seeds
-    donor.visitedNodesPerSeed = {{0,1}, {0,2}};
+    host.caseScores  = {100.0f, 100.0f};
+    donor.caseScores = { 10.0f,  10.0f}; // strictly worse on both seeds
+    donor.visitedNodesPerCase = {{0,1}, {0,2}};
 
     std::vector<int> genMaterialBefore = storeGenMaterial(host);
-    pop.crossover(1.0, "seedSpecialist", 0, 3);
+    pop.crossover(1.0, "caseSpecialist", 0, 3);
     EXPECT_EQ(genMaterialBefore, storeGenMaterial(host));
 }
 
@@ -240,31 +240,31 @@ TEST(PopulationTest, UpdateAdaptiveKInvertIncreasesOnLowSuccessRate) {
     EXPECT_LE(pop.adaptiveK_, 5.0f); // must respect kMax clamp
 }
 
-TEST(PopulationTest, SeedRobustLineageSuccessUsesLineageBaseline) {
+TEST(PopulationTest, LineageRobustSuccessUsesLineageBaseline) {
     Population pop(1, 1, 4, 2, 4, 2, false);
     Network& ind = pop.individuals[0];
     ind.lineageN = 0;
-    EXPECT_TRUE(Population::seedRobustLineageSuccess(ind)) << "no history yet -> neutral/optimistic default";
+    EXPECT_TRUE(Population::lineageRobustSuccess(ind)) << "no history yet -> neutral/optimistic default";
 
     // simulate a lineage with a stable, well-established history around fitness=500
     for (int i = 0; i < 20; i++) {
         ind.updateLineageStats(500.0f, false);
     }
     ind.fitness = 500.0f;
-    EXPECT_TRUE(Population::seedRobustLineageSuccess(ind)) << "fitness matching long-run baseline -> success";
+    EXPECT_TRUE(Population::lineageRobustSuccess(ind)) << "fitness matching long-run baseline -> success";
 
     ind.fitness = 10.0f; // a single, badly-seeded generation far below the robust baseline
-    EXPECT_FALSE(Population::seedRobustLineageSuccess(ind)) << "fitness far below robust lineage baseline -> failure";
+    EXPECT_FALSE(Population::lineageRobustSuccess(ind)) << "fitness far below robust lineage baseline -> failure";
 }
 
-TEST(PopulationTest, SeedConsistentSuccessRequiresAllSeedsAboveBaseline) {
+TEST(PopulationTest, CaseConsistentSuccessRequiresAllCasesAboveBaseline) {
     Population pop(1, 1, 4, 2, 4, 2, false);
     Network& ind = pop.individuals[0];
 
     // no lineage history yet -> neutral default
     ind.lineageN = 0;
-    ind.fitnessValues = {900.0f, 950.0f};
-    EXPECT_TRUE(Population::seedConsistentSuccess(ind));
+    ind.caseScores = {900.0f, 950.0f};
+    EXPECT_TRUE(Population::caseConsistentSuccess(ind));
 
     // establish a stable long-run baseline around 500
     for (int i = 0; i < 30; i++) {
@@ -272,73 +272,73 @@ TEST(PopulationTest, SeedConsistentSuccessRequiresAllSeedsAboveBaseline) {
     }
 
     // ALL seeds consistently at/above baseline -> success (default requiredFraction=1.0)
-    ind.fitnessValues = {520.0f, 610.0f, 505.0f};
-    EXPECT_TRUE(Population::seedConsistentSuccess(ind));
+    ind.caseScores = {520.0f, 610.0f, 505.0f};
+    EXPECT_TRUE(Population::caseConsistentSuccess(ind));
 
     // high MEAN but one seed far below baseline -> failure with strict requiredFraction=1.0,
     // even though the mean fitness (~503) looks comparable to the baseline
-    ind.fitnessValues = {1000.0f, 1000.0f, 10.0f};
-    EXPECT_FALSE(Population::seedConsistentSuccess(ind)) << "one bad seed must break a strict (1.0) requiredFraction";
+    ind.caseScores = {1000.0f, 1000.0f, 10.0f};
+    EXPECT_FALSE(Population::caseConsistentSuccess(ind)) << "one bad seed must break a strict (1.0) requiredFraction";
 
     // same batch, but relaxed requiredFraction=0.5 ("most" seeds) -> success (2/3 >= baseline)
-    EXPECT_TRUE(Population::seedConsistentSuccess(ind, 0.5f));
+    EXPECT_TRUE(Population::caseConsistentSuccess(ind, 0.5f));
 
-    // empty fitnessValues -> neutral default (not enough data)
-    ind.fitnessValues = {};
-    EXPECT_TRUE(Population::seedConsistentSuccess(ind));
+    // empty caseScores -> neutral default (not enough data)
+    ind.caseScores = {};
+    EXPECT_TRUE(Population::caseConsistentSuccess(ind));
 }
 
-TEST(PopulationTest, BatchThresholdSuccessIgnoresLineageAndUsesAbsoluteThreshold) {
+TEST(PopulationTest, CaseThresholdSuccessIgnoresLineageAndUsesAbsoluteThreshold) {
     Population pop(1, 1, 4, 2, 4, 2, false);
     Network& ind = pop.individuals[0];
-    ind.lineageN = 0; // lineage tracking disabled scenario (useLineageFitness=false) -> stays 0
+    ind.lineageN = 0; // lineage tracking disabled scenario (trackLineage=false) -> stays 0
 
-    // no fitnessValues yet -> neutral default
-    ind.fitnessValues = {};
-    EXPECT_TRUE(Population::batchThresholdSuccess(ind));
+    // no caseScores yet -> neutral default
+    ind.caseScores = {};
+    EXPECT_TRUE(Population::caseThresholdSuccess(ind, 900.0f));
 
-    // all seeds near-perfect (>= default threshold 900) -> success, despite lineageN==0
-    ind.fitnessValues = {950.0f, 900.0f, 1000.0f};
-    EXPECT_TRUE(Population::batchThresholdSuccess(ind));
+    // all seeds near-perfect (>= threshold 900) -> success, despite lineageN==0
+    ind.caseScores = {950.0f, 900.0f, 1000.0f};
+    EXPECT_TRUE(Population::caseThresholdSuccess(ind, 900.0f));
 
     // one seed below threshold -> failure with strict requiredFraction=1.0
-    ind.fitnessValues = {1000.0f, 1000.0f, 850.0f};
-    EXPECT_FALSE(Population::batchThresholdSuccess(ind));
+    ind.caseScores = {1000.0f, 1000.0f, 850.0f};
+    EXPECT_FALSE(Population::caseThresholdSuccess(ind, 900.0f));
 
     // same batch, relaxed requiredFraction=0.5 -> success (2/3 >= threshold)
-    EXPECT_TRUE(Population::batchThresholdSuccess(ind, 900.0f, 0.5f));
+    EXPECT_TRUE(Population::caseThresholdSuccess(ind, 900.0f, 0.5f));
 
     // custom (lower) threshold makes the same batch succeed at requiredFraction=1.0
-    EXPECT_TRUE(Population::batchThresholdSuccess(ind, 800.0f, 1.0f));
+    EXPECT_TRUE(Population::caseThresholdSuccess(ind, 800.0f, 1.0f));
 }
 
-TEST(PopulationTest, SeedConsistencyRatioIsScaleIndependentAndContinuous) {
+TEST(PopulationTest, CaseConsistencyRatioIsScaleIndependentAndContinuous) {
     Population pop(1, 1, 4, 2, 4, 2, false);
     Network& ind = pop.individuals[0];
 
     // too few seeds -> neutral default
-    ind.fitnessValues = {500.0f};
-    EXPECT_FLOAT_EQ(Population::seedConsistencyRatio(ind), 1.0f);
+    ind.caseScores = {500.0f};
+    EXPECT_FLOAT_EQ(Population::caseConsistencyRatio(ind), 1.0f);
 
     // perfectly consistent, but at a LOW absolute level (early training) -> ratio still 1.0
-    ind.fitnessValues = {200.0f, 200.0f, 200.0f};
-    EXPECT_FLOAT_EQ(Population::seedConsistencyRatio(ind), 1.0f);
+    ind.caseScores = {200.0f, 200.0f, 200.0f};
+    EXPECT_FLOAT_EQ(Population::caseConsistencyRatio(ind), 1.0f);
 
     // perfectly consistent at a HIGH absolute level (late training) -> ratio still 1.0
-    ind.fitnessValues = {1000.0f, 1000.0f, 1000.0f};
-    EXPECT_FLOAT_EQ(Population::seedConsistencyRatio(ind), 1.0f);
+    ind.caseScores = {1000.0f, 1000.0f, 1000.0f};
+    EXPECT_FLOAT_EQ(Population::caseConsistencyRatio(ind), 1.0f);
 
     // one severe outlier seed -> low ratio, regardless of absolute scale
-    ind.fitnessValues = {1000.0f, 1000.0f, 100.0f};
-    EXPECT_NEAR(Population::seedConsistencyRatio(ind), 0.1f, 1e-5f);
+    ind.caseScores = {1000.0f, 1000.0f, 100.0f};
+    EXPECT_NEAR(Population::caseConsistencyRatio(ind), 0.1f, 1e-5f);
 
     // negative worst-seed reward -> clamped to 0 (not negative)
-    ind.fitnessValues = {500.0f, -50.0f};
-    EXPECT_FLOAT_EQ(Population::seedConsistencyRatio(ind), 0.0f);
+    ind.caseScores = {500.0f, -50.0f};
+    EXPECT_FLOAT_EQ(Population::caseConsistencyRatio(ind), 0.0f);
 
     // degenerate: max <= 0 -> neutral default
-    ind.fitnessValues = {-10.0f, -20.0f};
-    EXPECT_FLOAT_EQ(Population::seedConsistencyRatio(ind), 1.0f);
+    ind.caseScores = {-10.0f, -20.0f};
+    EXPECT_FLOAT_EQ(Population::caseConsistencyRatio(ind), 1.0f);
 }
 
 
@@ -347,25 +347,25 @@ TEST(PopulationTest, SeedConsistencyRatioIsScaleIndependentAndContinuous) {
 TEST(PopulationTest, UpdateAdaptiveKUsesContinuousScoreAveragedOverPopulationAndWindow) {
     Population pop(1, 4, 4, 2, 4, 2, false);
     pop.indicesElite = {};
-    pop.individuals[0].fitnessValues = {1000.0f, 1000.0f, 1000.0f}; // consistency 1.0
-    pop.individuals[1].fitnessValues = {1000.0f, 1000.0f, 1000.0f}; // consistency 1.0
-    pop.individuals[2].fitnessValues = {1000.0f, 1000.0f, 0.0f};    // consistency 0.0
-    pop.individuals[3].fitnessValues = {1000.0f, 1000.0f, 0.0f};    // consistency 0.0
+    pop.individuals[0].caseScores = {1000.0f, 1000.0f, 1000.0f}; // consistency 1.0
+    pop.individuals[1].caseScores = {1000.0f, 1000.0f, 1000.0f}; // consistency 1.0
+    pop.individuals[2].caseScores = {1000.0f, 1000.0f, 0.0f};    // consistency 0.0
+    pop.individuals[3].caseScores = {1000.0f, 1000.0f, 0.0f};    // consistency 0.0
     // population-average consistency this generation = 0.5
 
     pop.updateAdaptiveK(
-        [](const Network& ind){ return Population::seedConsistencyRatio(ind); },
+        [](const Network& ind){ return Population::caseConsistencyRatio(ind); },
         /*useRechenberg=*/false, /*invert=*/false, /*windowSize=*/10);
     EXPECT_NEAR(pop.successRateHistory_.back(), 0.5f, 1e-5f)
         << "per-generation score must be the population-averaged continuous consistency ratio";
 }
 
-// ─── "seedSpecialistReplace" ────────────────────────────────────────────────────────
-// Second seed-specialist variant: instead of appending the donor sub-graph as dormant, it
+// ─── "caseSpecialistReplace" ────────────────────────────────────────────────────────
+// Second case-specialist variant: instead of appending the donor sub-graph as dormant, it
 // replaces the host's DEFICIT-EXCLUSIVE sub-graph -- exactly the nodes the host traverses
 // only on the seeds where the donor is better. Nodes the host also uses on its good seeds
 // (the backbone) must be preserved.
-TEST(PopulationTest, SeedSpecialistReplaceOverwritesOnlyDeficitExclusiveNodes) {
+TEST(PopulationTest, CaseSpecialistReplaceOverwritesOnlyDeficitExclusiveNodes) {
     Population pop(123, 2, 0, 0, 8, 2, false);
     pop.indicesElite = {1}; // keeps the donor from being modified as a host itself
 
@@ -373,14 +373,14 @@ TEST(PopulationTest, SeedSpecialistReplaceOverwritesOnlyDeficitExclusiveNodes) {
     auto& donor = pop.individuals[1];
 
     // Three seeds: the donor is better only on seed 0, the host on seeds 1 and 2.
-    host.fitnessValues  = {  0.0f, 100.0f, 100.0f};
-    donor.fitnessValues = {200.0f,  50.0f,  50.0f};
+    host.caseScores  = {  0.0f, 100.0f, 100.0f};
+    donor.caseScores = {200.0f,  50.0f,  50.0f};
 
     // Host: nodes 0 and 1 are used everywhere (backbone), node 2 only on the deficit
     // seed 0 -> only node 2 may be replaced.
-    host.visitedNodesPerSeed  = {{0, 1, 2}, {0, 1, 3}, {0, 1, 4}};
+    host.visitedNodesPerCase  = {{0, 1, 2}, {0, 1, 3}, {0, 1, 4}};
     // Donor: on the deficit seed 0 it traverses nodes 5 and 6.
-    donor.visitedNodesPerSeed = {{5, 6}, {7}, {7}};
+    donor.visitedNodesPerCase = {{5, 6}, {7}, {7}};
 
     const size_t hostSizeBefore = host.innerNodes.size();
     const std::vector<int> genMaterialDonorBefore = storeGenMaterial(donor);
@@ -389,7 +389,7 @@ TEST(PopulationTest, SeedSpecialistReplaceOverwritesOnlyDeficitExclusiveNodes) {
     std::vector<unsigned int> hostFBefore;
     for (auto& node : host.innerNodes) hostFBefore.push_back(node.f);
 
-    pop.crossover(1.0, "seedSpecialistReplace", /*currentGeneration=*/5, /*crossoverProtection=*/3);
+    pop.crossover(1.0, "caseSpecialistReplace", /*currentGeneration=*/5, /*crossoverProtection=*/3);
 
     // The donor only hands out copies and stays unchanged.
     EXPECT_EQ(genMaterialDonorBefore, storeGenMaterial(donor));
@@ -426,43 +426,43 @@ TEST(PopulationTest, SeedSpecialistReplaceOverwritesOnlyDeficitExclusiveNodes) {
 // If the host uses the same nodes on its deficit seeds as on its good seeds, there is no
 // seed-specific substructure to replace -- the host stays untouched (no fallback to
 // replacing the backbone).
-TEST(PopulationTest, SeedSpecialistReplaceNoOpWithoutDeficitExclusiveNodes) {
+TEST(PopulationTest, CaseSpecialistReplaceNoOpWithoutDeficitExclusiveNodes) {
     Population pop(123, 2, 0, 0, 8, 2, false);
     pop.indicesElite = {1};
 
     auto& host  = pop.individuals[0];
     auto& donor = pop.individuals[1];
 
-    host.fitnessValues  = {  0.0f, 100.0f};
-    donor.fitnessValues = {200.0f,  50.0f};
-    host.visitedNodesPerSeed  = {{0, 1}, {0, 1}}; // same nodes everywhere
-    donor.visitedNodesPerSeed = {{5, 6}, {7}};
+    host.caseScores  = {  0.0f, 100.0f};
+    donor.caseScores = {200.0f,  50.0f};
+    host.visitedNodesPerCase  = {{0, 1}, {0, 1}}; // same nodes everywhere
+    donor.visitedNodesPerCase = {{5, 6}, {7}};
 
     const std::vector<int> genMaterialBefore = storeGenMaterial(host);
-    pop.crossover(1.0, "seedSpecialistReplace", 5, 3);
+    pop.crossover(1.0, "caseSpecialistReplace", 5, 3);
     EXPECT_EQ(genMaterialBefore, storeGenMaterial(host));
 }
 
 // The replacing variant is destructive -- elite individuals must be skipped as hosts
 // (unlike the additive variant, which also supplies elites).
-TEST(PopulationTest, SeedSpecialistReplaceSkipsEliteHosts) {
+TEST(PopulationTest, CaseSpecialistReplaceSkipsEliteHosts) {
     Population pop(123, 2, 0, 0, 8, 2, false);
     pop.indicesElite = {0}; // this time the HOST is elite
 
     auto& host  = pop.individuals[0];
     auto& donor = pop.individuals[1];
 
-    host.fitnessValues  = {  0.0f, 100.0f};
-    donor.fitnessValues = {200.0f,  50.0f};
-    host.visitedNodesPerSeed  = {{0, 1, 2}, {0, 1, 3}};
-    donor.visitedNodesPerSeed = {{5, 6}, {7}};
+    host.caseScores  = {  0.0f, 100.0f};
+    donor.caseScores = {200.0f,  50.0f};
+    host.visitedNodesPerCase  = {{0, 1, 2}, {0, 1, 3}};
+    donor.visitedNodesPerCase = {{5, 6}, {7}};
 
     const std::vector<int> genMaterialBefore = storeGenMaterial(host);
-    pop.crossover(1.0, "seedSpecialistReplace", 5, 3);
+    pop.crossover(1.0, "caseSpecialistReplace", 5, 3);
     EXPECT_EQ(genMaterialBefore, storeGenMaterial(host));
 
     // Cross-check: the additive variant does supply the same elite.
-    pop.crossover(1.0, "seedSpecialistAppend", 5, 3);
+    pop.crossover(1.0, "caseSpecialistAppend", 5, 3);
     EXPECT_GT(host.innerNodes.size(), 8u);
 }
 

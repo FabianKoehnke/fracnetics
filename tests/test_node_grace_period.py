@@ -27,7 +27,7 @@ def _build(ni=10):
 
 def _markUsed(net, idx, flag):
     """used is set by the traversal and cleared by the next evaluation
-    (fitGymnasium(newRun=True) -> clearUsedNodes)."""
+    (initPathTraversal(newRun=True) -> clearUsedNodes)."""
     nodes = net.innerNodes
     nodes[idx].used = flag
     net.innerNodes = nodes

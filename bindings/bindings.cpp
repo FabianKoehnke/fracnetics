@@ -86,8 +86,8 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("generationReceived", &Node::generationReceived)
     .def_readwrite("everUsed", &Node::everUsed)         // grace period (addDelNodes)
     .def_readwrite("unusedSince", &Node::unusedSince)   // grace period (addDelNodes)
-    .def_readwrite("transplantBlockID", &Node::transplantBlockID)   // Population::crossover(type="seedSpecialist")
-    .def_readwrite("isBlockEntry", &Node::isBlockEntry)             // Population::crossover(type="seedSpecialist")
+    .def_readwrite("transplantBlockID", &Node::transplantBlockID)   // Population::crossover(type="caseSpecialist")
+    .def_readwrite("isBlockEntry", &Node::isBlockEntry)             // Population::crossover(type="caseSpecialist")
     .def_readwrite("edgeExperience", &Node::edgeExperience)
     .def_readwrite("gamma", &Node::gamma)
     .def_readwrite("alpha", &Node::alpha)
@@ -161,15 +161,11 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("innerNodes", &Network::innerNodes)
     .def_readwrite("startNode", &Network::startNode)
     .def_readwrite("fitness", &Network::fitness)
-    .def_readwrite("fitnessValues", &Network::fitnessValues)
-    .def_readwrite("visitedNodesPerSeed", &Network::visitedNodesPerSeed) // per-seed active sub-graph (gymnasiumMultiSeed(), seedSpecialist crossover)
-    .def_readwrite("lastFitness", &Network::lastFitness)
-    .def_readwrite("lastFitnessII", &Network::lastFitnessII)
+    .def_readwrite("caseScores", &Network::caseScores)       // score per case of the last evaluation
+    .def_readwrite("visitedNodesPerCase", &Network::visitedNodesPerCase) // per-case active sub-graph (caseSpecialist crossover)
     .def_readwrite("objectives", &Network::objectives)       // Pareto objectives
-    .def_readwrite("lastEpisodeObjectives", &Network::lastEpisodeObjectives)   // lexicase: 5-D objectives of the last episode
-    .def_readwrite("lexicaseObjectives", &Network::lexicaseObjectives)         // lexicase: 5-D objectives averaged over seeds
-    .def_readwrite("objectivesPerSeed", &Network::objectivesPerSeed)           // lexicase: 5-D objectives per seed (type="objectivesPerSeed")
-    .def_readwrite("lastStepRewards", &Network::lastStepRewards)
+    .def_readwrite("lexicaseObjectives", &Network::lexicaseObjectives)   // lexicase: objectives averaged over the cases
+    .def_readwrite("objectivesPerCase", &Network::objectivesPerCase)     // lexicase: objectives per case (type="objectivesPerCase")
     .def_readwrite("decisions", &Network::decisions)
     .def_readwrite("currentNodeID", &Network::currentNodeID)
     .def_readwrite("invalid", &Network::invalid)
@@ -185,16 +181,21 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("structureChangedThisGen", &Network::structureChangedThisGen)
     .def("lineageVariance", &Network::lineageVariance)
     .def("lineageLCB", &Network::lineageLCB, py::arg("z"))
-    .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("landed"))
-    .def("aggregateSeedResults", &Network::aggregateSeedResults,
-        py::arg("landingQuote") = false, py::arg("landingQuoteExponent") = 2.0f)
+    .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("success"))
+    .def("aggregateCaseResults", &Network::aggregateCaseResults)
     .def("blendLineageWith", &Network::blendLineageWith, py::arg("other"), py::arg("priorCap"))
-    .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f)
+    .def("initPathTraversal", &Network::initPathTraversal, py::arg("startingFitness")=0.0f, py::arg("newRun")=true)
     .def("decisionAndNextNode",
         [](Network &self, std::vector<double> obs, int dMax) -> int {
             return self.decisionAndNextNode(obs, dMax);
         },
     py::arg("obs"), py::arg("dMax"))
+    .def("act",
+        [](Network &self, std::vector<double> obs, int dMax, int maxConsecutiveP, int fallbackAction, int holdAction) -> int {
+            return self.act(obs, dMax, maxConsecutiveP, fallbackAction, holdAction);
+        },
+    py::arg("obs"), py::arg("dMax"), py::arg("maxConsecutiveP"), py::arg("fallbackAction")=0, py::arg("holdAction")=-1)
+    .def("recordStep", &Network::recordStep, py::arg("reward"))
     .def("traversePath",
         [](Network &self, py::array_t<float, py::array::c_style | py::array::forcecast> X, int dMax) {
             thread_local std::vector<std::vector<float>> vec2d;
@@ -207,17 +208,18 @@ PYBIND11_MODULE(_core, m) {
         py::arg("X"), py::arg("dMax"))
     .def("clearUsedNodes", &Network::clearUsedNodes)
     .def("updateExperienceFromEpisode", &Network::updateExperienceFromEpisode)
-    // pickle support (12-element tuple)
+    // pickle support (11-element tuple)
     .def(py::pickle(
         [](const Network &n) { // __getstate__
             return py::make_tuple(
                 n.jn, n.jnf, n.pn, n.pnf, n.fractalJudgment,
                 n.innerNodes, n.startNode, n.fitness, n.decisions,
-                n.fitnessValues, n.objectives, n.lastStepRewards
+                n.caseScores, n.objectives
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 12)
+            // 12 = pickles before 3.0.0 (trailing lastStepRewards, ignored), kept loadable for archived runs
+            if (t.size() != 11 && t.size() != 12)
                 throw std::runtime_error("Invalid state for Network!");
 
             Network net(
@@ -233,9 +235,8 @@ PYBIND11_MODULE(_core, m) {
             net.startNode = t[6].cast<Node>();
             net.fitness = t[7].cast<float>();
             net.decisions = t[8].cast<std::vector<int>>();
-            net.fitnessValues = t[9].cast<std::vector<float>>();
+            net.caseScores = t[9].cast<std::vector<float>>();
             net.objectives = t[10].cast<std::vector<float>>();
-            net.lastStepRewards = t[11].cast<std::vector<float>>();
 
             return net;
         }
@@ -259,13 +260,22 @@ PYBIND11_MODULE(_core, m) {
             }
         ));
 
-    // Internal, exposed only to inspect the initial impulse in reset().
-    py::class_<GymEnvWrapper>(m, "GymEnvWrapper")
-        .def(py::init<const py::object&>(), py::arg("env"))
-        .def("reset", &GymEnvWrapper::reset,
-             py::arg("seed")=-1, py::arg("curriculumLevel")=1.0f,
-             py::arg("absoluteImpulseCurriculum")=false, py::arg("validation")=false,
-             py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngle")=0.0f);
+    // Handed to the episodeObjectives hook of Population.gymnasium()
+    py::class_<EpisodeResult>(m, "EpisodeResult")
+        .def_readonly("seed", &EpisodeResult::seed)
+        .def_readonly("initialObservation", &EpisodeResult::initialObservation)
+        .def_readonly("observation", &EpisodeResult::observation)
+        .def_readonly("info", &EpisodeResult::info)
+        .def_readonly("rewards", &EpisodeResult::rewards)
+        .def_readonly("episodeReturn", &EpisodeResult::episodeReturn)
+        .def_readonly("steps", &EpisodeResult::steps)
+        .def_readonly("terminated", &EpisodeResult::terminated)
+        .def_readonly("truncated", &EpisodeResult::truncated)
+        .def_readonly("invalid", &EpisodeResult::invalid)
+        .def("__repr__", [](const EpisodeResult& e) {
+            return "<EpisodeResult seed=" + std::to_string(e.seed) + " steps=" + std::to_string(e.steps) +
+                   " return=" + std::to_string(e.episodeReturn) + ">";
+        });
 
     // Population
     py::class_<Population>(m, "Population")
@@ -297,7 +307,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("meanFitness", &Population::meanFitness)
         .def_readwrite("minFitness", &Population::minFitness)
         .def_readwrite("maxNetworkSize", &Population::maxNetworkSize)
-        .def_readwrite("nextTransplantBlockID", &Population::nextTransplantBlockID) // seedSpecialist crossover block-id counter
+        .def_readwrite("nextTransplantBlockID", &Population::nextTransplantBlockID) // caseSpecialist crossover block-id counter
         // Crossover diagnostics of the last crossover() call (filled by type="semantic" only)
         .def_readonly("crossoverPairsApplied", &Population::crossoverPairsApplied)
         .def_readonly("crossoverNodesMatched", &Population::crossoverNodesMatched)
@@ -406,55 +416,50 @@ PYBIND11_MODULE(_core, m) {
         .def("gymnasium",
                 [](Population &self,
                     py::object env,
-                    int dMax,
-                    int maxSteps,
-                    int maxConsecutiveP,
-                    int worstFitness,
-                    int seed,
-                    bool validation,
-                    float curriculumLevel=1.0f,
-                    bool absoluteImpulseCurriculum=false,
-                    bool uniformDirectionCurriculum=false,
-                    float directionAngle=0.0f,
-                    bool survivalMode=false,
-                    bool potential=false
-                    ) {
-                        GymEnvWrapper wrapper(env);
-                        self.gymnasium(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seed, validation, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
-                        force_gc_collect();
-                    },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seed"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f, py::arg("absoluteImpulseCurriculum")=false, py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngle")=0.0f, py::arg("survivalMode")=false, py::arg("potential")=false
-            )
-
-        .def("gymnasiumMultiSeed",
-                [](Population &self,
-                    py::object env,
-                    int dMax,
-                    int maxSteps,
-                    int maxConsecutiveP,
-                    int worstFitness,
                     std::vector<int> seeds,
-                    bool validation,
-                    float curriculumLevel=1.0f,
-                    bool absoluteImpulseCurriculum=false,
-                    bool useLineageFitness=true,
-                    bool uniformDirectionCurriculum=false,
-                    std::vector<float> directionAngles={},
-                    bool survivalMode=false,
-                    bool potential=false,
-                    bool landingQuote=false,
-                    float landingQuoteExponent=2.0f
+                    int dMax,
+                    int maxSteps,
+                    int maxConsecutiveP,
+                    int fallbackAction,
+                    int holdAction,
+                    py::object resetOptions,
+                    py::object episodeObjectives,
+                    bool trackLineage,
+                    float successThreshold
                     ) {
-                        GymEnvWrapper wrapper(env);
-                        self.gymnasiumMultiSeed(wrapper, dMax, maxSteps, maxConsecutiveP, worstFitness, seeds, validation, curriculumLevel, absoluteImpulseCurriculum, useLineageFitness, uniformDirectionCurriculum, directionAngles, survivalMode, potential, landingQuote, landingQuoteExponent);
+                        EpisodeSettings settings{dMax, maxSteps, maxConsecutiveP, fallbackAction, holdAction};
+                        evaluateEpisodes(self.individuals, env, seeds, resetOptions, settings,
+                                         episodeObjectives, trackLineage, successThreshold);
                         force_gc_collect();
                     },
-                py::arg("env"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"), py::arg("worstFitness"), py::arg("seeds"), py::arg("validation")=false, py::arg("curriculumLevel")=1.0f, py::arg("absoluteImpulseCurriculum")=false, py::arg("useLineageFitness")=true, py::arg("uniformDirectionCurriculum")=false, py::arg("directionAngles")=std::vector<float>{}, py::arg("survivalMode")=false, py::arg("potential")=false, py::arg("landingQuote")=false, py::arg("landingQuoteExponent")=2.0f
+                py::arg("env"), py::arg("seeds"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"),
+                py::arg("fallbackAction")=0, py::arg("holdAction")=-1,
+                py::arg("resetOptions")=py::none(), py::arg("episodeObjectives")=py::none(),
+                py::arg("trackLineage")=false,
+                py::arg("successThreshold")=std::numeric_limits<float>::infinity(),
+                R"doc(Evaluate every individual on one episode per seed (one case per seed).
+
+Args:
+    env: Gymnasium environment (reset(seed, options) / step(action) API). Problem-specific
+        reward shaping or start-state changes belong into a gymnasium.Wrapper around it.
+    seeds: Seeds for env.reset(); negative = unseeded.
+    dMax: Maximum consecutive judgment nodes per decision.
+    maxSteps: Episode length limit.
+    maxConsecutiveP: Maximum consecutive processing nodes before fallbackAction is used.
+    fallbackAction: Action executed for an invalid network (default 0).
+    holdAction: Processing function that repeats the previous decision; -1 = off.
+    resetOptions: None or one env.reset(options=...) entry per seed.
+    episodeObjectives: None or callable(EpisodeResult) -> list of floats (larger = better),
+        stored per case in objectivesPerCase and averaged into lexicaseObjectives.
+    trackLineage: Update the lineage statistics with every case.
+    successThreshold: A case above this score counts as a success for lineageSuccessRate.
+
+Writes fitness (mean return), caseScores, visitedNodesPerCase, objectivesPerCase and
+lexicaseObjectives of every individual.)doc"
             )
 
         .def("calculateParetoObjectives", &Population::calculateParetoObjectives,
-             py::call_guard<py::gil_scoped_release>(),
-             py::arg("landingThreshold")=100.0f)
+             py::call_guard<py::gil_scoped_release>())
 
         .def("paretoTournamentSelection", &Population::paretoTournamentSelection,
              py::call_guard<py::gil_scoped_release>(),
@@ -465,22 +470,22 @@ PYBIND11_MODULE(_core, m) {
              py::arg("N"), py::arg("E"), py::arg("useLineageFitness")=false, py::arg("minLineageN")=10, py::arg("lineageZ")=0.0f)
         .def("lexicaseSelection", &Population::lexicaseSelection,
              py::call_guard<py::gil_scoped_release>(),
-             // epsilon: reward margin (<0 = MAD); standard deviations for "seedsStandardized"
-             // (<0 = 0.5); rank positions for "seedsRank" (<0 = 3).
+             // epsilon: score margin (<0 = MAD); standard deviations for "casesStandardized"
+             // (<0 = 0.5); rank positions for "casesRank" (<0 = 3).
              py::arg("E"), py::arg("epsilon")=-1.0f, py::arg("type")=std::string("objectives"))
         .def("capLineageAfterMutation", &Population::capLineageAfterMutation,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("priorCap")=5)
-        .def_static("seedRobustLineageSuccess", &Population::seedRobustLineageSuccess,
+        .def_static("lineageRobustSuccess", &Population::lineageRobustSuccess,
              py::arg("ind"), py::arg("z")=1.0f)
-        .def_static("seedConsistentSuccess", &Population::seedConsistentSuccess,
+        .def_static("caseConsistentSuccess", &Population::caseConsistentSuccess,
              py::arg("ind"), py::arg("requiredFraction")=1.0f, py::arg("z")=1.0f)
-        .def_static("batchThresholdSuccess", &Population::batchThresholdSuccess,
-             py::arg("ind"), py::arg("threshold")=900.0f, py::arg("requiredFraction")=1.0f)
-        .def_static("seedConsistencyRatio", &Population::seedConsistencyRatio,
+        .def_static("caseThresholdSuccess", &Population::caseThresholdSuccess,
+             py::arg("ind"), py::arg("threshold"), py::arg("requiredFraction")=1.0f)
+        .def_static("caseConsistencyRatio", &Population::caseConsistencyRatio,
              py::arg("ind"))
         .def("updateAdaptiveK", &Population::updateAdaptiveK,
-             py::arg("successCriterion") = Population::SuccessCriterion([](const Network& ind){ return Population::seedConsistencyRatio(ind); }),
+             py::arg("successCriterion") = Population::SuccessCriterion([](const Network& ind){ return Population::caseConsistencyRatio(ind); }),
              py::arg("useRechenberg")=true,
              py::arg("invert")=false,
              py::arg("windowSize")=10,

@@ -42,6 +42,8 @@ args = ap.parse_args()
 
 if args.local:
     sys.path.insert(0, ROOT)
+# The script imports its problem module (code/lander.py) from its own folder
+sys.path.insert(0, os.path.dirname(os.path.abspath(args.script)))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -71,7 +73,7 @@ for method in ["lexicaseSelection", "crossover", "callAddDelNodes", "callEdgeMut
                "callBoundaryMutationNormal", "callBoundaryMutationUniform",
                "callAgeUnusedNodes", "capLineageAfterMutation"]:
     timed(fn.Population, method)
-timed(fn.Population, "gymnasiumMultiSeed",
+timed(fn.Population, "gymnasium",
       lambda pop, *a: f"evaluate sequential (n={len(pop.individuals)})")
 timed(parallel_eval.ParallelEvaluator, "evaluate",
       lambda ev, pop, *a: f"evaluate parallel (n={len(pop.individuals)})")

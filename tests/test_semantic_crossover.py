@@ -40,10 +40,8 @@ def evolved():
                    wind_power=15.0, turbulence_power=0.5)
     pop = buildPopulation()
     for g in range(6):
-        pop.gymnasiumMultiSeed(env, dMax=10, maxSteps=200, maxConsecutiveP=5,
-                               worstFitness=-500, seeds=[7, 42, 99],
-                               useLineageFitness=False, absoluteImpulseCurriculum=False)
-        pop.lexicaseSelection(E=2, type="seeds")
+        pop.gymnasium(env, seeds=[7, 42, 99], dMax=10, maxSteps=200, maxConsecutiveP=5)
+        pop.lexicaseSelection(E=2, type="cases")
         pop.callAddDelNodes(MIN_FEATURES, MAX_FEATURES, junk=0.1, noElite=True,
                             currentGeneration=g, crossoverProtection=0)
         pop.callEdgeMutation(probInnerNodes=0, probStartNode=0, justUsedNodes=True, k=1)
@@ -84,11 +82,9 @@ def test_population_still_evaluates(evolved):
     env = gym.make("LunarLander-v3", continuous=False, gravity=-10.0, enable_wind=False,
                    wind_power=15.0, turbulence_power=0.5)
     evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
-    evolved.gymnasiumMultiSeed(env, dMax=10, maxSteps=200, maxConsecutiveP=5,
-                               worstFitness=-500, seeds=[7, 42],
-                               useLineageFitness=False, absoluteImpulseCurriculum=False)
+    evolved.gymnasium(env, seeds=[7, 42], dMax=10, maxSteps=200, maxConsecutiveP=5)
     env.close()
-    assert all(len(ind.fitnessValues) == 2 for ind in evolved.individuals)
+    assert all(len(ind.caseScores) == 2 for ind in evolved.individuals)
 
 
 def test_probability_zero_changes_nothing(evolved):

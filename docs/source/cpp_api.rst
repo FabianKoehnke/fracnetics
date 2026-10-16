@@ -42,3 +42,13 @@ Fractal
    :project: Fracnetics
    :path: ../include/Fractal.hpp
 
+
+Gymnasium evaluator
+-------------------
+
+The only part that talks to Python: runs episodes of any Gymnasium environment and writes
+the results into the networks (``Population.gymnasium()`` in Python).
+
+.. doxygenfile:: GymnasiumWrapper.hpp
+   :project: Fracnetics
+   :path: ../include/GymnasiumWrapper.hpp

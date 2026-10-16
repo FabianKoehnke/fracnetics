@@ -1,6 +1,6 @@
-#include "../include/Data.hpp"
+#include "Data.hpp"
 #include "../include/Population.hpp"
-#include "../include/PrintHelper.hpp"
+#include "PrintHelper.hpp"
 #include <chrono>
 #include <vector>
 

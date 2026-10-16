@@ -15,17 +15,25 @@ alike. Chat with the maintainer stays German.
 
 | Path | Contents |
 |---|---|
-| `include/*.hpp` | **The entire core, header-only.** `Population.hpp` (selection, crossover, mutation, evaluation), `Network.hpp` (graph, traversal, clustering), `Node.hpp` (nodes, edges, boundaries), `Fractal.hpp`, `GymnasiumWrapper.hpp` |
+| `include/*.hpp` | **The entire core, header-only.** `Population.hpp` (selection, crossover, mutation), `Network.hpp` (graph, traversal, `act()`/`recordStep()` for episodes), `Node.hpp` (nodes, edges, boundaries), `Fractal.hpp` -- plain C++, no Python. `GymnasiumWrapper.hpp` is the only pybind11 part: the generic episode loop behind `Population.gymnasium()` |
 | `bindings/bindings.cpp` | pybind11 bindings — the **only** translation unit |
 | `fracnetics/` | Python package. `__init__.py`, `utilsModel.py` and `parallel_eval.py` (process-parallel evaluation) are versioned, `_core*.so` is built |
-| `tests/` | `*.cpp` GoogleTest, `test_*.py` pytest |
+| `tests/` | `*.cpp` GoogleTest, `test_*.py` pytest; `Data.hpp`/`PrintHelper.hpp` only serve the `iris.cpp` example |
 | `examples/` | Notebooks (CartPole, IRIS, MountainCar) |
 | `benchmarks/` | `bench_lunarlander.py`: times the first N generations of the LunarLander script and checks them bit for bit against the reference run |
 
-This repository is the library only. The LunarLander experiment, the studies, the runs and
-the reports live in the dissertation repository under
-`../dissertation/paper/LunarLander - Interval Boundaries/` and import the installed
-`fracnetics`. Library changes must keep its `code/lunarlander.py` bit-identical to
+This repository is the library only, and it is **problem-independent**: nothing in it may
+know about a particular environment (observation layout, action meaning, reward scale,
+success thresholds). Evaluation produces one score per case (`Network::caseScores`; an
+episode per seed, a sample per row); problem-specific criteria enter through the
+`episodeObjectives` hook, reward shaping and start-state changes through a
+`gymnasium.Wrapper`, per-episode settings through `resetOptions`.
+
+The LunarLander experiment, the studies, the runs and the reports live in the dissertation
+repository under `../dissertation/paper/LunarLander - Interval Boundaries/` and import the
+installed `fracnetics`. Everything LunarLander-specific (curriculum, survival/potential reward
+modes, the five lexicase objectives, landing thresholds, hold action 4) is in its
+`code/lander.py`. Library changes must keep its `code/lunarlander.py` bit-identical to
 `runs/run_20260915_025833` (first 60 generations, all 8 columns of `curves.csv`).
 
 Everything is header-only, so **any** header change forces a full recompile of

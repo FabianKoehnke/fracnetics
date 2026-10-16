@@ -8,7 +8,7 @@ so they can be split across processes, each holding its own environment.
 Only the fields that selection and mutation read are sent back (see _collect below);
 Network's own pickle state does not carry them.
 
-Small populations (the elite re-scoring, the one-individual validation) are split by seeds
+Small populations (an elite re-scoring, a one-individual validation) are split by seeds
 as well, so every worker gets work. Episodes are independent given the network, so the seed
 blocks of one individual are stitched back together exactly (see _mergeBlocks).
 """
@@ -19,51 +19,39 @@ import pickle
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
-import gymnasium as gym
-
 import fracnetics as fn
 
 # Per-worker state, built once by _initWorker and reused for every task.
 _env = None
 _pop = None
-_envKwargs = None
+_episodeObjectives = None
 
 
-def _initWorker(envKwargs, popKwargs):
+def _initWorker(makeEnv, popKwargs, episodeObjectives):
     """Build one environment and one container population per worker process."""
-    global _env, _pop, _envKwargs
-    _envKwargs = envKwargs
-    _env = gym.make(**envKwargs)
-    # The population is only a container for gymnasiumMultiSeed; its own nodes are
+    global _env, _pop, _episodeObjectives
+    _env = makeEnv()
+    # The population is only a container for gymnasium(); its own nodes are
     # replaced by the individuals we send in, so ni=1 is enough.
     _pop = fn.Population(**{**popKwargs, "ni": 1})
+    _episodeObjectives = episodeObjectives
     # A forked worker inherits the parent's whole heap (matplotlib, pandas, ...). Left in
     # the GC's generations it is traversed over and over; freezing it made small tasks
-    # 3-4x faster in the LunarLander script. Results are unaffected.
+    # 3-4x faster in the LunarLander experiment. Results are unaffected.
     gc.freeze()
 
 
 def _collect(net):
-    """Extract everything the parent needs; Network.__getstate__ omits most of it.
-
-    KNOWN GAP: Network::lastStepRewardsII is written by gymnasiumMultiSeed but is not
-    exposed by the pybind11 bindings, so it cannot be carried back. The only reader is
-    calculateParetoObjectives(), which indexes it up to fitnessValues.size() -- with an
-    empty vector in the parent that is an out-of-bounds read. It is unreachable while
-    lunarlander.py keeps multiObjective = False (the whole block is skipped), and the
-    value it feeds (meanAbsX) is computed and then discarded. Before enabling
-    multiObjective with this evaluator, expose the field in bindings.cpp and add it here.
-    """
+    """Extract everything the parent needs; Network.__getstate__ omits most of it."""
     return {
         "fitness": net.fitness,
-        "fitnessValues": list(net.fitnessValues),
+        "caseScores": list(net.caseScores),
         "lexicaseObjectives": list(net.lexicaseObjectives),
-        "objectivesPerSeed": [list(o) for o in net.objectivesPerSeed],
-        "lastStepRewards": list(net.lastStepRewards),
+        "objectivesPerCase": [list(o) for o in net.objectivesPerCase],
         "objectives": list(net.objectives),
-        # Per-seed active sub-graph; read by the seedSpecialist crossover. Left empty in
+        # Per-case active sub-graph; read by the caseSpecialist crossover. Left empty in
         # the parent it silently disables that path instead of erroring.
-        "visitedNodesPerSeed": [list(v) for v in net.visitedNodesPerSeed],
+        "visitedNodesPerCase": [list(v) for v in net.visitedNodesPerCase],
         # Traversal position after the last episode. Not in Network.__getstate__, so the
         # parent keeps whatever it held before -- an uninitialised value on first use.
         "currentNodeID": net.currentNodeID,
@@ -71,11 +59,12 @@ def _collect(net):
         # Set when a traversal exceeds dMax without reaching a processing node.
         "invalid": net.invalid,
         "decisions": list(net.decisions),
-        # Written by updateLineageStats() inside gymnasiumMultiSeed when
-        # useLineageFitness is on. Carried unconditionally so the switch stays free.
+        # Written by updateLineageStats() when trackLineage is on. Carried
+        # unconditionally so the switch stays free.
         "lineageMean": net.lineageMean,
         "lineageM2": net.lineageM2,
         "lineageN": net.lineageN,
+        "lineageSuccessRate": net.lineageSuccessRate,
         "lineageSuccessN": net.lineageSuccessN,
         # Node-level traversal state. used drives justUsedNodes in every boundary/edge
         # mutation; lastVisitStep and traverseCounter are read by findSuccessorNodes()
@@ -106,24 +95,26 @@ def _evalTask(payload):
         # Lineage statistics accumulate too (updateLineageStats / capLineageStats) and are
         # likewise absent from the pickle -- sending them back without sending them in
         # would reset the parent's running values to zero on every generation.
-        net.lineageMean, net.lineageM2, net.lineageN, net.lineageSuccessN = lin
+        (net.lineageMean, net.lineageM2, net.lineageN,
+         net.lineageSuccessRate, net.lineageSuccessN) = lin
     _pop.individuals = nets
-    _pop.gymnasiumMultiSeed(_env, seeds=payload["seeds"], **payload["kwargs"])
+    _pop.gymnasium(_env, seeds=payload["seeds"], resetOptions=payload["resetOptions"],
+                   episodeObjectives=_episodeObjectives, **payload["kwargs"])
     return payload["task"], [_collect(n) for n in _pop.individuals]
 
 
 def _mergeBlocks(blocks):
     """Stitch the results of consecutive seed blocks of one individual together.
 
-    Every block started with a fresh traversal (fitGymnasium(newRun=True)), so per node the
+    Every block started with a fresh traversal (newRun on its first seed), so per node the
     visit counts add up, `used` is an OR, and lastVisitStep -- a timestamp of the
     network-wide step counter -- is shifted by the counter's advance in all earlier blocks.
     Every advance enters exactly one node, so a block's advance is the sum of its node
     counters.
-    fitness and lexicaseObjectives are recomputed by Network.aggregateSeedResults().
+    fitness and lexicaseObjectives are recomputed by Network.aggregateCaseResults().
     """
     merged = dict(blocks[-1])  # state after the last episode: currentNodeID, invalid, ...
-    for key in ("fitnessValues", "lastStepRewards", "objectivesPerSeed", "visitedNodesPerSeed"):
+    for key in ("caseScores", "objectivesPerCase", "visitedNodesPerCase"):
         merged[key] = [value for block in blocks for value in block[key]]
     nNodes = len(blocks[0]["used"])
     used, counters, visits = [False] * nNodes, [0] * nNodes, [0] * nNodes
@@ -142,12 +133,11 @@ def _mergeBlocks(blocks):
 def applyResult(net, result):
     """Write a worker result back into the individual held by the parent process."""
     net.fitness = result["fitness"]
-    net.fitnessValues = result["fitnessValues"]
+    net.caseScores = result["caseScores"]
     net.lexicaseObjectives = result["lexicaseObjectives"]
-    net.objectivesPerSeed = result["objectivesPerSeed"]
-    net.lastStepRewards = result["lastStepRewards"]
+    net.objectivesPerCase = result["objectivesPerCase"]
     net.objectives = result["objectives"]
-    net.visitedNodesPerSeed = result["visitedNodesPerSeed"]
+    net.visitedNodesPerCase = result["visitedNodesPerCase"]
     net.currentNodeID = result["currentNodeID"]
     net.nConsecutiveP = result["nConsecutiveP"]
     net.invalid = result["invalid"]
@@ -155,6 +145,7 @@ def applyResult(net, result):
     net.lineageMean = result["lineageMean"]
     net.lineageM2 = result["lineageM2"]
     net.lineageN = result["lineageN"]
+    net.lineageSuccessRate = result["lineageSuccessRate"]
     net.lineageSuccessN = result["lineageSuccessN"]
     # innerNodes returns a copy (std::vector<Node> is not opaque), so the whole list
     # has to be written back after patching the traversal flags.
@@ -169,35 +160,53 @@ def applyResult(net, result):
 
 
 class ParallelEvaluator:
-    """Drop-in replacement for pop.gymnasiumMultiSeed(env, ...) across processes.
+    """Drop-in replacement for pop.gymnasium(env, ...) across processes.
 
     Usage:
-        ev = ParallelEvaluator(envKwargs, popKwargs, workers=8)
-        ev.evaluate(pop, seeds=seeds, maxSteps=1000, ...)
+        ev = ParallelEvaluator(makeEnv, popKwargs, workers=8, episodeObjectives=myObjectives)
+        ev.evaluate(pop, seeds=seeds, dMax=10, maxSteps=1000, maxConsecutiveP=5, ...)
         ...
         ev.close()
+
+    Args:
+        env: Zero-argument callable that builds the environment (wrappers included), or a
+            dict of gymnasium.make() keyword arguments. Called once per worker.
+        popKwargs: Population constructor arguments; the workers build a container from
+            them (ni is overridden).
+        workers: Number of processes (default: all cores).
+        chunksPerWorker: Tasks per worker, so the pool can balance episodes of very
+            different length.
+        startMethod: multiprocessing start method, see __init__.
+        episodeObjectives: The episodeObjectives hook of Population.gymnasium(). Set here
+            rather than per evaluate() call: the workers inherit it when they are forked, so
+            it needs no pickling (a function defined in an exec'd script would not pickle).
     """
 
-    def __init__(self, envKwargs, popKwargs, workers=None, chunksPerWorker=3,
-                 startMethod="fork"):
+    def __init__(self, env, popKwargs, workers=None, chunksPerWorker=3,
+                 startMethod="fork", episodeObjectives=None):
         self.workers = workers or os.cpu_count() or 1
         self.chunksPerWorker = chunksPerWorker
+        if callable(env):
+            makeEnv = env
+        else:
+            import gymnasium as gym
+            makeEnv = lambda: gym.make(**env)
         # fork, not spawn: spawn re-imports the caller's module in every worker, which
-        # would re-run an experiment script's top-level code (the LunarLander script has
-        # no __main__ guard). fork inherits the parent state, costs no interpreter
-        # start-up, and is safe here because the parent is single-threaded -- Box2D and
-        # gymnasium spawn no threads of their own.
+        # would re-run an experiment script's top-level code (a script without a __main__
+        # guard). fork inherits the parent state, costs no interpreter start-up, and is
+        # safe as long as the parent is single-threaded -- Box2D and gymnasium spawn no
+        # threads of their own.
         self.pool = ProcessPoolExecutor(
             max_workers=self.workers,
             mp_context=get_context(startMethod),
             initializer=_initWorker,
-            initargs=(envKwargs, popKwargs),
+            initargs=(makeEnv, popKwargs, episodeObjectives),
         )
 
     def _tasks(self, n, nSeeds, splitSeeds):
         """(individual indices, first seed, end seed) per task, about chunksPerWorker per worker.
 
-        Episode cost varies by an order of magnitude (early crash vs. full flight), so
+        Episode cost varies by an order of magnitude (early failure vs. full episode), so
         there are more tasks than workers and the pool balances them. With fewer
         individuals than tasks, each individual's seeds are cut into blocks.
         """
@@ -210,35 +219,41 @@ class ParallelEvaluator:
         bounds = [(b * nSeeds // nBlocks, (b + 1) * nSeeds // nBlocks) for b in range(nBlocks)]
         return [([i], lo, hi) for i in range(n) for lo, hi in bounds]
 
-    def evaluate(self, pop, seeds, **kwargs):
-        """Evaluate pop.individuals on seeds, writing results back in place."""
+    def evaluate(self, pop, seeds, resetOptions=None, **kwargs):
+        """Evaluate pop.individuals on seeds, writing results back in place.
+
+        Takes the arguments of Population.gymnasium() except env and episodeObjectives.
+        """
+        if "episodeObjectives" in kwargs:
+            raise TypeError("episodeObjectives is set on the ParallelEvaluator itself "
+                            "(the workers inherit it when they are forked)")
         individuals = list(pop.individuals)
         n = len(individuals)
         if n == 0:
             return
         seeds = list(seeds)
+        if resetOptions is not None:
+            resetOptions = list(resetOptions)
+            if len(resetOptions) != len(seeds):
+                raise ValueError("resetOptions needs one entry per seed")
         # Lineage statistics are a running mean over the seeds in order; a split would
         # have to replay them, so lineage runs keep all seeds of an individual together.
-        splitSeeds = not kwargs.get("useLineageFitness", True)
-        angles = list(kwargs.get("directionAngles", []))
+        splitSeeds = not kwargs.get("trackLineage", False)
 
         netBytes = [pickle.dumps(net, protocol=pickle.HIGHEST_PROTOCOL) for net in individuals]
         # Carried separately because Node.__getstate__ drops them (see _evalTask)
         counters = [[node.traverseCounter for node in net.innerNodes] for net in individuals]
         visits = [[node.lastVisitStep for node in net.innerNodes] for net in individuals]
-        lineage = [(net.lineageMean, net.lineageM2, net.lineageN, net.lineageSuccessN)
-                   for net in individuals]
+        lineage = [(net.lineageMean, net.lineageM2, net.lineageN,
+                    net.lineageSuccessRate, net.lineageSuccessN) for net in individuals]
 
         payloads = []
         for indices, lo, hi in self._tasks(n, len(seeds), splitSeeds):
-            taskKwargs = kwargs
-            if angles:
-                taskKwargs = {**kwargs, "directionAngles": angles[lo:hi]}
             payloads.append({
                 "task": (indices, lo),
                 "nets": [netBytes[i] for i in indices],
                 # A later block must start from zero counters: the first seed's visited-node
-                # snapshot is taken before fitGymnasium resets them, and in the sequential
+                # snapshot is taken before the traversal resets them, and in the sequential
                 # run nothing is reset between seeds.
                 "traverseCounter": [counters[i] if lo == 0 else [0] * len(counters[i])
                                     for i in indices],
@@ -246,7 +261,8 @@ class ParallelEvaluator:
                                   for i in indices],
                 "lineage": [lineage[i] for i in indices],
                 "seeds": seeds[lo:hi],
-                "kwargs": taskKwargs,
+                "resetOptions": None if resetOptions is None else resetOptions[lo:hi],
+                "kwargs": kwargs,
             })
 
         blocks = [[] for _ in range(n)]
@@ -260,8 +276,7 @@ class ParallelEvaluator:
                 applyResult(net, netBlocks[0][1])
             else:
                 applyResult(net, _mergeBlocks([result for _, result in netBlocks]))
-                net.aggregateSeedResults(kwargs.get("landingQuote", False),
-                                         kwargs.get("landingQuoteExponent", 2.0))
+                net.aggregateCaseResults()
 
         # individuals[] yields references into the opaque NetworkVector, so the writes
         # above already landed in the population -- nothing to reassign.

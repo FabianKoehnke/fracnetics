@@ -26,11 +26,10 @@ fitnessProgess = []
 for g in range(10):
     pop.gymnasium(
         env,
+        seeds=[seed + g],
         dMax=10,
         maxSteps=500,
         maxConsecutiveP=10,
-        worstFitness=0,
-        seed=seed + g,
     )
     pop.tournamentSelection(2, 1)
     pop.crossover(0.05, "uniform")

@@ -46,8 +46,8 @@ class Node {
         std::pair<int, int> k_d; /**< Fractal parameters: k (base) and d (depth) for fractal edge structure */
         bool used = false; /**< Flag indicating whether this node was visited during network traversal */
         unsigned int traverseCounter = 0; /**< How OFTEN this node was entered since the last reset (a true visit
-                                               count, incremented by one per entry). Accumulates over all seeds of a
-                                               generation (only Network::initPathTraversal()/fitGymnasium(newRun=true)
+                                               count, incremented by one per entry). Accumulates over all cases of a
+                                               generation (only Network::initPathTraversal(newRun=true)
                                                reset it), so it is a usage FREQUENCY -- used e.g. for the traversal-
                                                neighborhood filter in Population::findSuccessorNodes(). */
         unsigned int lastVisitStep = 0; /**< Value of the network-wide step counter (Network::traverseCounter) at the
@@ -66,14 +66,14 @@ class Node {
                                          so a value of n grants n-1 idle generations -- n=1 grants
                                          none and disables the protection entirely.
                                          Keeps a node that was active last generation from being
-                                         deleted only because this generation's seed panel did not
+                                         deleted only because this generation's set of cases did not
                                          need it. Replaces the clusterLabels detour in addDelNodes();
                                          on that old path 74.9% of protected nodes had been active
                                          one generation earlier. */
 
         int frozen = 0; /**< If > 0, this node is immutable – excluded from all mutation operators */
 
-        // ─── Seed-specialist transplant block (Population::crossover(type="seedSpecialist")) ───
+        // ─── Case-specialist transplant block (Population::crossover(type="caseSpecialist")) ───
         int transplantBlockID = -1; /**< -1 = not part of any transplanted sub-graph block. Otherwise identifies
                                           the transplant event this node belongs to (see Population::nextTransplantBlockID).
                                           Used together with isBlockEntry to restrict which nodes of the block may be
@@ -348,7 +348,7 @@ class Node {
          * @param allNodes Optional pointer to the network's full innerNodes vector. When provided, restricts
          * mutation targets so that a node NOT belonging to a transplant block (see transplantBlockID) cannot be
          * redirected into an interior (non-entry) node of a transplant block -- only that block's designated
-         * isBlockEntry node remains reachable this way (see Population::crossover(type="seedSpecialist")).
+         * isBlockEntry node remains reachable this way (see Population::crossover(type="caseSpecialist")).
          * Nodes that ARE themselves part of a block are unrestricted (this only guards entry FROM outside the
          * block). Passing nullptr (default) preserves the original, unrestricted behavior.
          */
@@ -701,7 +701,7 @@ class Node {
          *
          * @details
          * Applies Welford's online algorithm in-place. This is called during the
-         * backward return pass at the end of each episode in fitGymnasium().
+         * backward return pass at the end of each episode (Network::updateExperienceFromEpisode()).
          *
          * @param edgeIdx  Index into edges[] (and edgeExperience[]) to update
          * @param G        Discounted return observed from time t onward

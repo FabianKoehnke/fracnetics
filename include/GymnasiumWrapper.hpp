@@ -4,240 +4,256 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include "Network.hpp"
 
 namespace py = pybind11;
 using namespace py::literals;
 
-class GymEnvWrapper {
-private:
-    py::object env;
+/**
+ * @file GymnasiumWrapper.hpp
+ * @brief Problem-independent evaluation of GNP networks in Gymnasium environments.
+ *
+ * @details
+ * The only part of fracnetics that talks to Python. The core (Node, Network, Population)
+ * is plain C++; this header runs the episode loop against any environment with the
+ * Gymnasium API (reset(seed, options) -> (obs, info), step(action) ->
+ * (obs, reward, terminated, truncated, info)) and writes the results into the networks.
+ *
+ * Everything problem-specific stays outside the library:
+ * - reward shaping, curricula, modified start states: a gymnasium.Wrapper around the env,
+ *   with per-episode settings passed through resetOptions;
+ * - additional selection criteria: the episodeObjectives hook, called once per episode
+ *   with an EpisodeResult and returning that episode's objective vector.
+ *
+ * See https://gymnasium.farama.org
+ */
 
-public:
-    GymEnvWrapper() = default;
-    explicit GymEnvWrapper(const py::object& env_obj) : env(env_obj) {}
+/**
+ * @brief Everything known about one finished episode; handed to the episodeObjectives hook.
+ *
+ * @details Built only when a hook is set. The observations and the info dict are the
+ * objects the environment returned, not copies.
+ */
+struct EpisodeResult {
+    int seed = -1;                    /**< Seed passed to env.reset() (-1 = unseeded). */
+    py::object initialObservation;    /**< Observation returned by env.reset(). */
+    py::object observation;           /**< Observation after the last step. */
+    py::object info;                  /**< Info dict of the last step. */
+    py::array_t<float> rewards;       /**< Reward of every step, in order (float32, as summed into the return). */
+    float episodeReturn = 0.0f;       /**< Undiscounted sum of rewards, accumulated in float like Network::fitness. */
+    int steps = 0;                    /**< Number of env.step() calls. */
+    bool terminated = false;          /**< terminated flag of the last step. */
+    bool truncated = false;           /**< truncated flag of the last step (false if the episode hit maxSteps). */
+    bool invalid = false;             /**< The network exceeded dMax at some point (and used fallbackAction from then on). */
+};
 
-    /**
-     * @brief Resets the environment and optionally reshapes the initial random push (curriculum).
-     *
-     * @details
-     * In LunarLander-v3 the spawn position and start angle are fixed (initial_x/initial_y are
-     * constants in gymnasium/envs/box2d/lunar_lander.py). The only random source that makes a seed
-     * easy or hard is the one-off push (ApplyForceToCenter with uniform(-1000, 1000) per axis). Since
-     * Gymnasium's reset() already runs one no-op step, the push has turned into linear and angular
-     * velocity by the time reset_out is returned; this method rescales those velocities.
-     *
-     * Two modes (absoluteImpulseCurriculum):
-     * - false (default, "relative"): the seed's own push (strength AND direction random) is scaled by
-     *   curriculumLevel. The difficulty order between seeds is kept, the absolute strength still
-     *   varies with the seed. At curriculumLevel 1.0 Gymnasium's values pass through unchanged.
-     * - true ("absolute"): the push STRENGTH is set by curriculumLevel alone (0.0 = no push,
-     *   1.0 = MAX_PUSH_MAGNITUDE), independent of the seed; only the direction is the seed's own.
-     *   All seeds start equally easy at low levels and get stronger pushes as difficulty rises. This
-     *   also holds at level 1.0 -- otherwise the last stage would fall back to the natural,
-     *   seed-dependent magnitude and break "same magnitude for all seeds per level".
-     *
-     * Calibration over seeds 0-10000: the natural push magnitude in observation units peaks at
-     * ≈0.98 (p99.9 ≈0.955), so MAX_PUSH_MAGNITUDE = 1.05 makes level 1.0 at least as hard as the
-     * hardest real seed. The natural |obs[5]| (= 20*angularVelocity/FPS) peaks at ≈0.183; its
-     * correlation with the linear magnitude is 0.88, not 1.0, so the angular velocity gets its own
-     * target MAX_ANGULAR_PUSH_MAGNITUDE = 0.20 per level instead of riding on the linear scaling.
-     *
-     * Magnitudes are computed in OBSERVATION units (obs[2]/obs[3]), the space the network works in.
-     * Raw Box2D velocities are 3-6x larger and scaled asymmetrically per axis (obs_vx = vx * 0.2,
-     * obs_vy = vy * 0.1333), so a magnitude computed from them would be distorted by that factor.
-     *
-     * With uniformDirectionCurriculum (absolute mode only) the push DIRECTION is forced to
-     * directionAngle, uniform in observation space instead of the natural, non-uniform seed
-     * direction. The caller (Python) sets the angle per seed, e.g. stratified over a batch. The two
-     * axis constants are derived from this reset's (vx, vy) <-> (obs_vx, obs_vy) pair instead of
-     * hard-coding Gymnasium internals.
-     *
-     * The legs hang on revolute joints: their linear velocity is scaled with the linear factor, their
-     * angular velocity with the angular factor (positions stay, the lander has barely moved after one
-     * step). With a forced direction the legs only get the magnitude factor -- an approximation that
-     * does not matter for training.
-     *
-     * This Gymnasium version has no callable _get_obs(); the observation is built inline in step().
-     * Since obs[2], obs[3] and obs[5] are linear in vel.x, vel.y and angularVelocity, the returned
-     * observation is patched by the same factors instead of regenerated (with a forced direction the
-     * targets are written directly). An earlier version fell back to the unchanged observation, so
-     * the scaling never reached the network although the Box2D body was scaled.
-     *
-     * @param seed Seed for env.reset(); -1 resets without a seed.
-     * @param curriculumLevel Push level in [0, 1] (clamped).
-     * @param absoluteImpulseCurriculum Selects the mode, see above. Default false.
-     * @param validation If true, nothing is changed: validation always sees the real environment,
-     *        including the natural seed-to-seed spread.
-     * @param uniformDirectionCurriculum Forces the push direction to directionAngle (absolute mode only).
-     * @param directionAngle Push direction in radians, in observation space.
-     * @return (observation, info) as returned by env.reset(), the observation patched if the start was changed.
-     *
-     * @note When the start is changed, Gymnasium has already computed its shaping baseline
-     *       (prev_shaping) from the unchanged velocities, so the first step's reward does not match
-     *       the changed start exactly.
-     */
-    py::tuple reset(int seed = -1, float curriculumLevel = 1.0f, bool absoluteImpulseCurriculum = false, bool validation = false,
-                    bool uniformDirectionCurriculum = false, float directionAngle = 0.0f) {
-        py::tuple reset_out;
-        
-        // 1. Standard Reset via Gymnasium
-        if (seed >= 0) {
-            reset_out = env.attr("reset")("seed"_a = seed);
-        } else {
-            reset_out = env.attr("reset")();
+/**
+ * @brief Episode-level settings shared by every episode of an evaluation.
+ */
+struct EpisodeSettings {
+    int dMax = 10;                    /**< Maximum consecutive judgment nodes per decision. */
+    int maxSteps = 1000;              /**< Episode length limit, on top of the environment's own termination. */
+    int maxConsecutiveP = 5;          /**< Maximum consecutive processing nodes before fallbackAction is used. */
+    int fallbackAction = 0;           /**< Action executed for an invalid network (see Network::act()). */
+    int holdAction = -1;              /**< Processing function that repeats the previous decision; -1 = off. */
+};
+
+/**
+ * @brief Copies an observation into out, reusing its storage.
+ *
+ * @details 1-D float32/float64 numpy arrays are read through the buffer; the generic
+ * sequence cast creates one Python float per element, which was most of the per-step
+ * cost on the C++ side. The values are the same: float32 -> double is exact.
+ * Anything else falls back to the sequence cast.
+ *
+ * @param src Observation as returned by reset()/step().
+ * @param out Destination, resized to the observation length.
+ */
+inline void readObservation(const py::handle& src, std::vector<double>& out) {
+    if (py::isinstance<py::array_t<float, py::array::c_style>>(src)) {
+        auto arr = py::reinterpret_borrow<py::array_t<float, py::array::c_style>>(src);
+        if (arr.ndim() == 1) {
+            const float* p = arr.data();
+            out.assign(p, p + arr.size());
+            return;
         }
+    } else if (py::isinstance<py::array_t<double, py::array::c_style>>(src)) {
+        auto arr = py::reinterpret_borrow<py::array_t<double, py::array::c_style>>(src);
+        if (arr.ndim() == 1) {
+            const double* p = arr.data();
+            out.assign(p, p + arr.size());
+            return;
+        }
+    }
+    out = src.cast<std::vector<double>>();
+}
 
-        // 2. Curriculum: rescale the initial push (see docstring); validation stays untouched
-        if (!validation) {
-            // Calibrated on seeds 0-10000, in observation units (see docstring)
-            constexpr float MAX_PUSH_MAGNITUDE = 1.05f;
-            constexpr float MAX_ANGULAR_PUSH_MAGNITUDE = 0.20f;
-            float level = std::max(0.0f, std::min(1.0f, curriculumLevel));
-            py::object unwrapped = env.attr("unwrapped");
+/**
+ * @brief Runs one episode of a network in a Gymnasium environment.
+ *
+ * @details
+ * 1. env.reset(seed=seed[, options=options]); seed < 0 resets without a seed.
+ * 2. Network::initPathTraversal(0, newRun): with newRun = false the node usage flags and
+ *    counters keep accumulating (several cases of one generation).
+ * 3. Until terminated, truncated or maxSteps: Network::act() picks the action,
+ *    env.step(action), Network::recordStep() adds the reward to fitness.
+ * 4. Network::updateExperienceFromEpisode() (JE nodes).
+ * 5. If objectivesHook is set, it is called with the EpisodeResult and its return value
+ *    (a sequence of floats, larger = better) is returned.
+ *
+ * Afterwards network.fitness holds the undiscounted episode return.
+ *
+ * @param net Network to run.
+ * @param env Gymnasium environment (or anything with the same reset/step signature).
+ * @param seed Seed for env.reset(); negative = no seed.
+ * @param options Passed as env.reset(options=...) unless None, e.g. per-episode settings for a wrapper.
+ * @param newRun Reset usage flags and traverse counters before the episode.
+ * @param settings Traversal limits and fallback/hold actions, see EpisodeSettings.
+ * @param objectivesHook None, or callable(EpisodeResult) -> sequence of floats.
+ * @return The hook's objective vector; empty without a hook.
+ * @throws std::invalid_argument if the observation has fewer values than the network has
+ *         judgment functions (jnf) -- the judgment nodes would read past its end.
+ */
+inline std::vector<float> runEpisode(Network& net, const py::object& env, int seed,
+                                     const py::object& options, bool newRun,
+                                     const EpisodeSettings& settings,
+                                     const py::object& objectivesHook) {
+    py::object reset = env.attr("reset");
+    py::tuple resetOut;
+    if (options.is_none()) {
+        resetOut = (seed >= 0) ? reset("seed"_a = seed) : reset();
+    } else {
+        resetOut = (seed >= 0) ? reset("seed"_a = seed, "options"_a = options) : reset("options"_a = options);
+    }
+    std::vector<double> obs;
+    readObservation(resetOut[0], obs);
+    if (obs.size() < net.jnf) {
+        throw std::invalid_argument("gymnasium(): the observation has " + std::to_string(obs.size()) +
+                                    " values, but the network uses jnf=" + std::to_string(net.jnf) +
+                                    " judgment functions (one per observation value)");
+    }
 
-            if (py::hasattr(unwrapped, "lander")) {
-                py::object lander = unwrapped.attr("lander");
+    net.initPathTraversal(0, newRun);
 
-                if (!lander.is_none()) {
-                    py::object linVel = lander.attr("linearVelocity");
-                    float vx = linVel.attr("x").cast<float>();
-                    float vy = linVel.attr("y").cast<float>();
+    const bool withHook = !objectivesHook.is_none();
+    std::vector<float> rewards;
+    py::object lastObservation, lastInfo;
+    bool terminated = false, truncated = false;
+    int steps = 0;
+    py::object step = env.attr("step"); // bound once instead of an attribute lookup per step
 
-                    // Magnitudes in observation units, not raw Box2D velocities (see docstring)
-                    py::array_t<float> obsArrayNatural = reset_out[0].cast<py::array_t<float>>();
-                    float obsVx = obsArrayNatural.data()[2];
-                    float obsVy = obsArrayNatural.data()[3];
-                    float obsAngVel = obsArrayNatural.data()[5];
+    while (true) {
+        int action = net.act(obs, settings.dMax, settings.maxConsecutiveP,
+                             settings.fallbackAction, settings.holdAction);
+        py::tuple result = step(py::int_(action));
+        readObservation(result[0], obs);
+        const float reward = result[1].cast<float>();
+        terminated = result[2].cast<bool>();
+        truncated = result[3].cast<bool>();
+        steps++;
+        net.recordStep(reward);
+        if (withHook) {
+            rewards.push_back(reward);
+            lastObservation = result[0];
+            lastInfo = result[4];
+        }
+        if (terminated || truncated || steps >= settings.maxSteps) break;
+    }
 
-                    float scaleFactor;
-                    float angScaleFactor;
-                    if (absoluteImpulseCurriculum) {
-                        float currentMag = std::sqrt(obsVx * obsVx + obsVy * obsVy);
-                        float targetMag = MAX_PUSH_MAGNITUDE * level;
-                        if (currentMag > 1e-6f) {
-                            scaleFactor = targetMag / currentMag; // keep direction, replace magnitude
-                        } else {
-                            scaleFactor = 0.0f;
-                        }
+    net.updateExperienceFromEpisode();
 
-                        // Own target for the angular velocity; the sign is kept
-                        float currentAngMag = std::abs(obsAngVel);
-                        float targetAngMag = MAX_ANGULAR_PUSH_MAGNITUDE * level;
-                        if (currentAngMag > 1e-6f) {
-                            angScaleFactor = targetAngMag / currentAngMag;
-                        } else {
-                            angScaleFactor = 0.0f;
-                        }
-                    } else {
-                        scaleFactor = level; // relative scaling
-                        angScaleFactor = level;
-                    }
-                    float newVx = vx * scaleFactor;
-                    float newVy = vy * scaleFactor;
+    if (!withHook) return {};
+    EpisodeResult episode;
+    episode.seed = seed;
+    episode.initialObservation = resetOut[0];
+    episode.observation = lastObservation;
+    episode.info = lastInfo;
+    episode.rewards = py::array_t<float>(rewards.size(), rewards.data());
+    episode.episodeReturn = net.fitness;
+    episode.steps = steps;
+    episode.terminated = terminated;
+    episode.truncated = truncated;
+    episode.invalid = net.invalid;
+    return objectivesHook(episode).cast<std::vector<float>>();
+}
 
-                    // Optional forced direction, uniform in observation space (see docstring)
-                    float obsVxTarget = 0.0f;
-                    float obsVyTarget = 0.0f;
-                    bool directionForced = (absoluteImpulseCurriculum && uniformDirectionCurriculum);
-                    if (directionForced) {
-                        float targetMag = MAX_PUSH_MAGNITUDE * level;
-                        constexpr float FALLBACK_CONST_X = 0.2f;    // (VIEWPORT_W/SCALE/2)/FPS, see lunar_lander.py
-                        constexpr float FALLBACK_CONST_Y = 0.13333f; // (VIEWPORT_H/SCALE/2)/FPS, see lunar_lander.py
-                        float constX = (std::abs(vx) > 1e-6f) ? (obsVx / vx) : FALLBACK_CONST_X;
-                        float constY = (std::abs(vy) > 1e-6f) ? (obsVy / vy) : FALLBACK_CONST_Y;
-                        obsVxTarget = std::cos(directionAngle) * targetMag;
-                        obsVyTarget = std::sin(directionAngle) * targetMag;
-                        newVx = obsVxTarget / constX;
-                        newVy = obsVyTarget / constY;
-                    }
+/**
+ * @brief Evaluates networks on a batch of seeds; one episode per seed is one case.
+ *
+ * @details
+ * For every network and every seed one episode is run (runEpisode()). Per network:
+ * - caseScores[c]: the return of the episode on seeds[c];
+ * - visitedNodesPerCase[c]: the nodes entered during that episode;
+ * - objectivesPerCase[c]: the hook's objectives (only with a hook);
+ * - fitness / lexicaseObjectives: their means (Network::aggregateCaseResults()).
+ * Node usage flags and counters accumulate over all seeds of the call, so they describe
+ * the whole evaluation (callAddDelNodes(), mutation with justUsedNodes).
+ *
+ * @param individuals Networks to evaluate.
+ * @param env Gymnasium environment.
+ * @param seeds Seeds, one case each. Must not be empty.
+ * @param resetOptions None, or a sequence with one env.reset(options=...) entry per seed.
+ * @param settings Traversal limits and fallback/hold actions, see EpisodeSettings.
+ * @param objectivesHook None, or callable(EpisodeResult) -> sequence of floats.
+ * @param trackLineage If true, every case updates the lineage statistics
+ *        (Network::updateLineageStats()).
+ * @param successThreshold A case counts as a success for Network::lineageSuccessRate if its
+ *        score is above this value (only with trackLineage).
+ */
+inline void evaluateEpisodes(std::vector<Network>& individuals, const py::object& env,
+                             const std::vector<int>& seeds, const py::object& resetOptions,
+                             const EpisodeSettings& settings, const py::object& objectivesHook,
+                             bool trackLineage = false,
+                             float successThreshold = std::numeric_limits<float>::infinity()) {
+    if (seeds.empty()) {
+        throw std::invalid_argument("gymnasium(): seeds must not be empty");
+    }
+    std::vector<py::object> options(seeds.size(), py::none());
+    if (!resetOptions.is_none()) {
+        py::sequence seq = resetOptions.cast<py::sequence>();
+        if (py::len(seq) != seeds.size()) {
+            throw std::invalid_argument("gymnasium(): resetOptions needs one entry per seed");
+        }
+        for (size_t c = 0; c < seeds.size(); ++c) options[c] = seq[c];
+    }
+    const bool withHook = !objectivesHook.is_none();
 
-                    lander.attr("linearVelocity") = py::make_tuple(newVx, newVy);
-                    lander.attr("angularVelocity") = lander.attr("angularVelocity").cast<float>() * angScaleFactor;
+    for (auto& network : individuals) {
+        network.caseScores.clear();
+        network.episodeLog.clear();
+        network.visitedNodesPerCase.clear();
+        network.objectivesPerCase.clear();
 
-                    // Legs: linear part with scaleFactor, angular part with angScaleFactor
-                    if (py::hasattr(unwrapped, "legs")) {
-                        py::list legs = unwrapped.attr("legs");
-                        for (size_t i = 0; i < legs.size(); ++i) {
-                            py::object leg = legs[i];
-                            py::object legLinVel = leg.attr("linearVelocity");
-                            float lvx = legLinVel.attr("x").cast<float>() * scaleFactor;
-                            float lvy = legLinVel.attr("y").cast<float>() * scaleFactor;
-                            leg.attr("linearVelocity") = py::make_tuple(lvx, lvy);
-                            leg.attr("angularVelocity") = leg.attr("angularVelocity").cast<float>() * angScaleFactor;
-                        }
-                    }
+        for (size_t c = 0; c < seeds.size(); ++c) {
+            // Snapshot so a diff isolates this case's nodes (see Network::visitedNodesPerCase)
+            std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size());
+            for (size_t n = 0; n < network.innerNodes.size(); ++n) {
+                traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
+            }
 
-                    // No callable _get_obs(): patch the linear obs entries by the same factors
-                    py::array_t<float> obsArray = reset_out[0].cast<py::array_t<float>>();
-                    py::array_t<float> newObs(obsArray.size());
-                    std::memcpy(newObs.mutable_data(), obsArray.data(), obsArray.size() * sizeof(float));
-                    auto newObsPtr = newObs.mutable_data();
-                    if (directionForced) {
-                        // Targets are already in observation space
-                        newObsPtr[2] = obsVxTarget;
-                        newObsPtr[3] = obsVyTarget;
-                    } else {
-                        newObsPtr[2] *= scaleFactor; // vx
-                        newObsPtr[3] *= scaleFactor; // vy
-                    }
-                    newObsPtr[5] *= angScaleFactor; // angular velocity
+            std::vector<float> objectives =
+                runEpisode(network, env, seeds[c], options[c], c == 0, settings, objectivesHook);
 
-                    return py::make_tuple(newObs, reset_out[1]);
+            std::vector<int> visitedThisCase;
+            for (size_t n = 0; n < network.innerNodes.size(); ++n) {
+                if (network.innerNodes[n].traverseCounter != traverseCounterBefore[n]) {
+                    visitedThisCase.push_back(static_cast<int>(n));
                 }
             }
-        }
-
-        return reset_out;
-    }
-
-    /**
-     * @brief Copies an observation into out, reusing its storage.
-     *
-     * @details 1-D float32/float64 numpy arrays are read through the buffer; the generic
-     * sequence cast creates one Python float per element, which was most of the per-step
-     * cost on the C++ side. The values are the same: float32 -> double is exact.
-     * Anything else falls back to the sequence cast.
-     *
-     * @param src Observation as returned by reset()/step().
-     * @param out Destination, resized to the observation length.
-     */
-    static void readObservation(const py::handle& src, std::vector<double>& out) {
-        if (py::isinstance<py::array_t<float, py::array::c_style>>(src)) {
-            auto arr = py::reinterpret_borrow<py::array_t<float, py::array::c_style>>(src);
-            if (arr.ndim() == 1) {
-                const float* p = arr.data();
-                out.assign(p, p + arr.size());
-                return;
-            }
-        } else if (py::isinstance<py::array_t<double, py::array::c_style>>(src)) {
-            auto arr = py::reinterpret_borrow<py::array_t<double, py::array::c_style>>(src);
-            if (arr.ndim() == 1) {
-                const double* p = arr.data();
-                out.assign(p, p + arr.size());
-                return;
+            network.visitedNodesPerCase.push_back(std::move(visitedThisCase));
+            network.caseScores.push_back(network.fitness);
+            if (withHook) network.objectivesPerCase.push_back(std::move(objectives));
+            if (trackLineage) {
+                network.updateLineageStats(network.fitness, network.fitness > successThreshold);
             }
         }
-        out = src.cast<std::vector<double>>();
+        // Shared with parallel_eval.py, which stitches seed blocks together
+        network.aggregateCaseResults();
     }
-
-    py::tuple step(const py::object& action) {
-        return env.attr("step")(action);
-    }
-
-    py::tuple step(int action) {
-        return step(py::int_(action));
-    }
-
-    void render() {
-        env.attr("render")();
-    }
-
-    void close() {
-        env.attr("close")();
-    }
-};
+}
 
 #endif // GYMNASIUM_WRAPPER_HPP

@@ -1,7 +1,7 @@
 """Process-parallel evaluation must be indistinguishable from the sequential path.
 
 This guards the field list in parallel_eval._collect/applyResult: Network's pickle state
-does not carry fitnessValues-per-seed, the objective vectors or the traversal flags, so
+does not carry the case scores, the objective vectors or the traversal flags, so
 each has to be copied back explicitly. A new field that selection or mutation reads must
 be added there -- this test fails if one is missing.
 
@@ -26,10 +26,29 @@ POPKW = dict(seed=5, jn=8, jnf=8, pn=4, pnf=4, fractalJudgment=False,
              useExperience=False, nFeatureValues=[3, 3, 3, 3, 3, 3, 2, 2])
 MINF = [-2.5, -2.5, -10, -10, -6.2831855, -10, 0, 0]
 MAXF = [2.5, 2.5, 10, 10, 6.2831855, 10, 1, 1]
-EVAL = dict(dMax=10, maxSteps=400, maxConsecutiveP=5, worstFitness=-500,
-            curriculumLevel=1.0, absoluteImpulseCurriculum=False,
-            useLineageFitness=False, potential=True)
+EVAL = dict(dMax=10, maxSteps=400, maxConsecutiveP=5)
 NI, NSEEDS = 16, 4
+
+
+def objectives(episode):
+    """Return, final |x| and step count -- objectives on different scales."""
+    return [episode.episodeReturn, -abs(float(episode.observation[0])), float(episode.steps)]
+
+
+class ScaledReward(gym.Wrapper):
+    """Scales the reward by reset(options={"scale": ...}), so per-seed options matter."""
+
+    def reset(self, *, seed=None, options=None):
+        self.scale = (options or {}).get("scale", 1.0)
+        return self.env.reset(seed=seed)
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return obs, reward * self.scale, terminated, truncated, info
+
+
+def makeEnv():
+    return ScaledReward(gym.make(**ENV))
 
 
 def _build():
@@ -44,9 +63,9 @@ def _snapshot(pop):
         n = pop.individuals[i]
         out.append((
             pytest.approx(n.fitness),
-            [pytest.approx(v) for v in n.fitnessValues],
+            [pytest.approx(v) for v in n.caseScores],
             [pytest.approx(v) for v in n.lexicaseObjectives],
-            [[pytest.approx(v) for v in o] for o in n.objectivesPerSeed],
+            [[pytest.approx(v) for v in o] for o in n.objectivesPerCase],
             [nd.used for nd in n.innerNodes],
         ))
     return out
@@ -59,11 +78,11 @@ def seeds():
 
 def test_parallel_matches_sequential(seeds):
     seqPop = _build()
-    seqPop.gymnasiumMultiSeed(gym.make(**ENV), seeds=seeds, **EVAL)
+    seqPop.gymnasium(makeEnv(), seeds=seeds, episodeObjectives=objectives, **EVAL)
     expected = _snapshot(seqPop)
 
     parPop = _build()
-    with ParallelEvaluator(ENV, POPKW, workers=2) as ev:
+    with ParallelEvaluator(makeEnv, POPKW, workers=2, episodeObjectives=objectives) as ev:
         ev.evaluate(parPop, seeds=seeds, **EVAL)
 
     assert _snapshot(parPop) == expected
@@ -73,15 +92,15 @@ def test_growth_path_matches(seeds):
     """Growth depends on accumulated per-node state, so sizes must match too."""
     def run(parallel):
         pop = _build()
-        env = gym.make(**ENV)
+        env = makeEnv()
         ev = ParallelEvaluator(ENV, POPKW, workers=2) if parallel else None
         sizes = []
         for g in range(3):
             if ev:
                 ev.evaluate(pop, seeds=seeds, **EVAL)
             else:
-                pop.gymnasiumMultiSeed(env, seeds=seeds, **EVAL)
-            pop.lexicaseSelection(E=2, type="seedsStandardized", epsilon=0.1)
+                pop.gymnasium(env, seeds=seeds, **EVAL)
+            pop.lexicaseSelection(E=2, type="casesStandardized", epsilon=0.1)
             pop.callAddDelNodes(MINF, MAXF, junk=0.1, noElite=True, currentGeneration=g)
             sizes.append([len(pop.individuals[i].innerNodes) for i in range(NI)])
         if ev:
@@ -95,7 +114,7 @@ def test_parallel_survives_growth_and_selection(seeds):
     """Three generations of select/mutate on top, so grown nodes and used flags count."""
     def run(parallel):
         pop = _build()
-        env = gym.make(**ENV)
+        env = makeEnv()
         ev = ParallelEvaluator(ENV, POPKW, workers=2) if parallel else None
         rng = random.Random(11)
         trace = []
@@ -104,12 +123,12 @@ def test_parallel_survives_growth_and_selection(seeds):
             if ev:
                 ev.evaluate(pop, seeds=batch, **EVAL)
             else:
-                pop.gymnasiumMultiSeed(env, seeds=batch, **EVAL)
+                pop.gymnasium(env, seeds=batch, **EVAL)
             trace.append((
                 [pytest.approx(pop.individuals[i].fitness) for i in range(NI)],
                 [len(pop.individuals[i].innerNodes) for i in range(NI)],
             ))
-            pop.lexicaseSelection(E=2, type="seedsStandardized", epsilon=0.1)
+            pop.lexicaseSelection(E=2, type="casesStandardized", epsilon=0.1)
             pop.callAddDelNodes(MINF, MAXF, junk=0.1, noElite=True, currentGeneration=g)
             pop.callEdgeMutation(probInnerNodes=0, probStartNode=0, justUsedNodes=True, k=2.0)
             pop.callBoundaryMutationNormal(probability=0, sigma=0.2, justUsedNodes=True, k=1.0)
@@ -128,19 +147,17 @@ def _exact(pop):
 @pytest.mark.parametrize("ni", [1, 3])
 @pytest.mark.parametrize("extra", [
     {},
-    {"landingQuote": True},
-    {"uniformDirectionCurriculum": True, "absoluteImpulseCurriculum": True,
-     "curriculumLevel": 0.7},
-], ids=["plain", "landingQuote", "directionAngles"])
+    {"resetOptions": [{"scale": s} for s in (0.5, 1.0, 2.0, 3.0)]},
+    {"trackLineage": True, "successThreshold": -50.0},
+], ids=["plain", "resetOptions", "lineage"])
 def test_seed_split_matches_sequential(seeds, ni, extra):
-    """Fewer individuals than tasks: seeds are cut into blocks and stitched back together.
+    """Fewer individuals than tasks: seeds are cut into blocks and stitched back together
+    (lineage runs keep the seeds of an individual together instead).
 
     Runs two evaluations, so the second one starts from carried-over node counters --
     the case where the first seed's visited-node snapshot depends on them.
     """
     kwargs = {**EVAL, **extra}
-    if extra.get("uniformDirectionCurriculum"):
-        kwargs["directionAngles"] = [0.3, 1.9, 3.4, 5.0]
 
     def build():
         pop = fn.Population(ni=ni, **POPKW)
@@ -148,10 +165,17 @@ def test_seed_split_matches_sequential(seeds, ni, extra):
         return pop
 
     seqPop, parPop = build(), build()
-    env = gym.make(**ENV)
-    with ParallelEvaluator(ENV, POPKW, workers=2) as ev:
+    env = makeEnv()
+    with ParallelEvaluator(makeEnv, POPKW, workers=2, episodeObjectives=objectives) as ev:
         assert all(len(t[0]) == 1 for t in ev._tasks(ni, len(seeds), True))
         for batch in (seeds, seeds[::-1]):
-            seqPop.gymnasiumMultiSeed(env, seeds=batch, **kwargs)
+            seqPop.gymnasium(env, seeds=batch, episodeObjectives=objectives, **kwargs)
             ev.evaluate(parPop, seeds=batch, **kwargs)
             assert _exact(parPop) == _exact(seqPop)
+
+
+def test_objectives_hook_belongs_to_the_evaluator(seeds):
+    pop = _build()
+    with ParallelEvaluator(makeEnv, POPKW, workers=1) as ev:
+        with pytest.raises(TypeError):
+            ev.evaluate(pop, seeds=seeds, episodeObjectives=objectives, **EVAL)

@@ -145,7 +145,7 @@ TEST_F(NetworkRemapTest, ChangeEdgeRespectsTransplantBlockEntryRestriction) {
 // addDelNodes() removes ALL deletable unused nodes per call (except the one left standing by
 // the "more than one unused node" condition) -- not just every second one, as before the n--
 // after erase() (the node shifted into place was skipped by the loop's n++). This is the
-// counterweight to crossover(type="seedSpecialist") appending whole sub-graphs as blocks.
+// counterweight to crossover(type="caseSpecialist") appending whole sub-graphs as blocks.
 TEST_F(NetworkRemapTest, AddDelNodesRemovesAllUnusedNodesPerCall) {
     Network net(generator, 6, 3, 6, 4, false);
 

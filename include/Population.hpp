@@ -14,8 +14,10 @@
 #include <stdexcept>
 #include <functional>
 #include <deque>
+#include <limits>
+#include <memory>
+#include <cstdint>
 #include "Network.hpp"
-#include "GymnasiumWrapper.hpp"
 
 /**
  * @class Population 
@@ -26,7 +28,8 @@
  * It provides all necessary operations for evolutionary optimization:
  * 
  * - **Population Management**: Initialization and maintenance of multiple network individuals
- * - **Fitness Evaluation**: Applying various fitness functions (accuracy, CartPole, Gymnasium environments)
+ * - **Fitness Evaluation**: Applying fitness functions (classification accuracy, Gymnasium environments via
+ *   the Python bindings, or any user-defined function writing fitness/caseScores)
  * - **Selection**: Tournament selection with elitism (to preserve best individuals)
  * - **Genetic Operators**: 
  *   - Edge mutation (topology changes)
@@ -88,13 +91,13 @@ class Population {
                                               tight for a gene to travel with its whole neighbourhood (see the
                                               all-or-nothing rule in the semantic branch). */
         int nextTransplantBlockID = 1; /**< Monotonically increasing counter used to tag each transplanted
-                                             sub-graph produced by crossover(type="seedSpecialist") with a unique
+                                             sub-graph produced by crossover(type="caseSpecialist") with a unique
                                              Node::transplantBlockID (0 is reserved / unused, -1 means "no block"). */
         /** @endcond */
 
         /** @name Self-adaptive mutation strength (Rechenberg 1/5-success-rule) */
         /** @{ */
-        using SuccessCriterion = std::function<float(const Network&)>; /**< Exchangeable per-individual scoring function for updateAdaptiveK(). May be a continuous score in [0,1] (e.g. seedConsistencyRatio()) or a legacy bool-returning predicate (implicitly converted to 1.0f/0.0f, e.g. seedConsistentSuccess()). */
+        using SuccessCriterion = std::function<float(const Network&)>; /**< Exchangeable per-individual scoring function for updateAdaptiveK(). May be a continuous score in [0,1] (e.g. caseConsistencyRatio()) or a legacy bool-returning predicate (implicitly converted to 1.0f/0.0f, e.g. caseConsistentSuccess()). */
 
         float adaptiveK_ = 1.0f; /**< Current self-adapted k, used as the mutation-strength parameter (see updateAdaptiveK()). */
         std::deque<float> successRateHistory_; /**< Rolling window of per-generation (mean) scores -- smooths the signal over multiple generations (see windowSize in updateAdaptiveK()). Most recent at the back. */
@@ -307,101 +310,6 @@ class Population {
         /** @endcond */
 
         /**
-         * @brief Evaluates all individuals in an OpenAI Gymnasium-compatible reinforcement learning environment.
-         * 
-         * @details
-         * This method applies fitGymnasium() to the entire population as reinforcement learning agents in
-         * a Gymnasium environment. 
-         * 
-         * @param env GymEnvWrapper object providing interface to the Gymnasium environment
-         * @param dMax Maximum consecutive judgment nodes per decision (prevents infinite loops in graph traversal)
-         * @param maxSteps Maximum episode length (prevents indefinite episodes)
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed 
-         * @param worstFitness Fitness value assigned when networks violate constraints
-         * @param seed Random seed for environment initialization
-         * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization)
-         * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
-         * @param absoluteImpulseCurriculum See Network::fitGymnasium().
-         * @param uniformDirectionCurriculum If true, forces the impulse direction to directionAngle (see
-         *        Network::fitGymnasium()) -- lets renderVideos() visually reflect the same forced-direction
-         *        training conditions currently in effect, instead of always falling back to the natural seed
-         *        direction.
-         * @param directionAngle Forced impulse direction in radians, only used if uniformDirectionCurriculum=true.
-         * 
-         * @param survivalMode See Network::fitGymnasium(). Passed through unchanged so
-         *        renderVideos()/gymnasium() (video path) always matches the reward mode
-         *        used during training via gymnasiumMultiSeed().
-         * @param potential See Network::fitGymnasium().
-         * 
-         * @see Network::fitGymnasium()
-         */
-        void gymnasium(
-            GymEnvWrapper& env,
-            int dMax,
-            int maxSteps,
-            int maxConsecutiveP,
-            int worstFitness,
-            int seed,
-            bool validation = false,
-            float curriculumLevel = 1.0f,
-            bool absoluteImpulseCurriculum = false,
-            bool uniformDirectionCurriculum = false,
-            float directionAngle = 0.0f,
-            bool survivalMode = false,
-            bool potential = false
-                ){
-
-            bool updateExperience = false;
-            for(auto& network : individuals){
-                network.fitGymnasium(
-                        env,
-                        dMax,
-                        maxSteps,
-                        maxConsecutiveP,
-                        worstFitness,
-                        seed,
-                        true,
-                        validation,
-                        updateExperience,
-                        curriculumLevel,
-                        absoluteImpulseCurriculum,
-                        uniformDirectionCurriculum,
-                        directionAngle,
-                        survivalMode,
-                        potential
-                        );
-                // Same fields as gymnasiumMultiSeed(), from a single episode (no averaging)
-                network.lexicaseObjectives = network.lastEpisodeObjectives;
-                network.objectivesPerSeed.assign(1, network.lastEpisodeObjectives);
-            }
-        }
-
-        /**
-         * @brief Evaluates all individuals on the CartPole balancing control problem.
-         * 
-         * @details
-         * This method applies fitCartpole() to the entire population 
-         *
-         * @see Network::fitCartpole()
-         * 
-         * @param dMax Maximum consecutive judgment nodes per decision (prevents infinite loops)
-         * @param penalty Divisor applied to fitness when constraints are violated
-         * @param maxSteps Maximum episode length 
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed 
-         * 
-         */
-        void cartpole(
-                int dMax,
-                int penalty,
-                int maxSteps,
-                int maxConsecutiveP
-                ){
-            applyFitness([=](Network& network){
-                    network.fitCartpole(dMax,penalty,maxSteps,maxConsecutiveP);
-            });
-        }
-
-        /**
          * @brief Performs tournament selection with elitism to create the next generation.
          * 
          * @details
@@ -430,9 +338,9 @@ class Population {
          * @param N Tournament size (number of individuals per tournament)
          * @param E Elite size (number of best individuals to preserve unchanged)
          * @param useLineageFitness If true, the selection criterion is the lineage estimate
-         *        (`lineageMean` over ALL seeds this lineage has seen, see lineageZ) instead of
+         *        (`lineageMean` over ALL cases this lineage has seen, see lineageZ) instead of
          *        the raw current fitness -- makes selection robust against generalisation
-         *        outliers (e.g. a single hard crash seed in the current generation). Applies
+         *        outliers (e.g. a single very hard case in the current generation). Applies
          *        ONLY to individuals with `lineageN >= minLineageN` (bootstrap protection); all
          *        others (e.g. young lineages right after initialisation) fall back to the raw
          *        `fitness` until enough observations exist. Reporting values
@@ -511,9 +419,8 @@ class Population {
         }
 
         /**
-         * @brief Performs Epsilon-Lexicase Selection, either over 5 isolated fitness
-         *        objectives ("objectives") or over per-seed test cases with a
-         *        3-tier hierarchy ("seeds").
+         * @brief Performs Epsilon-Lexicase Selection over test cases: the cases of an evaluation
+         *        (episodes, samples, ...), user-defined objectives, or both combined.
          *
          * @details
          * Unlike tournamentSelection(), which compares individuals using a single
@@ -525,77 +432,60 @@ class Population {
          * of Lexicase Selection in Genetic Programming", and La Cava et al.,
          * "Epsilon-Lexicase Selection for Regression".
          *
-         * **type = "objectives" (default)**: test cases are the isolated objectives of
-         * Network::lexicaseObjectives, each averaged over the seed batch. Five criteria,
-         * higher = better, and EVERY one of them is maximised by landing on the pad (see
-         * Network::lastEpisodeObjectives):
-         *   1. **Total Gymnasium reward** over the episode.
-         *   2. **Descent safety**: -|vy_end|, but only if the episode ended in a landing;
-         *      otherwise a fixed penalty.
-         *   3. **Lateral speed**: -|vx_end| under the same condition.
-         *   4. **Horizontal precision**: -|x_end|, again only when landed.
-         *   5. **Landed**: 1.0 on a safe landing, 0.0 otherwise.
-         * On every landing 2 and 3 are exactly 0 (the lander is at rest), so they repeat 5;
-         * see Network::lastEpisodeObjectives. The condition on 2-4 matters: without it,
-         * hovering until the step limit beat landing on two of the five objectives and the
-         * population drifted there.
-         * Per selection event: shuffle the objective indices, then for each objective
-         * (while >1 candidate remains) find the best value among the remaining
-         * candidates, eliminate everyone below best-epsilon, continue to the next
-         * objective. Random tie-break if >1 candidate remains at the end.
+         * All types maximise (higher = better). The data they read is filled by the evaluation:
+         * Network::caseScores by every evaluator, Network::objectivesPerCase and
+         * Network::lexicaseObjectives only if objectives were provided (e.g. the episodeObjectives
+         * hook of the Gymnasium evaluator).
          *
-         * **type = "objectivesPerSeed"**: test cases are the (seed x objective) pairs --
-         * the 5 objectives above, kept separate for every seed
-         * (network.objectivesPerSeed[seedIdx][objIdx]), giving 5*nSeeds test cases instead
-         * of 5 or nSeeds. Motivation: with one scalar per seed, individuals on a converged
-         * plateau become indistinguishable (their total rewards lie closer together than
-         * the seed-to-seed noise), while the objectives still measure different things and
-         * separate them. The whole grid is shuffled as one, so neither seeds nor objectives
-         * are systematically decided first. Requires gymnasiumMultiSeed() to have run.
+         * **type = "cases"**: one test case per case (network.caseScores[caseIdx]). For each case
+         * in the shuffled order the score is maximised directly, with the MAD- or fixed-epsilon
+         * tolerance.
          *
-         * **type = "seedsStandardized"**: same test cases as "seeds", but the rewards of each
-         * seed are z-transformed over the whole population once per generation, and the
-         * tolerance is a fixed number of standard deviations (`epsilon`, negative defaults to
-         * 0.5) instead of the MAD automatic. This makes the selection pressure independent of
-         * the shape and the scale of the reward and removes the seed difficulty, while --
-         * unlike a rank transform -- keeping the magnitudes that epsilon is meant to judge.
-         * Why not the raw MAD of "seeds": the reward is bimodal (landed above +200, crashed
-         * below 0). The MAD then describes the spread of whichever group holds the median, not
-         * the resolution among near-equal candidates, and near an even split it jumps
-         * erratically, up to almost the gap between the groups -- the test case then only
-         * separates landed from crashed. The standard deviation changes smoothly with the
-         * split, so a small fixed fraction of it keeps resolving among the landers.
+         * **type = "casesStandardized"**: same test cases as "cases", but the scores of each case
+         * are z-transformed over the whole population once per generation, and the tolerance is a
+         * fixed number of standard deviations (`epsilon`, negative defaults to 0.5) instead of the
+         * MAD automatic. This makes the selection pressure independent of the shape and the scale
+         * of the scores and removes the difficulty of a case, while -- unlike a rank transform --
+         * keeping the magnitudes that epsilon is meant to judge.
+         * Why not the raw MAD of "cases": with bimodal scores (e.g. success vs. failure) the MAD
+         * describes the spread of whichever group holds the median, not the resolution among
+         * near-equal candidates, and near an even split it jumps erratically, up to almost the gap
+         * between the groups -- the test case then only separates the two groups. The standard
+         * deviation changes smoothly with the split, so a small fixed fraction of it keeps
+         * resolving within a group.
          * Standardising over the population rather than over the shrinking candidate pool is
          * deliberate (the "semi-dynamic" variant), so a fixed epsilon does not get more
-         * permissive along the filter chain. Seeds on which all individuals are identical carry
+         * permissive along the filter chain. Cases on which all individuals are identical carry
          * no information and filter nobody.
          *
-         * **type = "seedsRank"**: same test cases as "seeds", but each filter cuts by RANK
-         * instead of by reward value: the remaining candidates are sorted by their reward on
-         * that seed and the best (epsilon + 1) ranks are kept, ties surviving together. The
-         * ranks are recomputed over the remaining pool at every step, so the selection
-         * pressure stays constant along the chain. `epsilon` is therefore a number of rank
-         * positions, not a reward margin, and the MAD automatic is not available (the MAD of
-         * ranks is ~n/4 whatever the data); a negative epsilon defaults to 3. Motivation: the
-         * reward is bimodal, so a value-based MAD depends on how the population splits into
-         * landed and crashed rather than on the resolution among near-equal candidates.
-         * On ranks the sharpness is independent of the shape and scale of the reward, and the
-         * seed difficulty drops out: a hard and an easy seed give the same rank distribution.
-         * Without re-ranking, later test cases would let everyone through, since the survivors
-         * lie close together anyway.
+         * **type = "casesRank"**: same test cases as "cases", but each filter cuts by RANK
+         * instead of by score: the remaining candidates are sorted by their score on that case
+         * and the best (epsilon + 1) ranks are kept, ties surviving together. The ranks are
+         * recomputed over the remaining pool at every step, so the selection pressure stays
+         * constant along the chain. `epsilon` is therefore a number of rank positions, not a
+         * score margin, and the MAD automatic is not available (the MAD of ranks is ~n/4 whatever
+         * the data); a negative epsilon defaults to 3. On ranks the sharpness is independent of
+         * the shape and scale of the scores, and the case difficulty drops out.
          * WARNING: an absolute rank cut collapses the pool to epsilon+1 candidates in a
          * single step, after which every remaining test case filters nobody -- only the
-         * first one or two seeds ever decide a parent. Prefer "seedsStandardized".
+         * first one or two cases ever decide a parent. Prefer "casesStandardized".
          *
-         * **type = "seeds"**: test cases are the individual seeds evaluated by
-         * gymnasiumMultiSeed() (network.fitnessValues[seedIdx], the raw/aggregated
-         * per-seed reward). For each seed in the shuffled order, the raw reward is
-         * maximized directly (MAD- or fixed-epsilon tolerance) -- no landing/
-         * landing-speed tiers, a single criterion per seed.
+         * **type = "objectives" (default)**: test cases are the objectives of
+         * Network::lexicaseObjectives, i.e. each objective averaged over the cases. Each objective
+         * is filtered with its own tolerance, so objectives on different scales need no
+         * normalisation.
          *
-         * **Algorithm per selection event** (both variants):
+         * **type = "objectivesPerCase"**: test cases are the (case x objective) pairs
+         * (network.objectivesPerCase[caseIdx][objIdx]), giving K*N test cases for K objectives
+         * and N cases instead of K or N. With one scalar per case, individuals on a converged
+         * plateau become indistinguishable (their scores lie closer together than the case-to-case
+         * noise), while separate objectives still measure different things and separate them. The
+         * whole grid is shuffled as one, so neither cases nor objectives are systematically
+         * decided first.
+         *
+         * **Algorithm per selection event** (all types):
          * 1. Start with the full population as candidate pool.
-         * 2. Draw a random permutation of test cases (objectives or seeds).
+         * 2. Draw a random permutation of the test cases.
          * 3. Filter the candidate pool test case by test case as described above.
          * 4. If exactly 1 candidate remains, it is the selected parent. If more
          *    than 1 remains after all test cases are exhausted (tie), pick
@@ -608,25 +498,25 @@ class Population {
          *                (default), an automatic MAD-based epsilon is computed per
          *                test case/round (standard Epsilon-Lexicase). If >= 0, this
          *                fixed value is used as the tolerance for every test case/round
-         *                instead.
-         * @param type One of "objectives" (default), "seeds", "seedsStandardized", "seedsRank"
-         *             or "objectivesPerSeed" -- selects which test
-         *             case decomposition to use (see above). Throws std::invalid_argument
+         *                instead. "casesStandardized" reads it in standard deviations,
+         *                "casesRank" in rank positions (see above).
+         * @param type One of "objectives" (default), "objectivesPerCase", "cases",
+         *             "casesStandardized" or "casesRank" -- selects which test case
+         *             decomposition to use (see above). Throws std::invalid_argument
          *             for any other value.
          *
-         * @pre For type="objectives": all individuals must have a non-empty, equally-sized
-         *      (5-D) lexicaseObjectives vector (populated by gymnasiumMultiSeed()/gymnasium()).
-         * @pre For type="seeds": all individuals must have a non-empty and equally-sized
-         *      fitnessValues vector (populated by gymnasiumMultiSeed()).
+         * @pre For "objectives"/"objectivesPerCase": all individuals carry equally sized,
+         *      non-empty lexicaseObjectives/objectivesPerCase.
+         * @pre For the "cases*" types: all individuals carry equally sized, non-empty caseScores.
          *
          * @note Population size remains constant at ni.
          * @note Elite handling and bestFit/meanFitness/minFitness bookkeeping mirror
          *       tournamentSelection() for compatibility with the rest of the pipeline.
          */
         void lexicaseSelection(int E, float epsilon = -1.0f, std::string type = "objectives"){
-            if(type != "objectives" && type != "seeds" && type != "objectivesPerSeed"
-               && type != "seedsRank" && type != "seedsStandardized"){
-                throw std::invalid_argument("lexicaseSelection: unknown type \"" + type + "\" (expected \"objectives\", \"seeds\", \"seedsStandardized\", \"seedsRank\" or \"objectivesPerSeed\")");
+            if(type != "objectives" && type != "cases" && type != "objectivesPerCase"
+               && type != "casesRank" && type != "casesStandardized"){
+                throw std::invalid_argument("lexicaseSelection: unknown type \"" + type + "\" (expected \"objectives\", \"objectivesPerCase\", \"cases\", \"casesStandardized\" or \"casesRank\")");
             }
 
             // MAD-based tolerance (or the fixed epsilon) for one set of values
@@ -665,56 +555,66 @@ class Population {
             std::iota(allIndices.begin(), allIndices.end(), 0);
 
             const size_t nObjectives = individuals[0].lexicaseObjectives.size(); // used if type=="objectives"
-            const size_t nSeeds = individuals[0].fitnessValues.size();          // used if type=="seeds"
+            const size_t nCases = individuals[0].caseScores.size();          // used if type=="cases"
+            // Empty test cases would silently degrade the selection to a random draw
+            if(type == "objectives" && nObjectives == 0){
+                throw std::invalid_argument(
+                    "lexicaseSelection(type=\"objectives\"): Network::lexicaseObjectives is empty -- "
+                    "evaluate with objectives first (e.g. the episodeObjectives hook)");
+            }
+            if(type.rfind("cases", 0) == 0 && nCases == 0){
+                throw std::invalid_argument(
+                    "lexicaseSelection(type=\"" + type + "\"): Network::caseScores is empty -- evaluate first");
+            }
 
             std::vector<int> objectiveOrder(nObjectives);
             std::iota(objectiveOrder.begin(), objectiveOrder.end(), 0);
 
-            std::vector<int> seedOrder(nSeeds);
-            std::iota(seedOrder.begin(), seedOrder.end(), 0);
+            std::vector<int> caseOrder(nCases);
+            std::iota(caseOrder.begin(), caseOrder.end(), 0);
 
-            // type=="seedsRank": epsilon in RANK positions; no MAD automatic (MAD of ranks is ~n/4)
+            // type=="casesRank": epsilon in RANK positions; no MAD automatic (MAD of ranks is ~n/4)
             const int rankTolerance = (epsilon < 0.0f) ? 3 : static_cast<int>(std::lround(epsilon));
 
-            // type=="seedsStandardized": z-transform each seed over the WHOLE population (see docstring)
-            std::vector<std::vector<float>> standardizedBySeed;
-            if(type == "seedsStandardized"){
-                standardizedBySeed.assign(nSeeds, std::vector<float>(individuals.size(), 0.0f));
-                for(size_t seedIdx = 0; seedIdx < nSeeds; seedIdx++){
+            // type=="casesStandardized": z-transform each case over the WHOLE population (see docstring)
+            std::vector<std::vector<float>> standardizedByCase;
+            if(type == "casesStandardized"){
+                standardizedByCase.assign(nCases, std::vector<float>(individuals.size(), 0.0f));
+                for(size_t caseIdx = 0; caseIdx < nCases; caseIdx++){
                     double sum = 0.0;
-                    for(const auto& ind : individuals) sum += ind.fitnessValues[seedIdx];
+                    for(const auto& ind : individuals) sum += ind.caseScores[caseIdx];
                     double mean = sum / static_cast<double>(individuals.size());
                     double sqSum = 0.0;
                     for(const auto& ind : individuals){
-                        double d = ind.fitnessValues[seedIdx] - mean;
+                        double d = ind.caseScores[caseIdx] - mean;
                         sqSum += d * d;
                     }
                     double sd = std::sqrt(sqSum / static_cast<double>(individuals.size()));
-                    // All identical on this seed: leave 0 so it filters nobody
+                    // All identical on this case: leave 0 so it filters nobody
                     if(sd < 1e-9){
                         continue;
                     }
                     for(size_t c = 0; c < individuals.size(); c++){
-                        standardizedBySeed[seedIdx][c] =
-                            static_cast<float>((individuals[c].fitnessValues[seedIdx] - mean) / sd);
+                        standardizedByCase[caseIdx][c] =
+                            static_cast<float>((individuals[c].caseScores[caseIdx] - mean) / sd);
                     }
                 }
             }
             // epsilon in standard deviations; negative selects a sensible default.
             const float sigmaTolerance = (epsilon < 0.0f) ? 0.5f : epsilon;
 
-            // type=="objectivesPerSeed": the test cases are the (seed, objective) pairs,
-            // flattened as t = seedIdx*nObjPerSeed + objIdx.
-            const size_t nObjPerSeed = individuals[0].objectivesPerSeed.empty()
-                ? 0 : individuals[0].objectivesPerSeed[0].size();
+            // type=="objectivesPerCase": the test cases are the (case, objective) pairs,
+            // flattened as t = caseIdx*nObjPerCase + objIdx.
+            const size_t nObjPerCase = individuals[0].objectivesPerCase.empty()
+                ? 0 : individuals[0].objectivesPerCase[0].size();
             std::vector<int> gridOrder;
-            if(type == "objectivesPerSeed"){
-                if(individuals[0].objectivesPerSeed.empty()){
+            if(type == "objectivesPerCase"){
+                if(individuals[0].objectivesPerCase.empty()){
                     throw std::invalid_argument(
-                        "lexicaseSelection(type=\"objectivesPerSeed\"): Network::objectivesPerSeed is "
-                        "empty -- call Population::gymnasiumMultiSeed() first");
+                        "lexicaseSelection(type=\"objectivesPerCase\"): Network::objectivesPerCase is "
+                        "empty -- evaluate with objectives first (e.g. the episodeObjectives hook)");
                 }
-                gridOrder.resize(individuals[0].objectivesPerSeed.size() * nObjPerSeed);
+                gridOrder.resize(individuals[0].objectivesPerCase.size() * nObjPerCase);
                 std::iota(gridOrder.begin(), gridOrder.end(), 0);
             }
 
@@ -755,25 +655,25 @@ class Population {
                             return individuals[c].lexicaseObjectives[objIdx];
                         });
                     }
-                } else if(type == "objectivesPerSeed"){
-                    // Shuffle the whole (seed x objective) grid as one, so neither is decided first
+                } else if(type == "objectivesPerCase"){
+                    // Shuffle the whole (case x objective) grid as one, so neither is decided first
                     std::shuffle(gridOrder.begin(), gridOrder.end(), *generator);
 
                     for(int t : gridOrder){
                         if(candidates.size() <= 1) break;
-                        const size_t seedIdx = static_cast<size_t>(t) / nObjPerSeed;
-                        const size_t objIdx  = static_cast<size_t>(t) % nObjPerSeed;
+                        const size_t caseIdx = static_cast<size_t>(t) / nObjPerCase;
+                        const size_t objIdx  = static_cast<size_t>(t) % nObjPerCase;
                         filterOnTestCase(candidates, [&](int c){
-                            return individuals[c].objectivesPerSeed[seedIdx][objIdx];
+                            return individuals[c].objectivesPerCase[caseIdx][objIdx];
                         });
                     }
-                } else if(type == "seedsStandardized"){
-                    // Like "seeds", on z-scores with a fixed tolerance in standard deviations
-                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+                } else if(type == "casesStandardized"){
+                    // Like "cases", on z-scores with a fixed tolerance in standard deviations
+                    std::shuffle(caseOrder.begin(), caseOrder.end(), *generator);
 
-                    for(int seedIdx : seedOrder){
+                    for(int caseIdx : caseOrder){
                         if(candidates.size() <= 1) break;
-                        const std::vector<float>& column = standardizedBySeed[seedIdx];
+                        const std::vector<float>& column = standardizedByCase[caseIdx];
                         float best = std::numeric_limits<float>::lowest();
                         for(int c : candidates){
                             if(column[c] > best) best = column[c];
@@ -785,18 +685,18 @@ class Population {
                         }
                         candidates = std::move(filtered);
                     }
-                } else if(type == "seedsRank"){
-                    // ─── Rank-based per seed, ranks recomputed on the remaining pool (see docstring) ───
-                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+                } else if(type == "casesRank"){
+                    // ─── Rank-based per case, ranks recomputed on the remaining pool (see docstring) ───
+                    std::shuffle(caseOrder.begin(), caseOrder.end(), *generator);
 
-                    for(int seedIdx : seedOrder){
+                    for(int caseIdx : caseOrder){
                         if(candidates.size() <= 1) break;
 
                         // Cut at rank rankTolerance + 1; ties survive together
                         std::vector<float> values;
                         values.reserve(candidates.size());
                         for(int c : candidates){
-                            values.push_back(individuals[c].fitnessValues[seedIdx]);
+                            values.push_back(individuals[c].caseScores[caseIdx]);
                         }
                         std::sort(values.begin(), values.end(), std::greater<float>());
                         size_t cutIndex = std::min(static_cast<size_t>(std::max(0, rankTolerance)),
@@ -806,21 +706,21 @@ class Population {
                         std::vector<int> filtered;
                         filtered.reserve(candidates.size());
                         for(int c : candidates){
-                            if(individuals[c].fitnessValues[seedIdx] >= cutoff){
+                            if(individuals[c].caseScores[caseIdx] >= cutoff){
                                 filtered.push_back(c);
                             }
                         }
                         candidates = std::move(filtered);
                     }
-                } else { // type == "seeds"
-                    // Draw a fresh, independent seed evaluation order for this selection event
-                    std::shuffle(seedOrder.begin(), seedOrder.end(), *generator);
+                } else { // type == "cases"
+                    // Draw a fresh, independent case evaluation order for this selection event
+                    std::shuffle(caseOrder.begin(), caseOrder.end(), *generator);
 
-                    for(int seedIdx : seedOrder){
+                    for(int caseIdx : caseOrder){
                         if(candidates.size() <= 1) break;
-                        // Single criterion per seed: maximise the raw reward.
+                        // Single criterion per case: maximise the score.
                         filterOnTestCase(candidates, [&](int c){
-                            return individuals[c].fitnessValues[seedIdx];
+                            return individuals[c].caseScores[caseIdx];
                         });
                     }
                 }
@@ -933,7 +833,7 @@ class Population {
          * new observations after many generations, OR (b) -- if the cap were applied blanket to
          * ALL non-elite individuals regardless of a real structural change (an earlier bug) --
          * unchanged individuals would needlessly lose history every generation, letting the
-         * current (noisy) seed batch dominate lineageMean more than intended. Unchanged lineages
+         * current (noisy) batch of cases dominate lineageMean more than intended. Unchanged lineages
          * therefore keep their full accumulated history.
          *
          * The flag `structureChangedThisGen` is reset here for ALL individuals after reading it
@@ -952,162 +852,137 @@ class Population {
         }
 
         /**
-         * @brief Seed-robust default success criterion for updateAdaptiveK().
+         * @brief Lineage-based success criterion for updateAdaptiveK().
          *
          * @details
-         * Instead of comparing an individual's raw fitness of THIS generation against a
-         * single (equally noisy, differently-seeded) prior generation's raw fitness --
-         * which would just re-inject the seed-sampling noise this whole mechanism is meant
-         * to filter out -- this criterion compares against the individual's own lineage's
-         * long-run, uncertainty-aware baseline (Network::lineageLCB()), aggregated over
-         * ALL seed-generations this lineage has ever been evaluated on.
+         * Instead of comparing an individual's fitness of THIS generation against a single,
+         * equally noisy prior generation -- which would re-inject the case-sampling noise this
+         * mechanism is meant to filter out -- this criterion compares against the lineage's own
+         * long-run, uncertainty-aware baseline (Network::lineageLCB()), aggregated over ALL cases
+         * the lineage has ever been evaluated on.
          *
-         * "Success" = fitness this generation is at or above that robust historical baseline,
-         * i.e. the lineage is (still) performing consistently with -- or better than -- its
-         * own track record, rather than reacting to a single lucky/unlucky seed draw.
+         * "Success" = fitness this generation is at or above that baseline, i.e. the lineage
+         * performs consistently with -- or better than -- its own track record.
          *
          * @param ind Individual to evaluate.
          * @param z   Confidence multiplier passed to Network::lineageLCB() (larger z = more
          *            conservative baseline). Default 1.0.
          * @return true if lineageN <= 1 (not enough history yet -- neutral/optimistic default),
          *         or if ind.fitness >= ind.lineageLCB(z).
+         * @note Requires lineage tracking during evaluation (trackLineage=True).
          * @see Network::lineageLCB()
          */
-        static bool seedRobustLineageSuccess(const Network& ind, float z = 1.0f) {
+        static bool lineageRobustSuccess(const Network& ind, float z = 1.0f) {
             if (ind.lineageN <= 1) return true; // not enough history yet -> neutral, do not count as failure
             return ind.fitness >= ind.lineageLCB(z);
         }
 
         /**
-         * @brief Seed-consistent success criterion for updateAdaptiveK() (bundled DEFAULT).
+         * @brief Case-consistent, lineage-based success criterion for updateAdaptiveK().
          *
          * @details
-         * Stronger than seedRobustLineageSuccess(): instead of judging success on the
-         * AVERAGE fitness across this generation's seed batch (which a single very good or
-         * very bad seed can dominate), this criterion requires the improvement to be
-         * CONSISTENT across the individual seeds of the current evaluation --
-         * i.e. at least `requiredFraction` of this generation's per-seed rewards
-         * (Network::fitnessValues) must individually reach or exceed the lineage's robust
-         * long-run baseline (Network::lineageLCB()).
+         * Stronger than lineageRobustSuccess(): instead of judging success on the AVERAGE over
+         * this generation's cases (which a single very good or very bad case can dominate), it
+         * requires the improvement to be CONSISTENT across the cases -- at least
+         * `requiredFraction` of this generation's case scores (Network::caseScores) must
+         * individually reach or exceed the lineage's long-run baseline (Network::lineageLCB()).
          *
-         * This directly targets "sampling luck": a mutation that only looks good because it
-         * happened to draw a few easy seeds this generation (while still failing hard seeds)
-         * is NOT counted as a success, even if the mean fitness looks fine.
+         * This targets sampling luck: a mutation that only looks good because it drew a few
+         * easy cases this generation (while still failing hard ones) does not count as a success.
          *
          * @param ind               Individual to evaluate.
-         * @param requiredFraction  Minimum fraction of per-seed rewards that must be
-         *                          >= lineageLCB(z) for the generation to count as a success.
-         *                          1.0 = ALL seeds must be consistent, lower values (e.g. 0.8)
-         *                          relax this to "most" seeds. Default 1.0.
-         * @param z                 Confidence multiplier passed to Network::lineageLCB().
-         *                          Default 1.0.
-         * @return true if lineageN <= 1 or fitnessValues is empty (not enough history/data yet
-         *         -- neutral/optimistic default), otherwise true iff the fraction of per-seed
-         *         rewards >= lineageLCB(z) is >= requiredFraction.
-         * @see Network::lineageLCB()
-         * @see seedRobustLineageSuccess()
+         * @param requiredFraction  Minimum fraction of case scores that must be >= lineageLCB(z).
+         *                          1.0 = ALL cases, lower values (e.g. 0.8) relax this. Default 1.0.
+         * @param z                 Confidence multiplier passed to Network::lineageLCB(). Default 1.0.
+         * @return true if lineageN <= 1 or caseScores is empty (neutral default), otherwise true
+         *         iff the fraction of case scores >= lineageLCB(z) is >= requiredFraction.
+         * @note Requires lineage tracking during evaluation (trackLineage=True).
+         * @see lineageRobustSuccess()
          */
-        static bool seedConsistentSuccess(const Network& ind, float requiredFraction = 1.0f, float z = 1.0f) {
-            if (ind.lineageN <= 1 || ind.fitnessValues.empty()) return true; // not enough history/data yet -> neutral
+        static bool caseConsistentSuccess(const Network& ind, float requiredFraction = 1.0f, float z = 1.0f) {
+            if (ind.lineageN <= 1 || ind.caseScores.empty()) return true; // not enough history/data yet -> neutral
 
             float baseline = ind.lineageLCB(z);
             int nAtOrAbove = 0;
-            for (float v : ind.fitnessValues) {
+            for (float v : ind.caseScores) {
                 if (v >= baseline) nAtOrAbove++;
             }
-            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.fitnessValues.size());
+            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.caseScores.size());
             return fraction >= requiredFraction;
         }
 
         /**
-         * @brief Batch-only, absolute-threshold success criterion for updateAdaptiveK().
+         * @brief Absolute-threshold success criterion for updateAdaptiveK(), without lineage data.
          *
          * @details
-         * Unlike seedConsistentSuccess()/seedRobustLineageSuccess(), this criterion does NOT
-         * depend on Network::lineage* stats at all -- it only looks at THIS generation's
-         * per-seed rewards (Network::fitnessValues). Useful when lineage tracking is disabled
-         * (Population::gymnasiumMultiSeed(..., useLineageFitness=false, ...), e.g. because
-         * seed identity is not stable across generations (see uniformDirectionCurriculum)),
-         * which would otherwise leave lineageN permanently at 0 and make seedConsistentSuccess()
-         * always return its neutral "true" default -- silently saturating the success rate at
-         * ~100% and driving adaptiveK_ to kMin/kMax immediately.
+         * Looks only at THIS generation's case scores (Network::caseScores), so it also works
+         * when lineage tracking is off -- where lineageN stays 0 and the lineage criteria always
+         * return their neutral "true", saturating the success rate and driving adaptiveK_ to
+         * kMin/kMax immediately.
          *
-         * Success requires at least `requiredFraction` of this generation's per-seed rewards
-         * to individually reach or exceed a fixed, absolute `threshold` -- i.e. "(almost) all
-         * seeds this generation were (near-)perfect", with no dependency on any running history.
+         * Success requires at least `requiredFraction` of the case scores to reach `threshold`,
+         * i.e. "(almost) all cases this generation were solved".
          *
          * @param ind               Individual to evaluate.
-         * @param threshold         Absolute per-seed reward threshold to count as "successful"
-         *                          for that seed. Default 900.0 (near-perfect for the 1000-cap
-         *                          LunarLander fitness scale used in this codebase).
-         * @param requiredFraction  Minimum fraction of per-seed rewards that must be >= threshold
-         *                          for the generation to count as a success. 1.0 = ALL seeds.
-         *                          Default 1.0.
-         * @return true if fitnessValues is empty (no data yet -- neutral/optimistic default),
-         *         otherwise true iff the fraction of per-seed rewards >= threshold is
-         *         >= requiredFraction.
-         * @see seedConsistentSuccess()
+         * @param threshold         Score a case must reach to count as solved (problem-specific).
+         * @param requiredFraction  Minimum fraction of solved cases. 1.0 = ALL cases. Default 1.0.
+         * @return true if caseScores is empty (neutral default), otherwise true iff the fraction
+         *         of case scores >= threshold is >= requiredFraction.
+         * @see caseConsistencyRatio()
          */
-        static bool batchThresholdSuccess(const Network& ind, float threshold = 900.0f, float requiredFraction = 1.0f) {
-            if (ind.fitnessValues.empty()) return true; // no data yet -> neutral
+        static bool caseThresholdSuccess(const Network& ind, float threshold, float requiredFraction = 1.0f) {
+            if (ind.caseScores.empty()) return true; // no data yet -> neutral
 
             int nAtOrAbove = 0;
-            for (float v : ind.fitnessValues) {
+            for (float v : ind.caseScores) {
                 if (v >= threshold) nAtOrAbove++;
             }
-            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.fitnessValues.size());
+            float fraction = static_cast<float>(nAtOrAbove) / static_cast<float>(ind.caseScores.size());
             return fraction >= requiredFraction;
         }
 
         /**
-         * @brief Continuous, scale-independent seed-consistency score for updateAdaptiveK() (bundled DEFAULT).
+         * @brief Continuous, scale-independent case-consistency score for updateAdaptiveK() (bundled DEFAULT).
          *
          * @details
-         * Unlike seedConsistentSuccess()/batchThresholdSuccess(), which are BINARY and (for
-         * batchThresholdSuccess()) depend on an absolute fitness threshold that is only
-         * reachable late in training (early/mid-training generations would then always count
-         * as "failure" regardless of how seed-consistent the individual actually already is),
-         * this returns a CONTINUOUS score in [0,1] purely from the RELATIVE spread of THIS
-         * generation's per-seed rewards (Network::fitnessValues) -- meaningful from generation 1
-         * onward, at any absolute fitness level:
+         * Unlike the binary criteria, and unlike caseThresholdSuccess(), whose absolute threshold
+         * is often only reachable late in a run, this returns a CONTINUOUS score in [0,1] from the
+         * RELATIVE spread of this generation's case scores (Network::caseScores) -- meaningful
+         * from generation 1 onward, at any absolute fitness level:
          *
-         *     consistency = max(0, min(fitnessValues)) / max(fitnessValues)
+         *     consistency = max(0, min(caseScores)) / max(caseScores)
          *
-         * 1.0 = the worst seed this generation did just as well as the best seed (perfectly
-         * consistent, regardless of whether that level is low or high). Values near 0 mean a
-         * severe outlier seed relative to the best one (fragile/non-robust structure).
-         *
-         * Averaged over the non-elite population by updateAdaptiveK() and then smoothed over
-         * `windowSize` generations via its rolling window -- i.e. "consistency over multiple
-         * generations", not just a single noisy snapshot.
+         * 1.0 = the worst case did just as well as the best one. Values near 0 mean a severe
+         * outlier case relative to the best one (fragile structure). updateAdaptiveK() averages it
+         * over the non-elite population and smooths it over `windowSize` generations.
          *
          * @param ind Individual to evaluate.
-         * @return 1.0 if fewer than 2 fitnessValues or max(fitnessValues) <= 0 (not enough
-         *         data / degenerate case -- neutral/optimistic default), otherwise
-         *         max(0, min(fitnessValues)) / max(fitnessValues), clamped to [0,1].
-         * @see batchThresholdSuccess()
-         * @see seedConsistentSuccess()
+         * @return 1.0 if fewer than 2 case scores or max(caseScores) <= 0 (not enough data /
+         *         degenerate case -- neutral default), otherwise
+         *         max(0, min(caseScores)) / max(caseScores), clamped to [0,1].
+         * @note Assumes scores where larger is better and 0 is a natural floor.
+         * @see caseThresholdSuccess()
+         * @see caseConsistentSuccess()
          */
-        static float seedConsistencyRatio(const Network& ind) {
-            if (ind.fitnessValues.size() < 2) return 1.0f; // not enough seeds this gen -> neutral
+        static float caseConsistencyRatio(const Network& ind) {
+            if (ind.caseScores.size() < 2) return 1.0f; // not enough cases this gen -> neutral
 
-            float minV = *std::min_element(ind.fitnessValues.begin(), ind.fitnessValues.end());
-            float maxV = *std::max_element(ind.fitnessValues.begin(), ind.fitnessValues.end());
+            float minV = *std::min_element(ind.caseScores.begin(), ind.caseScores.end());
+            float maxV = *std::max_element(ind.caseScores.begin(), ind.caseScores.end());
             if (maxV <= 0.0f) return 1.0f; // degenerate (all non-positive) -> neutral, avoid div-by-zero/negative ratio
 
-            minV = std::max(minV, 0.0f); // clamp negative worst-seed rewards to 0 so the ratio stays in [0,1]
+            minV = std::max(minV, 0.0f); // clamp a negative worst case to 0 so the ratio stays in [0,1]
             return std::min(1.0f, minV / maxV);
         }
 
 
-
         /**
          * @brief Self-adaptive mutation-strength k, following Rechenberg's 1/5-success-rule,
-         *        with a fully exchangeable, seed-robust success criterion.
+         *        with a fully exchangeable success criterion.
          *
          * @details
          * Must be called once per generation, AFTER this generation's evaluation/selection
-         * (gymnasiumMultiSeed()/lexicaseSelection() etc. -- so that individuals[i].fitness
+         * (evaluation and lexicaseSelection() etc. -- so that individuals[i].fitness
          * reflects the CURRENT generation) and BEFORE this generation's mutation operators
          * are applied (callEdgeMutation()/callBoundaryMutation*() should then be called with
          * `k = pop.adaptiveK_`).
@@ -1125,7 +1000,7 @@ class Population {
          *      score > target -> mutation too weak -> `incFactor` (grow k);
          *      score < target -> mutation too disruptive -> `decFactor` (shrink k).
          *    - `invert == true` (stability-oriented, recommended when the success criterion
-         *      is already seed-robust, e.g. seedConsistencyRatio()): score > target
+         *      is already robust against case noise, e.g. caseConsistencyRatio()): score > target
          *      -> already consistently succeeding -> `decFactor` (shrink k, preserve/stabilize
          *      the working structure); score < target -> not consistently succeeding
          *      -> `incFactor` (grow k, explore out of the insufficient structure).
@@ -1134,16 +1009,15 @@ class Population {
          *    manually in that case.
          *
          * The scoring function is fully exchangeable: pass any `(const Network&) -> float`
-         * (or legacy `-> bool`) callable. The bundled default (seedConsistencyRatio()) is a
-         * CONTINUOUS, scale-independent measure of this generation's per-seed spread
-         * (worst/best seed ratio) -- meaningful from generation 1 onward, unlike the
-         * threshold-based alternatives (batchThresholdSuccess()) which require near-maximal
-         * absolute fitness to ever register as "successful" and therefore stay stuck at one
-         * extreme for as long as that absolute level hasn't been reached yet. The
-         * lineage-based alternatives (seedConsistentSuccess()/seedRobustLineageSuccess())
-         * remain available but require Population::gymnasiumMultiSeed(..., useLineageFitness=true, ...).
+         * (or legacy `-> bool`) callable. The bundled default (caseConsistencyRatio()) is a
+         * CONTINUOUS, scale-independent measure of this generation's per-case spread
+         * (worst/best case ratio) -- meaningful from generation 1 onward, unlike the
+         * threshold-based alternative (caseThresholdSuccess()), which stays stuck at one
+         * extreme for as long as the absolute threshold is out of reach. The lineage-based
+         * alternatives (caseConsistentSuccess()/lineageRobustSuccess()) require lineage
+         * tracking during evaluation (trackLineage=True).
          *
-         * @param successCriterion  Per-individual scoring function, [0,1] (or bool). Default: seedConsistencyRatio().
+         * @param successCriterion  Per-individual scoring function, [0,1] (or bool). Default: caseConsistencyRatio().
          * @param useRechenberg     If false, only records history; adaptiveK_ stays unchanged. Default true.
          * @param invert            If true, swaps which factor is applied above/below target
          *                          (stability-first: success -> shrink k, struggling -> grow k).
@@ -1158,13 +1032,13 @@ class Population {
          * @param kMin              Lower clamp for adaptiveK_. Default 0.1.
          * @param kMax              Upper clamp for adaptiveK_. Default 5.0.
          *
-         * @see seedConsistencyRatio()
-         * @see batchThresholdSuccess()
-         * @see seedConsistentSuccess()
+         * @see caseConsistencyRatio()
+         * @see caseThresholdSuccess()
+         * @see caseConsistentSuccess()
          * @see adaptiveK_
          */
         void updateAdaptiveK(
-                SuccessCriterion successCriterion = [](const Network& ind){ return seedConsistencyRatio(ind); },
+                SuccessCriterion successCriterion = [](const Network& ind){ return caseConsistencyRatio(ind); },
                 bool useRechenberg = true,
                 bool invert = false,
                 int windowSize = 10,
@@ -1295,7 +1169,7 @@ class Population {
          * @param k If > 0, each boundary is mutated with min(1, k/N). N is the number of EDGES of
          *  the eligible nodes (countEdges()), not of boundaries: a judgment node has one boundary
          *  fewer than edges and processing nodes count too, so k = 1 moves fewer than one boundary
-         *  per network (0.74 measured in the LunarLander experiment).
+         *  per network (0.74 measured in a LunarLander experiment).
          * @param N Overwritten when k > 0.
          *
          * @note This is an internal template used by specialized boundary mutation methods
@@ -1475,7 +1349,7 @@ class Population {
          * This method implements crossover, a genetic operator that exchanges
          * parts of the gene structure between parent networks to create offspring. The process:
          * 
-         * **Pairing** (all types except "seedSpecialist*"):
+         * **Pairing** (all types except "caseSpecialist*"):
          * 1. Shuffles all individual indices randomly
          * 2. Pairs adjacent individuals in the shuffled order (0-1, 2-3, 4-5, etc.)
          * 3. Skips pairs of two elites; if one parent is elite, it only donates and stays unchanged
@@ -1523,7 +1397,7 @@ class Population {
          *    or not at all, instead of spreading thinly over the population. Passing a negative
          *    nodeExchangeRate couples the two, i.e. the effective rate per matched node becomes
          *    propability^2 (0.05 -> 0.0025), which reproduces the earlier behaviour bit for bit.
-         *  - "seedSpecialist" / "seedSpecialistAppend" / "seedSpecialistReplace": per INDIVIDUAL --
+         *  - "caseSpecialist" / "caseSpecialistAppend" / "caseSpecialistReplace": per INDIVIDUAL --
          *    one draw per host decides whether that host receives a transplant this generation.
          *    Drawn before the donor search, so a low value also skips the O(populationSize) search
          *    for that host.
@@ -1547,7 +1421,7 @@ class Population {
          *    the same gene. Greedy instead of optimal (Hungarian) matching, since the groups are small and
          *    both almost always agree; (3) transfer each matched node with `nodeExchangeRate`; (4)
          *    translate its edges through the matching table. The elite only donates; otherwise the fitter
-         *    parent (mean over fitnessValues, else fitness) donates and stays unchanged.
+         *    parent (mean over caseScores, else fitness) donates and stays unchanged.
          *    The exchange is ALL-OR-NOTHING per node: boundaries and edges of a judgment node belong
          *    together (edge k = "feature in interval k, go there"), so mixing donor intervals with
          *    recipient targets would create a node NO parent has ever tested. A node is therefore only
@@ -1556,12 +1430,12 @@ class Population {
          *    complete sub-structure proven in the donor, which makes boundaryTolerance the real control.
          *    Unmatched nodes stay where they are; nothing is appended, so this type does not grow the
          *    network. Diagnostics: crossoverPairsApplied, crossoverNodesMatched/Exchanged/Skipped.
-         *  - "seedSpecialist" / "seedSpecialistAppend" (identical, the short name is kept for
+         *  - "caseSpecialist" / "caseSpecialistAppend" (identical, the short name is kept for
          *    backward compatibility): for EVERY individual (host, including elite) independently searches the whole
-         *    population for the single donor individual maximizing the summed positive per-seed fitness
-         *    difference (donor.fitnessValues[s] - host.fitnessValues[s], summed over all s where positive).
-         *    If such a donor exists, the union of nodes the donor actually traversed (Network::visitedNodesPerSeed,
-         *    see gymnasiumMultiSeed()) across those deficit seeds is copied (never removed from the donor) and
+         *    population for the single donor individual maximizing the summed positive per-case fitness
+         *    difference (donor.caseScores[s] - host.caseScores[s], summed over all s where positive).
+         *    If such a donor exists, the union of nodes the donor actually traversed (Network::visitedNodesPerCase,
+         *    filled by the evaluation) across those deficit cases is copied (never removed from the donor) and
          *    APPENDED as new, additional nodes to the host -- the host's existing nodes/edges are left completely
          *    untouched. The appended nodes are protected from further crossover via generationReceived (same
          *    crossoverProtection mechanism as the other types) and tagged with a shared Node::transplantBlockID;
@@ -1574,12 +1448,12 @@ class Population {
          *    block behaves like any other part of the network (its own internal edges mutate normally, are not
          *    frozen). Edges leaving the copied sub-graph are redirected to random valid host nodes. This type
          *    has its OWN partner-search/insertion logic and completely bypasses the shuffle-based pairing.
-         *  - "seedSpecialistReplace": same donor search and same donor-side sub-graph as
-         *    "seedSpecialistAppend", but the sub-graph does not become a dormant
+         *  - "caseSpecialistReplace": same donor search and same donor-side sub-graph as
+         *    "caseSpecialistAppend", but the sub-graph does not become a dormant
          *    appendix -- it OVERWRITES the host's own deficit-exclusive sub-graph, i.e. the nodes
-         *    the host traverses ONLY on the deficit seeds and not on the seeds where the host
+         *    the host traverses ONLY on the deficit cases and not on the cases where the host
          *    itself is the better one. The shared backbone is therefore preserved, and with it the
-         *    host's strength on its good seeds; only the seed-specific structure that fails is
+         *    host's strength on its good cases; only the case-specific structure that fails is
          *    swapped out. If that set is empty (the host uses the same nodes everywhere), the host
          *    is left unchanged. Because this variant is destructive for the host, ELITE hosts are
          *    skipped (unlike the additive variant). The donor is never modified -- it only hands
@@ -1649,17 +1523,17 @@ class Population {
 
             std::bernoulli_distribution distributionBernoulli(propability);
 
-            // ─── "seedSpecialist*": own donor search and insertion, independent of the pairing below ───
-            const bool seedSpecialistAppend  = (type == "seedSpecialist" || type == "seedSpecialistAppend");
-            const bool seedSpecialistReplace = (type == "seedSpecialistReplace");
+            // ─── "caseSpecialist*": own donor search and insertion, independent of the pairing below ───
+            const bool caseSpecialistAppend  = (type == "caseSpecialist" || type == "caseSpecialistAppend");
+            const bool caseSpecialistReplace = (type == "caseSpecialistReplace");
 
-            if(seedSpecialistAppend || seedSpecialistReplace){
+            if(caseSpecialistAppend || caseSpecialistReplace){
                 for(int hostIdx = 0; hostIdx < static_cast<int>(individuals.size()); hostIdx++){
                     auto& host = individuals[hostIdx];
-                    if(host.fitnessValues.empty()) continue; // no per-seed data yet this generation
+                    if(host.caseScores.empty()) continue; // no per-case data yet this generation
 
                     // Only Replace skips the elite: it destroys host material, Append is fitness-neutral
-                    if(seedSpecialistReplace &&
+                    if(caseSpecialistReplace &&
                        std::find(indicesElite.begin(), indicesElite.end(), hostIdx) != indicesElite.end()){
                         continue;
                     }
@@ -1668,41 +1542,41 @@ class Population {
                     if(!distributionBernoulli(*generator)) continue;
 
                     int bestDonorIdx = -1;
-                    float bestScore = 0.0f; // must stay > 0 to be accepted (donor must help on >=1 seed)
-                    std::vector<int> bestDeficitSeeds;
+                    float bestScore = 0.0f; // must stay > 0 to be accepted (donor must help on >=1 case)
+                    std::vector<int> bestDeficitCases;
 
                     for(int donorIdx = 0; donorIdx < static_cast<int>(individuals.size()); donorIdx++){
                         if(donorIdx == hostIdx) continue;
                         auto& donor = individuals[donorIdx];
-                        if(donor.fitnessValues.size() != host.fitnessValues.size()) continue; // seed batches must line up
-                        if(donor.visitedNodesPerSeed.size() != donor.fitnessValues.size()) continue; // tracking not (yet) populated
+                        if(donor.caseScores.size() != host.caseScores.size()) continue; // case batches must line up
+                        if(donor.visitedNodesPerCase.size() != donor.caseScores.size()) continue; // tracking not (yet) populated
 
                         float score = 0.0f;
-                        std::vector<int> deficitSeeds;
-                        for(size_t s = 0; s < host.fitnessValues.size(); s++){
-                            float diff = donor.fitnessValues[s] - host.fitnessValues[s];
+                        std::vector<int> deficitCases;
+                        for(size_t s = 0; s < host.caseScores.size(); s++){
+                            float diff = donor.caseScores[s] - host.caseScores[s];
                             if(diff > 0.0f){
                                 score += diff;
-                                deficitSeeds.push_back(static_cast<int>(s));
+                                deficitCases.push_back(static_cast<int>(s));
                             }
                         }
 
                         if(score > bestScore){
                             bestScore = score;
                             bestDonorIdx = donorIdx;
-                            bestDeficitSeeds = std::move(deficitSeeds);
+                            bestDeficitCases = std::move(deficitCases);
                         }
                     }
 
-                    if(bestDonorIdx == -1) continue; // no individual improves on any seed -> nothing to transplant
+                    if(bestDonorIdx == -1) continue; // no individual improves on any case -> nothing to transplant
 
                     auto& donor = individuals[bestDonorIdx];
 
-                    // Union of nodes the donor actually traversed on its deficit seeds -- the donor's
-                    // "active sub-graph" for exactly the seeds where it outperforms the host.
+                    // Union of nodes the donor actually traversed on its deficit cases -- the donor's
+                    // "active sub-graph" for exactly the cases where it outperforms the host.
                     std::unordered_set<int> subGraphSet;
-                    for(int s : bestDeficitSeeds){
-                        for(int n : donor.visitedNodesPerSeed[s]){
+                    for(int s : bestDeficitCases){
+                        for(int n : donor.visitedNodesPerCase[s]){
                             if(n >= 0 && n < static_cast<int>(donor.innerNodes.size())) subGraphSet.insert(n);
                         }
                     }
@@ -1711,17 +1585,17 @@ class Population {
                     std::vector<int> subGraphNodes(subGraphSet.begin(), subGraphSet.end());
                     std::sort(subGraphNodes.begin(), subGraphNodes.end());
 
-                    // ─── "seedSpecialistReplace": overwrite the host's deficit-exclusive sub-graph ───
-                    if(seedSpecialistReplace){
-                        if(host.visitedNodesPerSeed.size() != host.fitnessValues.size()) continue;
+                    // ─── "caseSpecialistReplace": overwrite the host's deficit-exclusive sub-graph ───
+                    if(caseSpecialistReplace){
+                        if(host.visitedNodesPerCase.size() != host.caseScores.size()) continue;
 
-                        std::vector<char> isDeficitSeed(host.fitnessValues.size(), 0);
-                        for(int s : bestDeficitSeeds) isDeficitSeed[s] = 1;
+                        std::vector<char> isDeficitCase(host.caseScores.size(), 0);
+                        for(int s : bestDeficitCases) isDeficitCase[s] = 1;
 
                         std::unordered_set<int> hostDeficitNodes, hostOtherNodes;
-                        for(size_t s = 0; s < host.visitedNodesPerSeed.size(); s++){
-                            auto& target = isDeficitSeed[s] ? hostDeficitNodes : hostOtherNodes;
-                            for(int n : host.visitedNodesPerSeed[s]){
+                        for(size_t s = 0; s < host.visitedNodesPerCase.size(); s++){
+                            auto& target = isDeficitCase[s] ? hostDeficitNodes : hostOtherNodes;
+                            for(int n : host.visitedNodesPerCase[s]){
                                 if(n >= 0 && n < static_cast<int>(host.innerNodes.size())) target.insert(n);
                             }
                         }
@@ -1830,7 +1704,7 @@ class Population {
                     }
 
                     // The donor's own traversal always starts at the same node (its startNode.edges[0]),
-                    // so it is guaranteed to be part of every seed's visited set -- this is the single
+                    // so it is guaranteed to be part of every case's visited set -- this is the single
                     // node through which the block may later be entered via mutation.
                     auto entryIt = swapMap.find(donor.startNode.edges[0]);
                     if(entryIt != swapMap.end()){
@@ -1908,10 +1782,10 @@ class Population {
                     if(!distributionBernoulli(*generator)) continue; // gate per PAIR (= propability)
 
                     auto meanFitnessOf = [](const Network& net) -> float {
-                        if(net.fitnessValues.empty()) return net.fitness;
+                        if(net.caseScores.empty()) return net.fitness;
                         float sum = 0.0f;
-                        for(float v : net.fitnessValues) sum += v;
-                        return sum / static_cast<float>(net.fitnessValues.size());
+                        for(float v : net.caseScores) sum += v;
+                        return sum / static_cast<float>(net.caseScores.size());
                     };
 
                     // Elite only donates; otherwise the fitter parent donates and stays unchanged
@@ -2577,7 +2451,7 @@ class Population {
          * @param noElite If true, elite individuals are protected 
          *  normaly this is not necessary because the operator addDelNodes() is fitness neutral. But because of 
          *  the fitness neutraly is given by used nodes it just protects node of the last traversal path. 
-         *  If you use multiple traversal path per generation, e.g. using multiple seeds for evaluation a elite protection is not garanteed and 
+         *  If you use multiple traversal path per generation, e.g. evaluating multiple cases, elite protection is not garanteed and 
          *  noElite should be set to true. Default is false.
          * @param currentGeneration Current generation (see Network::addDelNodes()).
          * @param crossoverProtection Generations during which nodes received by crossover are not deleted.
@@ -2623,289 +2497,33 @@ class Population {
         }
 
         /**
-         * @brief Evaluates all individuals across multiple seeds and stores per-seed rewards.
-         * 
-         * @details
-         * Runs fitGymnasium() for each individual on each seed. The per-seed rewards
-         * are stored in network.fitnessValues. The aggregated fitness is stored in
-         * network.fitness as the mean reward across all seeds.
+         * @brief Calculates Pareto objectives (mean score, minimum score) from caseScores.
          *
-         * @param env GymEnvWrapper object providing interface to the Gymnasium environment
-         * @param dMax Maximum consecutive judgment nodes per decision
-         * @param maxSteps Maximum episode length
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed
-         * @param worstFitness Fitness value assigned when networks violate constraints
-         * @param seeds Vector of random seeds for environment initialization
-         * @param validation,curriculumLevel,absoluteImpulseCurriculum See Network::fitGymnasium().
-         * @param useLineageFitness If true, every seed result updates the lineage statistics
-         *        (Network::updateLineageStats()).
-         * @param uniformDirectionCurriculum If true, directionAngles[i] is the forced impulse direction
-         *        of seeds[i] (see Network::fitGymnasium()).
-         * @param directionAngles Per-seed angles (radians) assigned for this generation, e.g. by
-         *        lunarlander.py -- guarantees an even spread of directions over the batch instead of
-         *        the natural, non-uniform seed direction.
-         * @param survivalMode See Network::fitGymnasium(). Passed through unchanged so
-         *        gymnasium()/renderVideos() (video path) always matches the reward mode
-         *        used here during training.
-         * @param potential See Network::fitGymnasium().
-         * @param landingQuote If true, aggregates fitness as
-         *        Return * (landings / nSeeds)^k instead of the plain mean reward.
-         *        This scales (rather than additively combines) the raw return with
-         *        the landing rate, so an individual that lands on every seed but
-         *        flies conservatively (e.g. 120 * 1.0^2 = 120) can outrank one that
-         *        posts higher raw scores but crashes on some seeds (e.g. 8/10 landings,
-         *        160 * 0.8^2 = 102.4), while a "suicidal" high-scorer that rarely lands
-         *        (5/10, 200 * 0.5^2 = 50.0) is penalized heavily. Default: false (mean
-         *        reward, unchanged behavior).
-         *        NOTE: the code currently sets fitness to the plain landing rate
-         *        (landings / nSeeds); the Return * rate^k line is commented out.
-         * @param landingQuoteExponent The exponent k in (landings/nSeeds)^k, expected
-         *        in [2,3]. Only used when landingQuote is true. Default: 2.0f.
-         * 
+         * @details
+         * For each individual, extracts two objectives from its case scores:
+         *   - objectives[0] = mean score across all cases
+         *   - objectives[1] = minimum score across all cases (worst case)
+         *
+         * The scalar fitness is set to the mean score.
+         *
+         * @pre The individuals have been evaluated, so caseScores is filled.
          */
-        void gymnasiumMultiSeed(
-            GymEnvWrapper& env,
-            int dMax,
-            int maxSteps,
-            int maxConsecutiveP,
-            int worstFitness,
-            const std::vector<int>& seeds,
-            bool validation = false,
-            float curriculumLevel = 1.0f,
-            bool absoluteImpulseCurriculum = false,
-            bool useLineageFitness = true,
-            bool uniformDirectionCurriculum = false,
-            const std::vector<float>& directionAngles = {},
-            bool survivalMode = false,
-            bool potential = false,
-            bool landingQuote = false,
-            float landingQuoteExponent = 2.0f
-                ){
-
+        void calculateParetoObjectives(){
             for(auto& network : individuals){
-                network.fitnessValues.clear();
-                network.lastStepRewards.clear();
-                network.lastStepRewardsII.clear();
-                network.episodeLog.clear();
-                network.visitedNodesPerSeed.clear();
-                network.objectivesPerSeed.clear();
-                bool firstSeed = true;
+                if(network.caseScores.empty()) continue;
 
-                for(size_t seedIdx = 0; seedIdx < seeds.size(); ++seedIdx){
-                    int s = seeds[seedIdx];
-                    // Angle assigned to seeds[i] this generation (see docstring)
-                    float directionAngle = (uniformDirectionCurriculum && seedIdx < directionAngles.size())
-                        ? directionAngles[seedIdx] : 0.0f;
-
-                    // Snapshot so a diff isolates this seed's nodes (see Network::visitedNodesPerSeed)
-                    std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size());
-                    for(size_t n = 0; n < network.innerNodes.size(); ++n){
-                        traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
+                float totalScore = 0.0f;
+                float minScore = std::numeric_limits<float>::max();
+                for(float value : network.caseScores){
+                    totalScore += value;
+                    if(value < minScore){
+                        minScore = value;
                     }
-
-                    if(firstSeed == true){
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, true, validation, false, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
-                    } else {
-                        network.fitGymnasium(env, dMax, maxSteps, maxConsecutiveP, worstFitness, s, false, validation, false, curriculumLevel, absoluteImpulseCurriculum, uniformDirectionCurriculum, directionAngle, survivalMode, potential);
-                    }
-
-                    std::vector<int> visitedThisSeed;
-                    for(size_t n = 0; n < network.innerNodes.size(); ++n){
-                        if(network.innerNodes[n].traverseCounter != traverseCounterBefore[n]){
-                            visitedThisSeed.push_back(static_cast<int>(n));
-                        }
-                    }
-                    network.visitedNodesPerSeed.push_back(std::move(visitedThisSeed));
-
-                    //if (!network.frozenExperience)
-                      //  network.updateExperienceFromEpisode();
-                    //else
-                      //  network.episodeLog.clear();
-
-                    network.fitnessValues.push_back(network.fitness);
-                    network.lastStepRewards.push_back(network.lastFitness);
-                    network.lastStepRewardsII.push_back(network.lastFitnessII);
-                    // Keep the per-seed vector as well: averaging it away (lexicaseObjectives)
-                    // costs exactly the seed-by-seed resolution lexicase lives on.
-                    network.objectivesPerSeed.push_back(network.lastEpisodeObjectives);
-                    bool landedThisSeed = network.fitness > Network::LANDING_SUCCESS_THRESHOLD;
-                    if(useLineageFitness){
-                        network.updateLineageStats(network.fitness, landedThisSeed);
-                    }
-                    firstSeed = false;
                 }
-                
-                //network.updateExperienceFromEpisode();
+                float meanScore = totalScore / static_cast<float>(network.caseScores.size());
 
-                // Shared with parallel_eval.py, which stitches seed blocks together
-                network.aggregateSeedResults(landingQuote, landingQuoteExponent);
-                // network.fitness = minReward;
-                // float rawFitness = minReward;
-
-                // EMA über Generationen hinweg: network.fitness bleibt bis zur Zuweisung
-                // unangetastet, damit die vorige EMA-Historie (network.emaFitness) beim
-                // Update noch verfuegbar ist. network.alpha ist ein individuelles Member
-                // (spaeter aehnlichkeitsbasiert bei Mutation/Crossover anpassbar).
-                // if (!validation) {
-                //     if (!network.emaInitialized) {
-                //         network.emaFitness = rawFitness;  // Erstinitialisierung
-                //         network.emaInitialized = true;
-                //     } else {
-                //         network.emaFitness = network.alpha * rawFitness
-                //                             + (1.0f - network.alpha) * network.emaFitness;
-                //     }
-                //     network.fitness = network.emaFitness;
-                // } else {
-                //     network.fitness = rawFitness;  // Validierung: kein EMA
-                // }
-                //
-            }
-        }
-
-        /*
-         * @brief Evaluates all individuals across multiple seeds in parallel using N cores.
-         *
-         * @details
-         * Parallelized version of gymnasiumMultiSeed(). Each core receives its own
-         * environment instance to avoid thread-safety issues.  The population is split
-         * into roughly equal chunks and each chunk is evaluated in its own thread.
-         *
-         * Because fitGymnasium() calls Python (env.reset / env.step), each worker
-         * thread acquires the GIL before evaluating an individual and releases it
-         * afterwards, allowing other threads to interleave.  For Gymnasium
-         * environments backed by C extensions (MuJoCo, Atari, Box2D …), the
-         * extension typically releases the GIL during step(), enabling true parallel
-         * execution.
-         *
-         * @param envs  Vector of GymEnvWrapper objects, one per core.  envs.size()
-         *              determines the number of threads.
-         * @param dMax  Maximum consecutive judgment nodes per decision
-         * @param maxSteps Maximum episode length
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed
-         * @param worstFitness Fitness value assigned when networks violate constraints
-         * @param seeds Vector of random seeds for environment initialization
-         */
-
-        /*
-        void gymnasiumMultiSeed(
-            std::vector<GymEnvWrapper>& envs,
-            int dMax,
-            int maxSteps,
-            int maxConsecutiveP,
-            int worstFitness,
-            const std::vector<int>& seeds,
-            bool useLineageFitness = true
-                ){
-
-            int nCores = static_cast<int>(envs.size());
-            int nInd   = static_cast<int>(individuals.size());
-
-            // Worker lambda: evaluate individuals[start..end) using envs[threadIdx].
-            // The GIL is acquired only around fitGymnasium (which calls Python via
-            // env.reset / env.step) and released for the surrounding bookkeeping
-            // (vector ops, arithmetic) to maximise parallel overlap.
-            auto worker = [&](int start, int end, int threadIdx) {
-                for (int i = start; i < end; i++) {
-                    auto& network = individuals[i];
-                    network.fitnessValues.clear();
-                    network.lastStepRewards.clear();
-                    float totalReward = 0.0f;
-                    bool firstSeed = true;
-
-                    for (int s : seeds) {
-                        {
-                            py::gil_scoped_acquire acquire;
-                            network.fitGymnasium(
-                                envs[threadIdx], dMax, maxSteps,
-                                maxConsecutiveP, worstFitness, s, firstSeed);
-                        }
-                        network.fitnessValues.push_back(network.fitness);
-                        network.lastStepRewards.push_back(network.lastFitness);
-                        if(useLineageFitness){
-                            network.updateLineageStats(network.fitness, network.fitness > Network::LANDING_SUCCESS_THRESHOLD);
-                        }
-                        totalReward += network.fitness;
-                        firstSeed = false;
-                    }
-
-                    network.fitness = totalReward / static_cast<float>(seeds.size());
-                }
-            };
-
-            std::vector<std::thread> threads;
-            threads.reserve(nCores);
-
-            for (int t = 0; t < nCores; t++) {
-                int start = t * nInd / nCores;
-                int end   = (t + 1) * nInd / nCores;
-                if (start == end) continue;          // skip empty chunks
-                threads.emplace_back(worker, start, end, t);
-            }
-
-            for (auto& th : threads) {
-                th.join();
-            }
-        }
-        */
-
-        /**
-         * @brief Calculates Pareto objectives (mean reward, minimum reward) from fitnessValues.
-         * 
-         * @details
-         * For each individual, extracts two objectives from the per-seed rewards 
-         * stored in fitnessValues:
-         *   - objectives[0] = mean reward across all seeds
-         *   - objectives[1] = minimum reward across all seeds (worst seed)
-         *
-         * The scalar fitness is set to the mean reward.
-         *
-         * @param landingThreshold Reward threshold above which a run counts as a landing (default: 100).
-         *        Currently unused.
-         *
-         * @pre gymnasiumMultiSeed() must have been called to populate fitnessValues
-         */
-        void calculateParetoObjectives(float landingThreshold = 100.0f){
-            for(auto& network : individuals){
-                if(network.fitnessValues.empty()) continue;
-
-                float totalReward = 0.0f;
-                float minReward = std::numeric_limits<float>::max();
-                float maxReward = std::numeric_limits<float>::min();
-                float totalVelocity = 0.0f;
-                float totalAbsX   = 0.0f;
-
-                for(size_t i = 0; i < network.fitnessValues.size(); i++){
-                    totalReward += network.fitnessValues[i];
-                    totalVelocity += network.lastStepRewards[i] * -1;
-                    totalAbsX   += network.lastStepRewardsII[i] * -1;
-                    if(network.fitnessValues[i] < minReward){
-                        minReward = network.fitnessValues[i];
-                    }
-                    if(network.fitnessValues[i] > maxReward){
-                        maxReward = network.fitnessValues[i];
-                    }
-
-                }
-                
-                // Median reward
-                std::vector<float> sortedRewards = network.fitnessValues;
-                std::sort(sortedRewards.begin(), sortedRewards.end());
-                float medianReward;
-
-                size_t n = sortedRewards.size();
-                if(n % 2 == 0){
-                    medianReward = (sortedRewards[n / 2 - 1] + sortedRewards[n / 2]) / 2.0f;
-                } else {
-                    medianReward = sortedRewards[n / 2];
-                }
-                     
-                float meanReward = totalReward / static_cast<float>(network.fitnessValues.size());
-                float meanVelocity = totalVelocity / static_cast<float>(network.fitnessValues.size());
-                float meanAbsX   = totalAbsX / static_cast<float>(network.fitnessValues.size());
-                float diffReward = maxReward - minReward;
-
-                network.objectives = {meanReward, minReward};
-                network.fitness = meanReward;
+                network.objectives = {meanScore, minScore};
+                network.fitness = meanScore;
             }
         }
 

@@ -7,14 +7,15 @@
 #include <random>
 #include <utility>
 #include <vector>
-#include "Cartpole.hpp"
+#include <limits>
+#include <memory>
+#include <string>
 #include "Node.hpp"
 #include <unordered_map>
 #include <algorithm>
 #include <queue>
 #include <cassert>
 #include "Fractal.hpp"
-#include "GymnasiumWrapper.hpp"
 /// \endcond
 
 /**
@@ -70,27 +71,17 @@ class Network {
         std::vector<Node> innerNodes; /**< Collection of all judgment and processing nodes in the network */
         Node startNode; /**< Initial entry point for network execution */
         float fitness = std::numeric_limits<float>::lowest(); /**< Fitness value of the network (initialized to lowest possible value) */
-        float lastFitness = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
-        float lastFitnessII = std::numeric_limits<float>::lowest(); /**< last Fitness value from episode (used for analysis) */ 
-
-        // --- EMA fitness across generations (keeps old seed evaluations from being forgotten) ---
-        float alpha = 0.15f; /**< EMA smoothing factor: weight of the current generation against the history.
-                                  Meant to be adapted per individual (e.g. similarity-based on mutation/crossover). */
-        float emaFitness = std::numeric_limits<float>::lowest(); /**< Running EMA fitness over all generations this individual was evaluated in. */
-        bool emaInitialized = false; /**< true once emaFitness has been set (keeps the lowest() initial value out of the average). */
-
-        // --- Lineage fitness: running statistics over ALL seeds this lineage has seen ---
-        static constexpr size_t N_OBJECTIVES = 5; /**< Size of lastEpisodeObjectives / lexicaseObjectives. */
-        static constexpr float LANDING_SUCCESS_THRESHOLD = 100.0f; /**< Threshold for a successful landing (Gymnasium gives +100 for a safe landing, -100 for a crash). */
-        float lineageMean = 0.0f; /**< Incremental (Welford) running mean of the raw-reward fitness over ALL seeds this
+        // --- Lineage fitness: running statistics over ALL cases this lineage has seen ---
+        float lineageMean = 0.0f; /**< Incremental (Welford) running mean of the case scores over ALL cases this
                                        lineage has seen, not just the current generation. Inherited on crossover/mutation
                                        (see blendLineageWith()). Purely additive: by default it changes no selection
-                                       (fitness/fitnessValues stay as they are), but can be used for sorting. */
+                                       (fitness/caseScores stay as they are), but can be used for sorting. */
         int lineageN = 0; /**< Number of observations in lineageMean. */
         float lineageM2 = 0.0f; /**< Welford M2 accumulator (sum of squared deviations from the running mean) for
                                       lineageMean -- basis of lineageVariance()/lineageLCB(), same pattern as
                                       EdgeExperience::m2Return in Node.hpp. */
-        float lineageSuccessRate = 0.0f; /**< Running landing success rate (share of seeds with fitness > LANDING_SUCCESS_THRESHOLD) over ALL seeds this lineage has seen. */
+        float lineageSuccessRate = 0.0f; /**< Running share of cases counted as a success (score above the evaluator's
+                                              successThreshold) over ALL cases this lineage has seen. */
         int lineageSuccessN = 0; /**< Number of observations in lineageSuccessRate. */
 
         bool invalid = false; /**< Flag to indicate invalid individuals (e.g., exceeding judgment limits) */
@@ -99,13 +90,16 @@ class Network {
         int nUsedNodes; /**< Number of nodes that have been used during network traversal */
         int nBest = 0; /**< counter for n best times of an individual during evolution */
         std::vector<int> decisions; /**< Sequence of decisions made during network execution */
-        std::vector<float> fitnessValues = {}; /** placeholder for storing multiple fitness values */
-        /** Per-seed traversal record: entry s holds the sorted innerNodes indices traversed while
-         *  evaluating seeds[s]. Unlike Node::used/traverseCounter, which accumulate ACROSS all seeds
-         *  of a generation (e.g. for callAddDelNodes()), this isolates each seed's active sub-graph.
-         *  Filled by Population::gymnasiumMultiSeed() from a traverseCounter before/after diff, so the
-         *  cumulative counters are untouched. Used by Population::crossover(type="seedSpecialist"). */
-        std::vector<std::vector<int>> visitedNodesPerSeed = {};
+        /** Score per test case of the last evaluation (an episode per seed, a sample per row, ...).
+         *  fitness is their mean. Read by the case-based lexicase types, the semantic and
+         *  caseSpecialist crossover, the Pareto objectives and the adaptive-k criteria. */
+        std::vector<float> caseScores = {};
+        /** Per-case traversal record: entry c holds the sorted innerNodes indices traversed while
+         *  evaluating case c. Unlike Node::used/traverseCounter, which accumulate ACROSS all cases
+         *  of a generation (e.g. for callAddDelNodes()), this isolates each case's active sub-graph.
+         *  Filled by the Gymnasium evaluator from a traverseCounter before/after diff, so the
+         *  cumulative counters are untouched. Used by Population::crossover(type="caseSpecialist"). */
+        std::vector<std::vector<int>> visitedNodesPerCase = {};
         int traverseCounter = 0; /**< Counter for how many times the network has been traversed (used for analysis) */
         size_t nCrossovers = 0; /**< Counter for how many times the network has been involved in crossover (used for analysis) */
         /** Per-generation flag, set by every mutation/crossover that ACTUALLY changed this lineage
@@ -113,49 +107,16 @@ class Network {
          *  reads it to cap the lineageMean/lineageSuccessRate history only of lineages changed this
          *  generation -- unchanged individuals keep theirs -- and then resets it to false. */
         bool structureChangedThisGen = false;
-        std::vector<float> objectives = {}; 
-        std::vector<float> lastStepRewards = {};
-        std::vector<float> lastStepRewardsII = {};
+        std::vector<float> objectives = {}; /**< Pareto objectives, filled by Population::calculateParetoObjectives(). */
 
         // --- Epsilon-lexicase objectives (see Population::lexicaseSelection()) ---
-        /** Objective vector of the last finished episode, filled by fitGymnasium().
-         *
-         *  Five criteria, EVERY ONE of which is maximised by landing on the pad:
-         *    [0] total Gymnasium reward    -- holistic, and it already rewards landing
-         *    [1] -|vy_end| if landed       -- vertical speed at the end
-         *    [2] -|vx_end| if landed       -- lateral speed at the end
-         *    [3] -|x_end|  if landed       -- horizontal precision
-         *    [4] landed (1.0 / 0.0)        -- the goal itself
-         *
-         *  "Landed" is Gymnasium's +100 bonus, which is paid only once the lander has come
-         *  to rest. On every landing [1] and [2] are therefore exactly 0 (measured on 4582
-         *  landings of the best LunarLander network): they only separate landed from not
-         *  landed and repeat [4]. Among landed networks only [0] and [3] differ.
-         *
-         *  THE CONDITION ON [1]-[3] IS THE POINT. An earlier version measured them
-         *  unconditionally in the final frame and used survived steps instead of the reward
-         *  as [0]. Episodes that hovered until the step limit then beat landings on two of
-         *  the five objectives on average (steps and lateral speed), and the population
-         *  drifted there: over 50 generations the share of episodes reaching the step limit
-         *  rose from 0.1% to 2.9% while the fitness fell from -375 to -592. Without a
-         *  landing these three now yield a fixed penalty, so hovering wins none of them.
-         *
-         *  The penalties are only slightly worse than the worst achievable real value, not
-         *  hugely worse: epsilon-lexicase derives its tolerance from the spread of the
-         *  values, and a far-away penalty would inflate that spread until the test case
-         *  stops filtering at all.
-         *
-         *  Deliberately NOT included: the posture sum and the fuel sum used before. Both
-         *  are sums of non-positive per-step terms, so both are maximised by an episode
-         *  that ends at once without firing an engine -- they point away from the task and
-         *  measurably stalled the evolution when used as lexicase test cases. */
-        std::vector<float> lastEpisodeObjectives = std::vector<float>(5, 0.0f);
-        std::vector<float> lexicaseObjectives = {}; /**< Objective vector averaged over all seeds, filled by gymnasiumMultiSeed()/gymnasium() -- basis for Population::lexicaseSelection(). */
-        /** Per seed the 5-D objective vector of that episode, filled by gymnasiumMultiSeed().
-         *  Unlike lexicaseObjectives it keeps the seeds apart, which turns the objectives
-         *  and the N seeds into 5*N graded test cases for
-         *  Population::lexicaseSelection(type="objectivesPerSeed"). */
-        std::vector<std::vector<float>> objectivesPerSeed = {};
+        /** Per case the objective vector of that case, e.g. returned by the episodeObjectives hook of
+         *  the Gymnasium evaluator. Unlike lexicaseObjectives it keeps the cases apart, which turns
+         *  K objectives and N cases into K*N graded test cases for
+         *  Population::lexicaseSelection(type="objectivesPerCase"). Empty if no objectives were set. */
+        std::vector<std::vector<float>> objectivesPerCase = {};
+        std::vector<float> lexicaseObjectives = {}; /**< objectivesPerCase averaged over the cases (aggregateCaseResults()) --
+                                                         basis for Population::lexicaseSelection(type="objectives"). */
 
         bool frozenExperience = false;
 
@@ -180,6 +141,7 @@ class Network {
 
         std::vector<StepLog> episodeLog;         ///< Accumulated per-step log; cleared after backward pass
         std::vector<JEVisit> currentStepJEVisits; ///< Populated during decisionAndNextNode(); flushed per step
+        int lastDecision = -1; ///< Last own decision of the current episode, replayed by act()'s holdAction; -1 = none yet
 
 
         /** @endcond */
@@ -290,7 +252,7 @@ class Network {
          * @details
          * Must be called ONCE per generation while `used` still holds the flags of the
          * generation that just finished -- i.e. after the evaluation and before the next
-         * one clears them (fitGymnasium(newRun=true) calls clearUsedNodes()).
+         * one clears them (initPathTraversal(newRun=true) calls clearUsedNodes()).
          * Nodes that have never been traversed are left untouched, so they stay
          * immediately deletable; only nodes that were active at some point age.
          *
@@ -472,16 +434,17 @@ class Network {
 
         /**
          * @brief Updates the lineage fitness statistics (incremental Welford mean) with a new
-         *        seed observation of this lineage.
+         *        case observation of this lineage.
          *
-         * @details Weights every observation equally (unlike EMA, which favours recent ones), so the
-         * result is a true mean over ALL seeds this lineage has ever seen, however long ago.
+         * @details Weights every observation equally (unlike an EMA, which favours recent ones), so the
+         * result is a true mean over ALL cases this lineage has ever seen, however long ago.
          * Purely additive: by default it changes no selection.
          *
-         * @param rawFitness Raw-reward fitness of the current seed episode.
-         * @param landed true if this episode landed successfully (rawFitness > LANDING_SUCCESS_THRESHOLD).
+         * @param rawFitness Score of the current case.
+         * @param success true if the case counts as a success (decided by the caller, e.g. via the
+         *        evaluator's successThreshold).
          */
-        void updateLineageStats(float rawFitness, bool landed) {
+        void updateLineageStats(float rawFitness, bool success) {
             lineageN++;
             float delta = rawFitness - lineageMean;
             lineageMean += delta / static_cast<float>(lineageN);
@@ -489,57 +452,39 @@ class Network {
             lineageM2 += delta * delta2;
 
             lineageSuccessN++;
-            float landedValue = landed ? 1.0f : 0.0f;
-            lineageSuccessRate += (landedValue - lineageSuccessRate) / static_cast<float>(lineageSuccessN);
+            float successValue = success ? 1.0f : 0.0f;
+            lineageSuccessRate += (successValue - lineageSuccessRate) / static_cast<float>(lineageSuccessN);
         }
 
         /**
-         * @brief Aggregates the per-seed results of a multi-seed evaluation into fitness and
-         *        lexicaseObjectives.
+         * @brief Aggregates the per-case results of an evaluation into fitness and lexicaseObjectives.
          *
-         * @details Reads fitnessValues and objectivesPerSeed in seed order, so the float sums are
-         * the same as accumulating them during the evaluation. Called at the end of
-         * Population::gymnasiumMultiSeed(); parallel_eval.py calls it after stitching together
-         * seed blocks that were evaluated in different processes.
-         *
-         * @param landingQuote If true, fitness is the landing rate (landings / nSeeds) instead of
-         *        the mean reward (see Population::gymnasiumMultiSeed()).
-         * @param landingQuoteExponent Exponent k of the commented-out Return * rate^k variant.
+         * @details fitness is the mean of caseScores, lexicaseObjectives the per-objective mean of
+         * objectivesPerCase (left empty without objectives). Both are summed in case order, so
+         * results that were evaluated in several blocks and concatenated (parallel_eval.py) give the
+         * same floats as one sequential evaluation.
          */
-        void aggregateSeedResults(bool landingQuote = false, float landingQuoteExponent = 2.0f){
-            const size_t nSeeds = fitnessValues.size();
-            float totalReward = 0.0f;
-            int landingCount = 0;
-            for(float value : fitnessValues){
-                totalReward += value;
-                if(value > LANDING_SUCCESS_THRESHOLD){
-                    landingCount++;
-                }
+        void aggregateCaseResults(){
+            const size_t nCases = caseScores.size();
+            float totalScore = 0.0f;
+            for(float value : caseScores){
+                totalScore += value;
             }
-            std::vector<float> objSum(N_OBJECTIVES, 0.0f);
-            for(const auto& seedObjectives : objectivesPerSeed){
-                for(size_t o = 0; o < objSum.size() && o < seedObjectives.size(); o++){
-                    objSum[o] += seedObjectives[o];
+            const size_t nObjectives = objectivesPerCase.empty() ? 0 : objectivesPerCase[0].size();
+            std::vector<float> objSum(nObjectives, 0.0f);
+            for(const auto& caseObjectives : objectivesPerCase){
+                for(size_t o = 0; o < objSum.size() && o < caseObjectives.size(); o++){
+                    objSum[o] += caseObjectives[o];
                 }
             }
 
-            // Seed-averaged 5-D objective vector for lexicaseSelection()
             lexicaseObjectives.assign(objSum.size(), 0.0f);
             for(size_t o = 0; o < objSum.size(); o++){
-                lexicaseObjectives[o] = objSum[o] / static_cast<float>(nSeeds);
+                lexicaseObjectives[o] = objSum[o] / static_cast<float>(nCases);
             }
-
-            // Default aggregation: mean reward of the current generation's seed batch
-            float rawFitness = totalReward / static_cast<float>(nSeeds);
-            if(landingQuote){
-                // Return * landing rate^k is commented out; fitness is the plain landing rate
-                float landingRate = static_cast<float>(landingCount) / static_cast<float>(nSeeds);
-                // network.fitness = rawFitness * std::pow(landingRate, landingQuoteExponent);
-                fitness = landingRate;
-            } else {
-                fitness = rawFitness;
-            }
+            fitness = totalScore / static_cast<float>(nCases);
         }
+
 
         /**
          * @brief Returns the unbiased sample variance behind lineageMean, from the Welford
@@ -634,27 +579,31 @@ class Network {
         }
 
         /**
-         * @brief Initializes the network state for a new path traversal.
+         * @brief Initializes the network state for a new path traversal (e.g. an episode).
          *
          * @details
          * Prepares the network for sequential decision-making by:
-         * 1. Clearing all node usage flags
-         * 2. Resetting traverse counters for all nodes and the network
-         * 3. Setting the current node to the start node's target
-         * 4. Resetting fitness, validity, and consecutive processing node counters
+         * 1. Clearing all node usage flags and traverse counters (only if newRun)
+         * 2. Setting the current node to the start node's target
+         * 3. Resetting fitness, validity, the consecutive processing node counter and the
+         *    decision replayed by act()'s holdAction
          *
          * After calling this method, the network is ready to receive observations
-         * via decisionAndNextNode() one step at a time.
+         * via act() or decisionAndNextNode() one step at a time.
          *
          * @param startingFitness Optional initial fitness value to set before traversal (default is 0)
+         * @param newRun If false, usage flags and counters keep accumulating, e.g. over the cases of
+         *        one generation; the traversal itself always restarts at the start node.
          */
-        void initPathTraversal(double startingFitness = 0){
-            clearUsedNodes();
-            for(auto& node : innerNodes){
-                node.traverseCounter = 0;
-                node.lastVisitStep = 0;
+        void initPathTraversal(double startingFitness = 0, bool newRun = true){
+            if(newRun){
+                clearUsedNodes();
+                for(auto& node : innerNodes){
+                    node.traverseCounter = 0;
+                    node.lastVisitStep = 0;
+                }
+                traverseCounter = 0;
             }
-            traverseCounter = 0;
             currentNodeID = startNode.edges[0];
             innerNodes[currentNodeID].used = true;
             innerNodes[currentNodeID].traverseCounter += 1;
@@ -663,6 +612,7 @@ class Network {
             fitness = startingFitness;
             nConsecutiveP = 0;
             invalid = false;
+            lastDecision = -1;
         }
 
         /**
@@ -677,8 +627,8 @@ class Network {
          * The episodeLog is cleared after the update.
          *
          * Credit assignment note: G_t naturally attributes positive downstream
-         * rewards (e.g., soft landing) back to earlier costly actions (e.g.,
-         * fuel burn), weighted by gamma. A node with gamma ≈ 1 is long-sighted;
+         * rewards (e.g., reaching a goal) back to earlier costly actions (e.g.,
+         * energy spent), weighted by gamma. A node with gamma ≈ 1 is long-sighted;
          * gamma ≈ 0 is purely myopic.
          */
         void updateExperienceFromEpisode() {
@@ -746,6 +696,8 @@ class Network {
          * @param penalty Divisor applied to fitness if constraints are violated (currently unused in this function)
          * 
          * @post The fitness member variable contains the classification accuracy (0.0 to 1.0)
+         * @post caseScores holds 1/0 per sample (all 0 if invalid), so the case-based lexicase types
+         *       can select on single samples
          * @post The invalid flag indicates if the network exceeded judgment limits
          * @post Node usage flags reflect which nodes were visited during evaluation
          * 
@@ -768,17 +720,20 @@ class Network {
             int dec;
             invalid = false;
             float correct = 0;
+            caseScores.clear();
+            caseScores.reserve(y.size());
 
             for(int i=0; i<y.size(); i++){
-                int  dSum = 0; // to prevent dead loops
                 dec = decisionAndNextNode(X[i], dMax);
                 if(invalid == true){
                     fitness = 0;
+                    caseScores.assign(y.size(), 0.0f);
                     break;
                 }
                 if(dec == y[i]){
                     correct += 1;
                 }
+                caseScores.push_back(dec == y[i] ? 1.0f : 0.0f);
             }
 
             if(invalid != true){
@@ -789,416 +744,56 @@ class Network {
 
 
         /**
-         * @brief Evaluates network fitness using an OpenAI Gymnasium-compatible environment.
-         * 
+         * @brief Chooses the action for one step of a sequential task (one observation in, one action out).
+         *
          * @details
-         * This method executes the network as a reinforcement learning agent in a
-         * Gymnasium environment. 
+         * Wraps decisionAndNextNode() with the two rules a control loop needs:
+         * - **holdAction**: if the reached processing node has function holdAction, the network's
+         *   previous own decision of this episode is repeated instead (fallbackAction if there is
+         *   none yet). Such a "keep doing what you did" function lets a judgment chain act with
+         *   hysteresis. -1 (default) disables it, so every processing function is a real action.
+         * - **fallbackAction**: executed while the network is invalid (more than dMax consecutive
+         *   judgment nodes) or has passed more than maxConsecutiveP processing nodes in a row.
+         *   `invalid` is only cleared by initPathTraversal(), so an invalid network executes
+         *   fallbackAction for the rest of the episode while its traversal goes on.
          *
-         * See also : https://gymnasium.farama.org
+         * Per episode: initPathTraversal(), then act() and recordStep() for every step, and
+         * updateExperienceFromEpisode() at the end (see the Gymnasium evaluator in GymnasiumWrapper.hpp).
          *
-         * The evaluation process simulates a complete episode:
-         * 
-         * 1. **Initialization**:
-         *    - Resets the environment and obtains initial observation
-         *    - Clears node usage tracking and resets network state
-         *    - Initializes fitness accumulator and counters
-         * 
-         * 2. **Episode Loop** (until termination):
-         *    - Network makes decision based on current observation
-         *    - Checks validity constraints (see parameters dMax and maxConsecutiveP)
-         *    - If constraints violated, assigns worst fitness and terminates
-         *    - Executes action in environment via step() function
-         *    - Accumulates reward into fitness
-         *    - Updates observation for next iteration
-         *    - Checks termination conditions (done flag or max steps reached)
-         * 
-         * 3. **Termination Conditions**:
-         *    - Environment signals episode completion (done flag)
-         *    - Maximum step limit reached
-         *    - Network becomes invalid (exceeds dMax)
-         *    - Too many consecutive processing nodes (exceeds maxConsecutiveP)
-         * 
-         * @param env GymEnvWrapper object providing the Gymnasium environment interface
-         * @param dMax Maximum consecutive judgment nodes per decision (prevents infinite loops)
-         * @param maxSteps Maximum number of environment steps per episode
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed.
-         *  Here we can control the number of possible actions after using the observation data again.  
-         * @param worstFitness Fitness value assigned when network violates constraints
-         * @param seed Random seed for environment initialization
-         * @param newRun If true, resets network state for a new episode; if false, continues from current state (useful for multi-episode evaluation)
-         * @param validation If true, does not apply worstFitness penalty when constraints are violated (useful for validation runs where we want to observe rewards without penalization).
-         *        Also skips all curriculum changes to the start state, so validation always sees the real environment (see GymEnvWrapper::reset()).
-         * @param updateExperience If true, updates the experience of JE nodes after the episode (calls updateExperienceFromEpisode())
-         * @param curriculumLevel Float between 0.0 and 1.0 controlling the difficulty of the environment (if supported).
-         * @param absoluteImpulseCurriculum If true, curriculumLevel controls the ABSOLUTE strength of the
-         *        initial random impulse (only its direction stays seed-random) so every seed trains at the same
-         *        push strength at a given curriculum stage. If false (default), curriculumLevel scales each seed's
-         *        own (seed-random) impulse relatively, preserving the natural difficulty ordering between seeds;
-         *        at curriculumLevel 1.0 the environment stays exactly as Gymnasium produced it.
-         * @param uniformDirectionCurriculum If true, the impulse DIRECTION is also forced to directionAngle
-         *        (radians) instead of the seed's natural direction -- used to guarantee an evenly spread set of
-         *        directions across a batch of seeds, rather than leaving direction to (non-uniform) chance.
-         * @param directionAngle Forced impulse direction in radians, only used if uniformDirectionCurriculum=true.
-         * @param survivalMode If true, Gymnasium's built-in reward is ignored entirely; fitness = number of
-         *        steps survived (see SURVIVAL MODE note below). Takes precedence over potential if both are true.
-         * @param potential If true (and survivalMode=false), uses potential-based reward shaping (PBRS) on top
-         *        of Gymnasium's raw reward: r' = r + gamma*phi(s') - phi(s) with gamma = 1 and phi(terminal) = 0,
-         *        where phi = -(|angle| + |angularVelocity| + |vy|). Because the shaping telescopes to -phi(s_0),
-         *        the episode return shifts by a constant that depends on the seed only -- the ranking of
-         *        individuals on any given seed is provably unchanged (Ng, Harada & Russell 1999; see
-         *        tests/test_potential_shaping.py). Truncation at maxSteps is treated as terminal on purpose:
-         *        leaving phi(s_last) in the sum would make the offset depend on where the individual stopped
-         *        and break that guarantee. If both survivalMode and potential are
-         *        false (default), the raw, unmodified Gymnasium reward is used ("standard" mode).
-         * 
-         * @note SURVIVAL MODE: this function intentionally ignores Gymnasium's built-in reward
-         *       (distance/velocity/angle shaping, fuel cost, landing bonus, crash penalty) entirely.
-         *       Fitness is simply the number of steps survived (+1 per env.step()). Since episode
-         *       termination -- whether caused by a crash, by a successful landing (Gymnasium ends the
-         *       episode once the lander is "asleep"/at rest), or by leaving the frame -- always stops
-         *       the reward accumulation, both crashing AND landing are implicitly disfavoured equally:
-         *       the network is only rewarded for staying alive/airborne inside the frame as long as
-         *       possible (up to maxSteps), with no notion of "reaching the pad" at all. This is a
-         *       deliberate ablation to test whether the GNP can learn pure hover/balance control.
-         *       Survival mode also ends the episode on leg contact and when the lander leaves the
-         *       frame upward (obs[1] > 2.0, roughly the top edge; the lander starts at about 1.4).
-         *       Gymnasium itself only terminates on |x| >= 1, crash or landing and keeps simulating
-         *       above the frame, so a policy could otherwise "survive" by thrusting out of view
-         *       (observed exploit).
-         * 
-         * @warning The network must produce valid actions for the specific Gymnasium environment
+         * @tparam dataContainer Indexable observation type (std::vector<double>, std::array, ...).
+         * @param obs Current observation, indexed by the judgment node functions.
+         * @param dMax Maximum consecutive judgment nodes per decision.
+         * @param maxConsecutiveP Maximum consecutive processing nodes before fallbackAction is used.
+         * @param fallbackAction Action executed when the network is invalid or exceeds maxConsecutiveP.
+         * @param holdAction Processing function that repeats the previous decision; -1 disables it.
+         * @return The action to execute.
          */
-        void fitGymnasium(
-            GymEnvWrapper& env,
-            int dMax,
-            int maxSteps,
-            int maxConsecutiveP,
-            int worstFitness,
-            int seed,
-            bool newRun = true,
-            bool validation = false,
-            bool updateExperience = true,
-            float curriculumLevel = 1.0f,
-            bool absoluteImpulseCurriculum = false,
-            bool uniformDirectionCurriculum = false,
-            float directionAngle = 0.0f,
-            bool survivalMode = false,
-            bool potential = false
-            ){
-
-            // Curriculum applies only in training; validation sees the real environment
-            auto reset_out = env.reset(seed=seed, curriculumLevel, absoluteImpulseCurriculum, validation, uniformDirectionCurriculum, directionAngle);// Initial observation for the episode
-            std::vector<double> obs;
-            GymEnvWrapper::readObservation(reset_out[0], obs);
-            std::vector<double> prevObs = obs;  // previous step
-
-            if(newRun == true){
-                clearUsedNodes();
-                // clearing traverseCounter for each node and network
-                for(auto& node : innerNodes){
-                    node.traverseCounter = 0;
-                    node.lastVisitStep = 0;
-                }
-                traverseCounter = 0;
+        template <typename dataContainer>
+        int act(const dataContainer& obs, int dMax, int maxConsecutiveP, int fallbackAction = 0, int holdAction = -1){
+            int dec = decisionAndNextNode(obs, dMax);
+            if(holdAction >= 0 && dec == holdAction){
+                dec = (lastDecision >= 0) ? lastDecision : fallbackAction;
+            } else if(!invalid){
+                lastDecision = dec;
             }
-
-            nConsecutiveP = 0;
-            currentNodeID = startNode.edges[0];
-            innerNodes[currentNodeID].used = true;
-            innerNodes[currentNodeID].traverseCounter += 1;
-            traverseCounter ++;
-            innerNodes[currentNodeID].lastVisitStep = traverseCounter;
-            int dec;
-            fitness = 0;
-            lastFitness = 10;
-            lastFitnessII = 2.5;
-            nConsecutiveP = 0;
-            invalid = false;
-            bool done = false;
-            int steps = 0;
-            bool hasLanded = false;
-            int decBefore = 0;
-
-            int curriculumCutoff = maxSteps;
-            // MUST stay 1.0: fitness is an undiscounted sum, and only then does the
-            // shaping telescope to a constant offset per seed
-            constexpr float shapingGamma = 1.0f;
-            std::vector<float> rewards;
-            rewards.reserve(maxSteps);
-
-            float angle_init = static_cast<float>(obs[4]);
-            float angular_vel_init = static_cast<float>(obs[5]);
-            float vy_init = static_cast<float>(obs[3]);
-
-            float phi_t = -(std::abs(angle_init) + std::abs(angular_vel_init) + std::abs(vy_init));
-
-            // --- Epsilon-Lexicase: written in EVERY reward mode (survivalMode/potential/raw),
-            // see Network::lastEpisodeObjectives.
-            bool landedThisEpisode = false;
-            // Raw Gymnasium reward, summed independently of the reward mode chosen below,
-            // so objective [0] stays comparable no matter how fitness is computed.
-            float objGymRewardSum = 0.0f;
-
-            while(done == false){
-
-                // Observation + Delta konkatenieren
-                // std::vector<double> obsWithDelta = obs;
-                // for (size_t i = 0; i < obs.size(); ++i)
-                //     obsWithDelta.push_back(obs[i] - prevObs[i]);
-
-                //dec = decisionAndNextNode(obsWithDelta, dMax);
-                dec = decisionAndNextNode(obs, dMax);
-
-                if(dec == 4){
-                    dec = decBefore;
-                } else{
-                    decBefore = dec;
-                }
-
-                if (invalid || nConsecutiveP > maxConsecutiveP){
-
-                    //if(validation == false){
-                    //    fitness += worstFitness;
-                    //}                     
-
-                    //episodeLog.clear();
-                    //return;
-                    dec = 0;
-                }
-
-                auto result = env.step(dec);
-                prevObs = obs;
-                GymEnvWrapper::readObservation(result[0], obs);
-                // Unpacked once; every branch below reads these
-                const float gymStepReward = result[1].cast<float>();
-                const bool terminated = result[2].cast<bool>();
-                const bool truncated = result[3].cast<bool>();
-
-                // --- Epsilon-lexicase objectives, accumulated in EVERY reward mode; landing
-                // is read off Gymnasium's raw reward (+100), independent of the branch below
-                {
-                    float rawStepReward = gymStepReward;
-                    objGymRewardSum += rawStepReward;
-                    if(rawStepReward >= 90.0f) landedThisEpisode = true;
-                }
-
-                // indcrease or decsrese landing reward
-                // if (result[1].cast<float>() > 80.0f) {
-                //     fitness -= 95.0f; // Strafpunkt fuer Landung ausserhalb des erlaubten Bereichs
-                // } else if (result[1].cast<float>() <= -80.0f) {
-                //     fitness += 95.0f; // Bonus fuer Landung innerhalb des erlaubten Bereichs
-                // }
-                //
-
-                if (survivalMode) {
-
-                    // ~ top edge of the frame; blocks the fly-out-of-view exploit (see docstring)
-                    constexpr float frameHeightCap = 2.0f;
-                    bool outOfFrameTop = static_cast<float>(obs[1]) > frameHeightCap;
-
-                    if (outOfFrameTop || obs[6] > 0.5 || obs[7] > 0.5) {
-                        done = true;
-                    }
-     
-                    constexpr float survivalStepReward = 1.0f;
-                    float stepReward = survivalStepReward;
-                    fitness += survivalStepReward;
-                    steps ++;
-                    episodeLog.push_back({currentStepJEVisits, stepReward});
-                    currentStepJEVisits.clear(); 
-
-                    float r = survivalStepReward;
-                    rewards.push_back(r);
-
-                } else if (potential){
-
-                    // Exact PBRS (Ng et al. 1999); truncation counts as terminal so the
-                    // offset stays seed-only (see docstring, tests/test_potential_shaping.py)
-                    float gymReward = gymStepReward;
-
-                    bool episodeEnds = terminated || truncated
-                                       || (steps + 1) >= maxSteps;
-
-                    float phi_next = 0.0f;
-                    if(!episodeEnds){
-                        phi_next = -(std::abs(static_cast<float>(obs[4]))
-                                   + std::abs(static_cast<float>(obs[5]))
-                                   + std::abs(static_cast<float>(obs[3])));
-                    }
-
-                    float stepReward = gymReward + shapingGamma * phi_next - phi_t;
-                    phi_t = phi_next;
-
-                    fitness += stepReward;
-                    steps ++;
-                    episodeLog.push_back({currentStepJEVisits, stepReward});
-                    currentStepJEVisits.clear(); 
-
-                    rewards.push_back(stepReward);
-
-                } else {
-
-                    float stepReward = gymStepReward;
-                    steps ++;
-                    episodeLog.push_back({currentStepJEVisits, stepReward});
-                    currentStepJEVisits.clear(); 
-
-                    rewards.push_back(stepReward);
-                    fitness += stepReward;
-
-                    bool leftContact  = obs[6] > 0.5;
-                    bool rightContact = obs[7] > 0.5;
-                    if ((leftContact || rightContact) && !hasLanded) {
-                        float vx = static_cast<float>(obs[2]);
-                        float vy = static_cast<float>(obs[3]);
-                        lastFitness = std::sqrt(vx * vx + vy * vy); // landing speed (diagnostics only)
-                        float x = static_cast<float>(obs[0]);
-                        lastFitnessII = std::abs(x); 
-                        hasLanded = true;
-                    }
-
-                }
-
-                // float vx = static_cast<float>(obs[2]);
-                // float vy = static_cast<float>(obs[3]);
-                // lastFitness += std::abs(std::sqrt(vx * vx + vy * vy)); // Betrag der Geschwindigkeit 
-
-                if(terminated || truncated || steps >= maxSteps) done = true; 
-                // if(result[2].cast<bool>() || result[3].cast<bool>()) done = true; 
-
-                // if(done == true && result[1].cast<float>() > 95){
-                // //    lastFitness = 10; 
-                // //    lastFitnessII = 2.5;
-                //     float x = static_cast<float>(obs[0]);
-                //     if (x < -0.2f || x > 0.2f) {
-                //         fitness -= 100.0f; // Strafpunkt für Landung außerhalb des erlaubten Bereichs
-                //     }
-                // }
-                //
-                float x = static_cast<float>(obs[0]);
-                lastFitnessII = std::abs(x); 
+            if(invalid || nConsecutiveP > maxConsecutiveP){
+                dec = fallbackAction;
             }
-
-            // --- Epsilon-lexicase objectives (see lastEpisodeObjectives); [1]-[3] from the final frame
-            {
-                float vx_final = static_cast<float>(obs[2]);
-                float vy_final = static_cast<float>(obs[3]);
-                float x_final  = static_cast<float>(obs[0]);
-                // Just beyond the worst real values (speed < ~3, |x| < ~1.5)
-                constexpr float NO_LANDING_SPEED = -4.0f;
-                constexpr float NO_LANDING_POSITION = -2.0f;
-                lastEpisodeObjectives[0] = objGymRewardSum;
-                lastEpisodeObjectives[1] = landedThisEpisode ? -std::abs(vy_final) : NO_LANDING_SPEED;
-                lastEpisodeObjectives[2] = landedThisEpisode ? -std::abs(vx_final) : NO_LANDING_SPEED;
-                lastEpisodeObjectives[3] = landedThisEpisode ? -std::abs(x_final) : NO_LANDING_POSITION;
-                lastEpisodeObjectives[4] = landedThisEpisode ? 1.0f : 0.0f;
-            }
-
-            // 3) Nach der Episode: Return-to-Go rückwärts + Cutoff-Aggregation
-            // std::vector<float> G(rewards.size(), 0.0f);
-            // float running = 0.0f;
-            // for (int t = static_cast<int>(rewards.size()) - 1; t >= 0; --t) {
-            //     running = rewards[t] + gamma * running;
-            //     G[t] = running;
-            // }
-            //
-            // int T = static_cast<int>(G.size());
-            // int cut = std::min(curriculumCutoff, T);   // oder: (curriculumCutoff < 0 ? T : std::min(curriculumCutoff, T))
-
-            // float sum = 0.0f;
-            // for (int t = 0; t < cut; ++t) sum += G[t];
-            // if(cut > 0 && validation == false){
-            //     // fitness = sum / static_cast<float>(cut);
-            //     // fitness = sum;
-            //     // fitness = sum / 1000;
-            //     fitness = G[0];
-            // } 
-            //
-            //if (frozenExperience)
-              //  episodeLog.clear(); // Elite: Log immer leeren
-            //else if (updateExperience)
-              //  updateExperienceFromEpisode(); // Einzelaufruf: sofort updaten
-            updateExperienceFromEpisode(); // single call: update right away
+            return dec;
         }
-                 
+
         /**
-         * @brief Evaluates network fitness on the CartPole balancing problem.
-         * 
-         * @details
-         * This method implements a specialized fitness evaluation for the classic
-         * CartPole control problem (similar to OpenAI Gymnasium's CartPole-v1). The CartPole
-         * task requires balancing a pole on a moving cart through discrete left/right actions.
-         *
-         * See also: https://gymnasium.farama.org/environments/classic_control/cart_pole/
-         * 
-         * The evaluation process:
-         * 
-         * 1. **Initialization**:
-         *    - Creates a new CartPole environment instance with the network's random generator
-         *    - Resets network state and obtains initial observation (cart position, velocity, pole angle, angular velocity)
-         *    - Initializes fitness counter, which increments for each successful step
-         * 
-         * 2. **Episode Loop**:
-         *    - Increments fitness for each successful timestep
-         *    - Executes current decision in CartPole environment
-         *    - Obtains new observation from environment
-         *    - Network makes next decision based on new observation
-         *    - Checks termination conditions
-         * 
-         * 3. **Termination Conditions**:
-         *    - Pole falls beyond recovery angle (environment sets terminated flag)
-         *    - Maximum steps reached (episode length limit)
-         *    - Network constraint violations:
-         *      - Invalid flag set (judgment dMax exceeded)
-         *      - Too many consecutive processing nodes (maxConsecutiveP exceeded)
-         *      - Constraint violations apply penalty: fitness is divided by penalty factor
-         * 
-         * 4. **Fitness Calculation**:
-         *    - Base fitness: number of steps the pole remained balanced
-         *    - Penalized fitness: base fitness / penalty (if constraints violated)
-         *    - Optimal fitness: maxSteps (indicates perfect balancing for entire episode)
-         * 
-         * @param dMax Maximum consecutive judgment nodes per decision (prevents infinite loops in graph traversal)
-         * @param penalty Divisor applied to fitness when network violates structural constraints
-         * @param maxSteps Maximum episode length (prevents indefinite episodes and caps maximum fitness)
-         * @param maxConsecutiveP Maximum consecutive processing nodes allowed 
-         *  Here we can control the number of possible actions after using the observation data again.  
-         * 
+         * @brief Books the reward of one step of a sequential task.
+         * @details Adds the reward to fitness, which therefore holds the undiscounted episode
+         * return, and closes this step's JE visit log for updateExperienceFromEpisode().
+         * @param reward Reward the environment returned for the step just taken.
          */
-        void fitCartpole(
-            int dMax,
-            int penalty,
-            int maxSteps,
-            int maxConsecutiveP
-            ){
-
-            clearUsedNodes();
-            currentNodeID = startNode.edges[0];
-            innerNodes[currentNodeID].used = true;
-            innerNodes[currentNodeID].traverseCounter += 1;
-            innerNodes[currentNodeID].lastVisitStep = traverseCounter;
-            int dec = 0;
-            CartPole cp(generator);
-            fitness = 0;
-            nConsecutiveP = 0;
-            invalid = false;
-            std::array<double, 4> obs = cp.reset(); // Initial observation for the episode
-            bool done = false;
-
-            while(done == false){
-                fitness ++;
-                CartPole::StepResult result = cp.step(dec);
-                obs = result.observation; 
-                dec = decisionAndNextNode(obs, dMax);
-                if(result.terminated || fitness >= maxSteps) done = true; 
-
-                if (invalid || nConsecutiveP > maxConsecutiveP){
-                    done = true;
-                    fitness /= penalty;
-                }
-            }
+        void recordStep(float reward){
+            episodeLog.push_back({currentStepJEVisits, reward});
+            currentStepJEVisits.clear();
+            fitness += reward;
         }
+
 
         /**
          * @brief Validates node indices and edge connections in the network.
@@ -1346,7 +941,7 @@ class Network {
          *   addition branch, which adds at most ONE node per call (break). The junk quota is the
          *   stopping condition: deletion continues while unused - 1 > size * junk, i.e. the network
          *   is trimmed down to the allowed share of junk DNA (with junk = 0, every unused node goes).
-         *   Rationale: crossover(type="seedSpecialist") appends whole sub-graphs in one step, so a
+         *   Rationale: crossover(type="caseSpecialist") appends whole sub-graphs in one step, so a
          *   deletion capped at one node per generation can never balance the growth.
          * 
          * @param minF Vector of minimum feature values for each feature dimension (used for judgment node boundary initialization)
@@ -1357,7 +952,7 @@ class Network {
          * @param currentGeneration Current generation, compared with Node::generationReceived.
          * @param crossoverProtection Generations during which nodes received by crossover are not deleted.
          * @param nodeGracePeriod Nodes that were active before survive until unused for this many generations
-         * (see Node::unusedSince), so one generation's seed panel cannot delete a node the next panel needs.
+         * (see Node::unusedSince), so one generation's set of cases cannot delete a node the next set needs.
          * Nodes never traversed stay immediately deletable -- those are genuine junk. -1 disables the protection.
          *
          * @warning This method must be called before edgeMutation()! Reason: if edges are changed

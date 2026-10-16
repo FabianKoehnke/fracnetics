@@ -35,11 +35,10 @@ def test_population_function():
         fit1 = pop.individuals[0].fitness
         pop.gymnasium(
             env,
+            seeds=[123],
             dMax=10,
             maxSteps=500,
-            maxConsecutiveP=10,
-            worstFitness=0,
-            seed=123
+            maxConsecutiveP=10
         )
         fit2 = pop.individuals[0].fitness
         if fit1 == fit2:
