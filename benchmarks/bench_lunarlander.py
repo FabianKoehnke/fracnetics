@@ -113,11 +113,14 @@ for key, t in sorted(timings.items(), key=lambda kv: -kv[1]):
     booked += t
 print(f"  {'rest (python)':36s} {loop - booked:8.2f}s {100 * (loop - booked) / loop:6.1f}%")
 
-curves = [range(len(ns["fitnessProgess"])), ns["fitnessProgess"], ns["validationProgess"],
-          ns["validationBestSoFarProgess"], ns["networkSizeMedianProgress"],
-          ns["unusedShareProgress"], ns["crossoverExchangedProgress"],
-          ns["crossoverSkippedProgress"]]
-rows = [",".join(str(c[i]) for c in curves) for i in range(min(len(c) for c in curves))]
+if "history" in ns:  # lander.results.History, script since 2026-10-16
+    rows = ns["history"].curveRows()
+else:                # earlier scripts kept one list per curve
+    curves = [range(len(ns["fitnessProgess"])), ns["fitnessProgess"], ns["validationProgess"],
+              ns["validationBestSoFarProgess"], ns["networkSizeMedianProgress"],
+              ns["unusedShareProgress"], ns["crossoverExchangedProgress"],
+              ns["crossoverSkippedProgress"]]
+    rows = [",".join(str(c[i]) for c in curves) for i in range(min(len(c) for c in curves))]
 with open("curves.csv", "w") as f:
     f.write(",".join(CURVE_NAMES) + "\n" + "\n".join(rows) + "\n")
 
