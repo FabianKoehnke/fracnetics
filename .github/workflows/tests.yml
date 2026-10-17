@@ -4,8 +4,11 @@ on: [push, pull_request]
 jobs:
   python-tests:
     runs-on: ubuntu-latest
+    # A hanging test used to run into GitHub's 6 h limit without a trace
+    timeout-minutes: 30
 
     strategy:
+      fail-fast: false
       matrix:
         python-version: [3.10.13, 3.11]
 
@@ -25,7 +28,10 @@ jobs:
         pip install swig
         pip install -r tests/requirements.txt
     - name: Run tests
-      run: pytest tests/
+      # -v: one line per test; faulthandler dumps every thread's stack if a test hangs > 5 min
+      env:
+        PYTHONUNBUFFERED: "1"
+      run: python -m pytest tests/ -v -o faulthandler_timeout=300
 
   #cpp-tests:
   #  runs-on: ubuntu-latest
