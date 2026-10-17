@@ -419,6 +419,7 @@ class Node {
          * because of the constraints). Otherwise method could run indefinitely.
          */
         int changeEdge(int nn, int& edge, const std::vector<Node>* allNodes = nullptr){
+            if(nn <= 1) return edge; // no other node to point to; the fallback below would never end
             std::uniform_int_distribution<int> distributionUniform(0, nn-1);
             const bool restrictBlockEntry = (allNodes != nullptr) && (this->transplantBlockID == -1);
             // Safety fallback for the (practically unreachable) case that rejection sampling

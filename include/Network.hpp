@@ -959,6 +959,8 @@ class Network {
          * by edgeMutation(), the node flag "used" is not guaranteed to be correct.
          *
          * @post All edges remain valid (no dangling edges)
+         * @post At least 2 nodes remain. Without an evaluation no node is marked used, so the junk
+         *       quota alone would delete down to a single node, whose edges have nowhere to point.
          * @post Node IDs are contiguous from 0 to innerNodes.size()-1
          * 
          */
@@ -1041,6 +1043,7 @@ class Network {
                     break; // NOTE: just one node can be added with break statement!
 
                 }else if(!resultAdd && 
+                        innerNodes.size() > 2 && // a node needs another node to point to
                         innerNodes.size() - nUsedNodes - 1 > innerNodes.size() * junk && // left: current junk size (unused nodes); right: allowed junk size 
                         innerNodes[n].used == false &&
                         (innerNodes[n].generationReceived == -1 || currentGeneration - innerNodes[n].generationReceived >= crossoverProtection) &&
@@ -1070,9 +1073,12 @@ class Network {
                     }
 
                     
-                    // Start node: no changeEdge() needed, its target is always used
+                    // The start target is used once the network was evaluated; before that it
+                    // can be deleted and the start node moves on to the next node
                     if(startNode.edges[0] > n){
                         startNode.edges[0] -= 1;
+                    } else if(startNode.edges[0] == n && n == static_cast<int>(innerNodes.size()) - 1){
+                        startNode.edges[0] = n - 1;
                     }
 
                     // Keep jn/pn in sync, otherwise they drift with every deletion
