@@ -430,6 +430,7 @@ PYBIND11_MODULE(_core, m) {
                         EpisodeSettings settings{dMax, maxSteps, maxConsecutiveP, fallbackAction, holdAction};
                         evaluateEpisodes(self.individuals, env, seeds, resetOptions, settings,
                                          episodeObjectives, trackLineage, successThreshold);
+                        self.markEvaluated();
                         force_gc_collect();
                     },
                 py::arg("env"), py::arg("seeds"), py::arg("dMax"), py::arg("maxSteps"), py::arg("maxConsecutiveP"),
@@ -457,6 +458,16 @@ Args:
 Writes fitness (mean return), caseScores, visitedNodesPerCase, objectivesPerCase and
 lexicaseObjectives of every individual.)doc"
             )
+
+        .def_readwrite("checkOrder", &Population::checkOrder,
+             "If True (default), a step out of the order of a generation raises RuntimeError: "
+             "evaluation, callAgeUnusedNodes, selection, updateAdaptiveK, crossover caseSpecialist*, "
+             "callAddDelNodes, crossover, mutations, capLineageAfterMutation. Set to False to call "
+             "single operators on purpose.")
+        .def("markEvaluated", &Population::markEvaluated,
+             "Mark the population as freshly evaluated, so the order check starts a new generation. "
+             "gymnasium(), callTraversePath() and accuracy() do this themselves; call it after an "
+             "evaluation outside of them (ParallelEvaluator calls it for you).")
 
         .def("calculateParetoObjectives", &Population::calculateParetoObjectives,
              py::call_guard<py::gil_scoped_release>())

@@ -110,6 +110,21 @@ def test_growth_path_matches(seeds):
     assert run(True) == run(False)
 
 
+def test_parallel_evaluation_starts_a_new_generation(seeds):
+    """The workers evaluate copies, so evaluate() must reset pop's order check itself."""
+    pop = _build()
+    with ParallelEvaluator(ENV, POPKW, workers=2) as ev:
+        for g in range(2):
+            ev.evaluate(pop, seeds=seeds, **EVAL)
+            pop.callAgeUnusedNodes()
+            pop.lexicaseSelection(E=2, type="casesStandardized", epsilon=0.1)
+            pop.callAddDelNodes(MINF, MAXF, junk=0.1, noElite=True, currentGeneration=g)
+            pop.crossover(probability=0.5, type="semantic", currentGeneration=g, matchOnlyUsed=True)
+            pop.callEdgeMutation(probInnerNodes=0, probStartNode=0, justUsedNodes=True, k=2.0)
+    with pytest.raises(RuntimeError):
+        pop.callAgeUnusedNodes()  # no evaluation since the last mutation
+
+
 def test_parallel_survives_growth_and_selection(seeds):
     """Three generations of select/mutate on top, so grown nodes and used flags count."""
     def run(parallel):

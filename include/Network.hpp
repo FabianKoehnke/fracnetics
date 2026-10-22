@@ -956,7 +956,9 @@ class Network {
          * Nodes never traversed stay immediately deletable -- those are genuine junk. -1 disables the protection.
          *
          * @warning This method must be called before edgeMutation()! Reason: if edges are changed
-         * by edgeMutation(), the node flag "used" is not guaranteed to be correct.
+         * by edgeMutation(), the node flag "used" is not guaranteed to be correct. The same holds
+         * for boundary mutation and crossover; Population::callAddDelNodes() checks the order
+         * (see Population::Step).
          *
          * @post All edges remain valid (no dangling edges)
          * @post At least 2 nodes remain. Without an evaluation no node is marked used, so the junk

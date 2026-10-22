@@ -99,3 +99,49 @@ TEST_F(AddOverhangNodesTest, HandlesEmptySmallerSuccessor) {
     EXPECT_EQ(parent2.innerNodes.size(), initialParent2Size + successor1.size());
 }
 
+
+// Order of the steps of a generation (Population::Step), without the Python bindings
+class OperatorOrderTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        population = std::make_unique<Population>(42, 10, 5, 3, 5, 2, false);
+        population->setAllNodeBoundaries(minF, maxF);
+        X = {{0.1f, -0.2f, 0.3f}, {-0.4f, 0.5f, -0.6f}};
+    }
+
+    std::vector<float> minF = {-1.0f, -1.0f, -1.0f};
+    std::vector<float> maxF = {1.0f, 1.0f, 1.0f};
+    std::vector<std::vector<float>> X;
+    std::unique_ptr<Population> population;
+};
+
+TEST_F(OperatorOrderTest, DocumentedOrderPasses) {
+    population->callTraversePath(X, 10);
+    population->callAgeUnusedNodes();
+    population->tournamentSelection(2, 1);
+    population->callAddDelNodes(minF, maxF, 0.1f, true);
+    population->crossover(0.5f, "uniform");
+    population->callEdgeMutation(0.1f, 0.1f);
+    population->callBoundaryMutationNormal(0.1f, 0.2f, false);
+    population->capLineageAfterMutation();
+}
+
+TEST_F(OperatorOrderTest, AddDelNodesAfterMutationThrows) {
+    population->callTraversePath(X, 10);
+    population->callEdgeMutation(0.1f, 0.1f);
+    EXPECT_THROW(population->callAddDelNodes(minF, maxF), std::logic_error);
+}
+
+TEST_F(OperatorOrderTest, EvaluationStartsANewGeneration) {
+    population->callTraversePath(X, 10);
+    population->callEdgeMutation(0.1f, 0.1f);
+    population->callTraversePath(X, 10);
+    EXPECT_NO_THROW(population->callAddDelNodes(minF, maxF));
+}
+
+TEST_F(OperatorOrderTest, CheckOrderFalseDisablesTheCheck) {
+    population->callTraversePath(X, 10);
+    population->callEdgeMutation(0.1f, 0.1f);
+    population->checkOrder = false;
+    EXPECT_NO_THROW(population->callAddDelNodes(minF, maxF));
+}

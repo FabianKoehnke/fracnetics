@@ -39,7 +39,9 @@
  * 
  * The population evolves over generations through iterative applying fitness measurments,
  * selection, and mutation operators, which gradually improves the collective fitness and
- * discovering effective network structures for the target problem. A small tutorial can be found here:
+ * discovering effective network structures for the target problem. Within a generation the steps
+ * must run in a fixed order (see Step), which the population checks unless checkOrder is false.
+ * A small tutorial can be found here:
  *
  * https://colab.research.google.com/github/FabianKoehnke/fracnetics/blob/main/notebooks/minExampleCartPole.ipynb
  *
@@ -53,6 +55,8 @@ class Population {
             int networkSize = -1;
         };
         /** @endcond */
+        int lastStep_ = -1;         // highest Step since the last evaluation; -1 = never evaluated (see checkStep())
+        std::string lastStepName_;  // method that reached lastStep_, for the error message
 
     public:
         /** Diagnostic: serialised state of the shared RNG, for comparing two runs. */
@@ -101,6 +105,96 @@ class Population {
 
         float adaptiveK_ = 1.0f; /**< Current self-adapted k, used as the mutation-strength parameter (see updateAdaptiveK()). */
         std::deque<float> successRateHistory_; /**< Rolling window of per-generation (mean) scores -- smooths the signal over multiple generations (see windowSize in updateAdaptiveK()). Most recent at the back. */
+        /** @} */
+
+        /** @name Order of the steps of a generation */
+        /** @{ */
+        /**
+         * @brief Place of each step in a generation; steps must run in this order.
+         *
+         * @details
+         * The evaluation writes Node::used, the traversal counters, fitness, caseScores and
+         * visitedNodesPerCase. Every later step reads some of them, and every step that changes
+         * the networks makes some of them stale:
+         * - selection compares fitness, which no longer describes a network once it was varied;
+         * - callAgeUnusedNodes() and callAddDelNodes() need usage flags that still match the
+         *   networks: after a mutation or crossover a node on the active path can be marked
+         *   unused and would be deleted, which changes the fitness;
+         * - crossover(type="caseSpecialist*") reads visitedNodesPerCase by node index, which
+         *   callAddDelNodes() shifts by deleting nodes;
+         * - crossover picks donors by fitness and (semantic, matchOnlyUsed) nodes by usage,
+         *   both stale after a mutation;
+         * - updateAdaptiveK() sets k for the mutations of this generation, and
+         *   capLineageAfterMutation() needs every change of the generation.
+         *
+         * A step may only run if no step with a higher place ran since the last evaluation;
+         * every step is optional. AgeUnusedNodes, Selection and CaseSpecialist run at most once
+         * per evaluation. checkStep() enforces this, `checkOrder = false` switches it off.
+         */
+        enum class Step : int {
+            Evaluation = 0,     ///< gymnasium(), callTraversePath(), accuracy(), applyFitness(), markEvaluated(); calculateParetoObjectives() shares the place
+            AgeUnusedNodes = 1, ///< callAgeUnusedNodes()
+            Selection = 2,      ///< tournamentSelection(), lexicaseSelection(), paretoTournamentSelection()
+            AdaptiveK = 3,      ///< updateAdaptiveK()
+            CaseSpecialist = 4, ///< crossover(type="caseSpecialist", "caseSpecialistAppend", "caseSpecialistReplace")
+            AddDelNodes = 5,    ///< callAddDelNodes()
+            Crossover = 6,      ///< crossover(), all other types
+            Mutation = 7,       ///< callEdgeMutation(), callBoundaryMutation*(), callGammaMutation(), callAlphaMutation()
+            CapLineage = 8      ///< capLineageAfterMutation()
+        };
+
+        bool checkOrder = true; /**< If true (default), a step out of the order of Step throws std::logic_error.
+                                     Set to false to call single operators on purpose, e.g. in tests. */
+
+        /**
+         * @brief Marks the population as freshly evaluated; the next generation's steps start over.
+         *
+         * @details Every evaluation of this class calls it. An evaluation outside of it -- e.g.
+         * fracnetics.parallel_eval.ParallelEvaluator or a fitness computed entirely in Python --
+         * must call it afterwards, otherwise the steps of the new generation are checked against
+         * those of the previous one.
+         */
+        void markEvaluated(){
+            lastStep_ = static_cast<int>(Step::Evaluation);
+            lastStepName_ = "the evaluation";
+        }
+
+        /**
+         * @brief Checks that a step runs in the order of Step and records it.
+         *
+         * @details Throws if a step with a higher place ran since the last evaluation, or if
+         * callAgeUnusedNodes(), a selection or a caseSpecialist crossover runs a second time. The
+         * check starts with the first evaluation: before it, nothing is recorded, so freshly
+         * created or unpickled populations accept any step. The step is recorded even with
+         * `checkOrder == false`, so switching the check back on mid-generation stays consistent.
+         *
+         * @param step Place of the step.
+         * @param name Name of the calling method, used in the error message.
+         * @throws std::logic_error if the step is out of order and checkOrder is true.
+         */
+        void checkStep(Step step, const std::string& name){
+            if(lastStep_ < 0) return; // never evaluated: nothing to check against
+            const int place = static_cast<int>(step);
+            const bool once = step == Step::AgeUnusedNodes || step == Step::Selection
+                              || step == Step::CaseSpecialist;
+            const bool twice = once && place == lastStep_;
+            if(checkOrder && (place < lastStep_ || twice)){
+                const std::string what = twice
+                    ? name + " ran twice since the last evaluation."
+                    : name + " after " + lastStepName_ + " without an evaluation in between.";
+                throw std::logic_error(
+                    "Population: " + what + " The steps of a generation must run in this order "
+                    "(each optional): evaluation, callAgeUnusedNodes (once), selection (once), "
+                    "updateAdaptiveK, crossover caseSpecialist* (once), callAddDelNodes, crossover, "
+                    "mutations, capLineageAfterMutation. Later steps leave the usage flags and the "
+                    "fitness of the last evaluation stale (see Population::Step). Evaluate again "
+                    "first, or set checkOrder = False to call single operators on purpose.");
+            }
+            if(place >= lastStep_){
+                lastStep_ = place;
+                lastStepName_ = name;
+            }
+        }
         /** @} */
 
         /** @name Constructor */
@@ -236,6 +330,7 @@ class Population {
          * @param dMax Maximum consecutive judgment nodes allowed per decision (prevents infinite graph cycles)
          * 
          * @see Network::traversePath()
+         * @note Counts as the evaluation of the generation (see Step, markEvaluated()).
          */
         void callTraversePath(
                 const std::vector<std::vector<float>>& X,
@@ -244,6 +339,7 @@ class Population {
             for (auto& network : individuals){
                 network.traversePath(X,dMax);
             }
+            markEvaluated();
         }
 
         /**
@@ -257,12 +353,14 @@ class Population {
          * @param func Fitness function to apply (must accept Network& parameter)
          * 
          * @note This is an internal template used by specialized fitness methods
+         * @note Counts as the evaluation of the generation (see Step, markEvaluated()).
          */
         template <typename FuncFitness>
         void applyFitness(FuncFitness&& func){
             for (auto& network : individuals){
                 func(network);
             }
+            markEvaluated();
         }
 
         /** @cond INTERNAL */
@@ -360,6 +458,7 @@ class Population {
          * 
          */
         void tournamentSelection(int N, int E, bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
+            checkStep(Step::Selection, "tournamentSelection()");
             // Raw fitness, or the lineage LCB once enough observations exist (see docstring)
             auto selectionCriterion = [&](const Network& ind) -> float {
                 if(useLineageFitness && ind.lineageN >= minLineageN){
@@ -617,6 +716,8 @@ class Population {
                 gridOrder.resize(individuals[0].objectivesPerCase.size() * nObjPerCase);
                 std::iota(gridOrder.begin(), gridOrder.end(), 0);
             }
+            // After the argument checks, so a rejected call does not count as the selection
+            checkStep(Step::Selection, "lexicaseSelection()");
 
             // Keep everyone within the tolerance of the best value; computed per test
             // case, so the different scales of the objectives need no normalisation
@@ -842,6 +943,7 @@ class Population {
          * @param priorCap Upper bound for lineageN/lineageSuccessN. Default 5 (as in crossover()).
          */
         void capLineageAfterMutation(int priorCap = 5) {
+            checkStep(Step::CapLineage, "capLineageAfterMutation()");
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
                 bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
                 if (!isElite && individuals[i].structureChangedThisGen) {
@@ -1048,6 +1150,7 @@ class Population {
                 float kMin = 0.1f,
                 float kMax = 5.0f)
         {
+            checkStep(Step::AdaptiveK, "updateAdaptiveK()");
             float sumScore = 0.0f;
             int total = 0;
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
@@ -1115,6 +1218,7 @@ class Population {
          *
          */
         void callEdgeMutation(float probInnerNodes, float probStartNode, bool justUsedNodes = false, float k = 0.0f){
+            checkStep(Step::Mutation, "callEdgeMutation()");
             for(int i=0; i<individuals.size(); i++){
 
                 int N;
@@ -1171,11 +1275,14 @@ class Population {
          *  fewer than edges and processing nodes count too, so k = 1 moves fewer than one boundary
          *  per network (0.74 measured in a LunarLander experiment).
          * @param N Overwritten when k > 0.
+         * @param stepName Name of the calling method for the order check (see checkStep()).
          *
          * @note This is an internal template used by specialized boundary mutation methods
          */
         template <typename FuncMutation>
-        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false, float k = 0.0f, int N = 1) {
+        void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false, float k = 0.0f, int N = 1,
+                                   const std::string& stepName = "applyBoundaryMutation()") {
+            checkStep(Step::Mutation, stepName);
             for (int i = 0; i < individuals.size(); ++i) {
 
                 if (k > 0.0f) {
@@ -1224,7 +1331,7 @@ class Population {
         void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false, float k = 0.0f){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){ 
                 return node.boundaryMutationUniform(probability, k, N);
-            }, justUsedNodes, k); 
+            }, justUsedNodes, k, 1, "callBoundaryMutationUniform()");
         }
       
         /**
@@ -1250,7 +1357,7 @@ class Population {
         void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 return node.boundaryMutationNormal(probability, sigma, k, N);
-            }, justUsedNodes, k); 
+            }, justUsedNodes, k, 1, "callBoundaryMutationNormal()");
         }
 
         /**
@@ -1280,7 +1387,7 @@ class Population {
             applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(amp.networkSize));
                 return node.boundaryMutationNormal(probability, sigmaNew, k, N);
-            }, justUsedNodes, k);
+            }, justUsedNodes, k, 1, "callBoundaryMutationNetworkSizeDependingSigma()");
         }
 
         /**
@@ -1311,7 +1418,7 @@ class Population {
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(node.edges.size()));
                 return node.boundaryMutationNormal(probability, sigmaNew, k, N);
-            }, justUsedNodes, k);
+            }, justUsedNodes, k, 1, "callBoundaryMutationEdgeSizeDependingSigma()");
         }
         
         /**
@@ -1339,7 +1446,7 @@ class Population {
         void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes, float k = 0.0f){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 return node.boundaryMutationFractal(probability, minF, maxF);
-            }, justUsedNodes, k);
+            }, justUsedNodes, k, 1, "callBoundaryMutationFractal()");
         }
 
         /**
@@ -1526,6 +1633,8 @@ class Population {
             // ─── "caseSpecialist*": own donor search and insertion, independent of the pairing below ───
             const bool caseSpecialistAppend  = (type == "caseSpecialist" || type == "caseSpecialistAppend");
             const bool caseSpecialistReplace = (type == "caseSpecialistReplace");
+            checkStep(caseSpecialistAppend || caseSpecialistReplace ? Step::CaseSpecialist : Step::Crossover,
+                      "crossover(type=\"" + type + "\")");
 
             if(caseSpecialistAppend || caseSpecialistReplace){
                 for(int hostIdx = 0; hostIdx < static_cast<int>(individuals.size()); hostIdx++){
@@ -2469,6 +2578,7 @@ class Population {
                 int crossoverProtection = 3,
                 int nodeGracePeriod = -1
                 ){
+            checkStep(Step::AddDelNodes, "callAddDelNodes()");
 
             for(int i=0; i<individuals.size(); i++){
 
@@ -2491,6 +2601,7 @@ class Population {
          * @see Network::ageUnusedNodes()
          */
         void callAgeUnusedNodes(){
+            checkStep(Step::AgeUnusedNodes, "callAgeUnusedNodes()");
             for(auto& network : individuals){
                 network.ageUnusedNodes();
             }
@@ -2509,6 +2620,7 @@ class Population {
          * @pre The individuals have been evaluated, so caseScores is filled.
          */
         void calculateParetoObjectives(){
+            checkStep(Step::Evaluation, "calculateParetoObjectives()");
             for(auto& network : individuals){
                 if(network.caseScores.empty()) continue;
 
@@ -2561,6 +2673,7 @@ class Population {
          * @param E Number of elite individuals by Utopia distance
          */
         void paretoTournamentSelection(int N, int E){
+            checkStep(Step::Selection, "paretoTournamentSelection()");
             std::vector<Network> selection;
             selection.reserve(individuals.size());
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
@@ -2700,6 +2813,7 @@ class Population {
          * @param justUsedNodes If true, only mutates nodes that were used during traversal.
          */
         void callGammaMutation(float probability, bool justUsedNodes = false) {
+            checkStep(Step::Mutation, "callGammaMutation()");
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
                 bool changed = false;
@@ -2718,6 +2832,7 @@ class Population {
          * @param justUsedNodes If true, only mutates nodes that were used during traversal.
          */
         void callAlphaMutation(float probability, bool justUsedNodes = false) {
+            checkStep(Step::Mutation, "callAlphaMutation()");
             for (int i = 0; i < static_cast<int>(individuals.size()); i++) {
                 if (std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end()) continue;
                 bool changed = false;

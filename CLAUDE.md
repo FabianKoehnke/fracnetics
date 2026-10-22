@@ -91,3 +91,6 @@ variants in alternating runs.
 ## Conventions
 
 - C++20, header-only. Doxygen blocks on public methods.
+- `Population` checks the order of the steps of a generation (`Population::Step`, `checkOrder`).
+  A new operator gets a `checkStep()` call; an evaluation outside the class calls
+  `markEvaluated()`; tests that call single operators set `checkOrder = False`.

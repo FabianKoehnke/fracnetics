@@ -45,6 +45,8 @@ def evolved():
         pop.callAddDelNodes(MIN_FEATURES, MAX_FEATURES, junk=0.1, noElite=True,
                             currentGeneration=g, crossoverProtection=0)
         pop.callEdgeMutation(probInnerNodes=0, probStartNode=0, justUsedNodes=True, k=1)
+    # Crossover reads fitness and usage flags, so the tests start from a fresh evaluation
+    pop.gymnasium(env, seeds=[7, 42, 99], dMax=10, maxSteps=200, maxConsecutiveP=5)
     env.close()
     return pop
 

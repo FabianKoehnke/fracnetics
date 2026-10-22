@@ -17,7 +17,9 @@ def test_population_function():
         fractalJudgment=True,
         nFeatureValues=[0,0,0,0,0,0,2,2]
     )
-    
+    # Tests the operators one by one, not a generation
+    pop.checkOrder = False
+
     try:
         minF= [-4.8, -5, -0.418, -10]
         maxF= [4.8, 5, 0.418, 10]

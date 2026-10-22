@@ -230,6 +230,7 @@ class ParallelEvaluator:
         individuals = list(pop.individuals)
         n = len(individuals)
         if n == 0:
+            pop.markEvaluated()
             return
         seeds = list(seeds)
         if resetOptions is not None:
@@ -280,6 +281,8 @@ class ParallelEvaluator:
 
         # individuals[] yields references into the opaque NetworkVector, so the writes
         # above already landed in the population -- nothing to reassign.
+        # The workers evaluated copies, so pop's order check has to be told (Population::Step)
+        pop.markEvaluated()
 
     def close(self):
         self.pool.shutdown(wait=True)
