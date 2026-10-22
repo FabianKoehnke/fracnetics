@@ -2099,8 +2099,11 @@ class Population {
                     if(successor2.size() == 1 && 
                             currentGeneration - parent2.innerNodes[successor2[0]].generationReceived < crossoverProtection) continue;
 
+                    // An elite only donates; a single unused node is nothing to donate, and the
+                    // bidirectional swap below would change the elite
+                    if((parent1IsElite && successor1.size() <= 1) || (parent2IsElite && successor2.size() <= 1)) continue;
 
-                    if(parent1IsElite && successor1.size() > 1){
+                    if(parent1IsElite){
                         // parent1 is elite → only parent2 receives genes
                         parent2.nCrossovers += 1;
                         parent2.structureChangedThisGen = true;
@@ -2135,7 +2138,7 @@ class Population {
 
                         parent2.changeFalseEdges();
 
-                    } else if(parent2IsElite && successor2.size() > 1){
+                    } else if(parent2IsElite){
                         // parent2 is elite → only parent1 receives genes
                         parent1.nCrossovers += 1;
                         parent1.structureChangedThisGen = true;
@@ -2149,7 +2152,7 @@ class Population {
                         // Copy nodes from parent2 to parent1
                         for(int j=0; j<minSubNodes; j++){
                             parent1.innerNodes[successor1[j]] = parent2.innerNodes[successor2[j]];
-                            parent2.innerNodes[successor2[j]].generationReceived = currentGeneration;
+                            parent1.innerNodes[successor1[j]].generationReceived = currentGeneration;
                         }
 
                         std::vector<int> indices2;
