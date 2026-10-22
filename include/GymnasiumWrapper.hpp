@@ -229,10 +229,14 @@ inline void evaluateEpisodes(std::vector<Network>& individuals, const py::object
         network.objectivesPerCase.clear();
 
         for (size_t c = 0; c < seeds.size(); ++c) {
-            // Snapshot so a diff isolates this case's nodes (see Network::visitedNodesPerCase)
-            std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size());
-            for (size_t n = 0; n < network.innerNodes.size(); ++n) {
-                traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
+            // Snapshot so a diff isolates this case's nodes (see Network::visitedNodesPerCase).
+            // The first case resets the counters (newRun), so its baseline is zero, not the
+            // previous evaluation's counts.
+            std::vector<unsigned int> traverseCounterBefore(network.innerNodes.size(), 0);
+            if (c > 0) {
+                for (size_t n = 0; n < network.innerNodes.size(); ++n) {
+                    traverseCounterBefore[n] = network.innerNodes[n].traverseCounter;
+                }
             }
 
             std::vector<float> objectives =

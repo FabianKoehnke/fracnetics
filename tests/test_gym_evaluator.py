@@ -56,6 +56,25 @@ def test_cases_and_fitness():
         assert len(ind.objectivesPerCase) == 0 and len(ind.lexicaseObjectives) == 0
 
 
+def test_visited_nodes_do_not_carry_over_from_the_previous_evaluation():
+    """The first case resets the visit counters, so its node list must not contain nodes
+    that only the previous evaluation entered. A pickled copy starts from zero counters
+    and gives the reference."""
+    env = gym.make("CartPole-v1")
+    kwargs = dict(dMax=10, maxSteps=100, maxConsecutiveP=5)
+    pop = cartpolePopulation()
+    pop.checkOrder = False  # two evaluations in a row
+    pop.gymnasium(env, seeds=[11, 12], **kwargs)
+    pop.gymnasium(env, seeds=[7, 8], **kwargs)
+
+    fresh = cartpolePopulation()
+    fresh.individuals = [pickle.loads(pickle.dumps(ind)) for ind in pop.individuals]
+    fresh.gymnasium(env, seeds=[7, 8], **kwargs)
+    for ind, ref in zip(pop.individuals, fresh.individuals):
+        assert [sorted(v) for v in ind.visitedNodesPerCase] == \
+               [sorted(v) for v in ref.visitedNodesPerCase]
+
+
 def test_observation_must_cover_all_judgment_functions():
     """jnf=8 on a 4-value observation would read past its end; refuse instead."""
     pop = fn.Population(seed=5, ni=2, jn=4, jnf=8, pn=2, pnf=2, fractalJudgment=False,

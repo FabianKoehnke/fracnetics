@@ -80,21 +80,11 @@ def _collect(net):
 def _evalTask(payload):
     """Evaluate a few individuals on one block of the seed batch."""
     nets = [pickle.loads(b) for b in payload["nets"]]
-    # Node::traverseCounter and lastVisitStep ACCUMULATE across generations --
-    # clearUsedNodes() resets only `used`. Neither survives Node.__getstate__, so a
-    # freshly unpickled net would start counting from 0 while the sequential run
-    # continues from the carried-over value. The mutation operators read both, so the
-    # populations would diverge one generation later. Restore them before evaluating.
-    for net, counters, visits, lin in zip(nets, payload["traverseCounter"],
-                                          payload["lastVisitStep"], payload["lineage"]):
-        nodes = net.innerNodes
-        for node, counter, visit in zip(nodes, counters, visits):
-            node.traverseCounter = counter
-            node.lastVisitStep = visit
-        net.innerNodes = nodes
-        # Lineage statistics accumulate too (updateLineageStats / capLineageStats) and are
-        # likewise absent from the pickle -- sending them back without sending them in
-        # would reset the parent's running values to zero on every generation.
+    # traverseCounter and lastVisitStep need not be sent in: the first seed of every
+    # evaluation resets them. Lineage statistics accumulate across generations and are
+    # absent from the pickle -- sending them back without sending them in would reset
+    # the parent's running values to zero on every generation.
+    for net, lin in zip(nets, payload["lineage"]):
         (net.lineageMean, net.lineageM2, net.lineageN,
          net.lineageSuccessRate, net.lineageSuccessN) = lin
     _pop.individuals = nets
@@ -242,9 +232,7 @@ class ParallelEvaluator:
         splitSeeds = not kwargs.get("trackLineage", False)
 
         netBytes = [pickle.dumps(net, protocol=pickle.HIGHEST_PROTOCOL) for net in individuals]
-        # Carried separately because Node.__getstate__ drops them (see _evalTask)
-        counters = [[node.traverseCounter for node in net.innerNodes] for net in individuals]
-        visits = [[node.lastVisitStep for node in net.innerNodes] for net in individuals]
+        # Carried separately because Network.__getstate__ drops them (see _evalTask)
         lineage = [(net.lineageMean, net.lineageM2, net.lineageN,
                     net.lineageSuccessRate, net.lineageSuccessN) for net in individuals]
 
@@ -253,13 +241,6 @@ class ParallelEvaluator:
             payloads.append({
                 "task": (indices, lo),
                 "nets": [netBytes[i] for i in indices],
-                # A later block must start from zero counters: the first seed's visited-node
-                # snapshot is taken before the traversal resets them, and in the sequential
-                # run nothing is reset between seeds.
-                "traverseCounter": [counters[i] if lo == 0 else [0] * len(counters[i])
-                                    for i in indices],
-                "lastVisitStep": [visits[i] if lo == 0 else [0] * len(visits[i])
-                                  for i in indices],
                 "lineage": [lineage[i] for i in indices],
                 "seeds": seeds[lo:hi],
                 "resetOptions": None if resetOptions is None else resetOptions[lo:hi],
