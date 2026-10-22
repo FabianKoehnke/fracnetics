@@ -101,13 +101,13 @@ int main(){
         std::cout << 
             "Geneation: " << g << 
             " BestFit: " << population.individuals[population.indicesElite[0]].fitness << 
-            " MeanFitness: " << population.meanFitness << 
-            " MinFitness: " << population.minFitness <<
+            " MeanFitness: " << population.meanFitness() << 
+            " MinFitness: " << population.minFitness() <<
             " NetworkSize Best Ind: " << population.individuals[population.indicesElite[0]].innerNodes.size() << 
             " N crossover: " << population.individuals[population.indicesElite[0]].nCrossovers << std::endl;
 
 
-       bestFitnessPerGeneration.push_back(population.bestFit);
+       bestFitnessPerGeneration.push_back(population.bestFit());
        if(g > 1 && bestFitnessPerGeneration[g-1] == bestFitnessPerGeneration[g]){
            improvementCounter++;
            if(improvementCounter == generationsNoImprovementLimit){

@@ -302,10 +302,11 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("pnf", &Population::pnf)
         .def_readwrite("fractalJudgment", &Population::fractalJudgment)
         .def_readwrite("useExperience", &Population::useExperience)
-        .def_readwrite("bestFit", &Population::bestFit)
+        // Fitness statistics are computed from the current individuals on every read
+        .def_property_readonly("bestFit", &Population::bestFit)
+        .def_property_readonly("meanFitness", &Population::meanFitness)
+        .def_property_readonly("minFitness", &Population::minFitness)
         .def_readwrite("indicesElite", &Population::indicesElite)
-        .def_readwrite("meanFitness", &Population::meanFitness)
-        .def_readwrite("minFitness", &Population::minFitness)
         .def_readwrite("maxNetworkSize", &Population::maxNetworkSize)
         .def_readwrite("nextTransplantBlockID", &Population::nextTransplantBlockID) // caseSpecialist crossover block-id counter
         // Crossover diagnostics of the last crossover() call (filled by type="semantic" only)
@@ -606,11 +607,13 @@ lexicaseObjectives of every individual.)doc"
                 ind_list.append(py::cast(net));
             return py::make_tuple(
                 p.ni, p.jn, p.jnf, p.pn, p.pnf, p.fractalJudgment,
-                p.bestFit, p.indicesElite, p.meanFitness, p.minFitness, ind_list
+                p.indicesElite, ind_list
             );
         },
         [](py::tuple t) { // __setstate__
-            if (t.size() != 11)
+            // Older pickles have 11 fields: they also stored bestFit, meanFitness and minFitness
+            const bool legacy = t.size() == 11;
+            if (t.size() != 8 && !legacy)
                 throw std::runtime_error("Invalid state for Population!");
 
             Population p(
@@ -623,13 +626,10 @@ lexicaseObjectives of every individual.)doc"
                 t[5].cast<bool>()
             );
 
-            p.bestFit = t[6].cast<float>();
-            p.indicesElite = t[7].cast<std::vector<int>>();
-            p.meanFitness = t[8].cast<float>();
-            p.minFitness = t[9].cast<float>();
+            p.indicesElite = t[legacy ? 7 : 6].cast<std::vector<int>>();
 
             p.individuals.clear();
-            py::list ind_list = t[10].cast<py::list>();
+            py::list ind_list = t[legacy ? 10 : 7].cast<py::list>();
             for (auto item : ind_list)
                 p.individuals.push_back(item.cast<Network>());
 

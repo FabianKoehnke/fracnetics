@@ -79,11 +79,8 @@ class Population {
         bool fractalJudgment; /**< Flag indicating whether judgment nodes use fractal-based edge patterns */
         bool useExperience; ///< If true, all judgment nodes are created as "JE" nodes
         std::vector<Network> individuals; /**< Vector containing all Network individuals in the population */
-        float bestFit; /**< Fitness value of the best individual in the current population */
         std::vector<int> indicesElite; /**< Indices of elite individuals (protected from mutation) */
-        float meanFitness = 0; /**< Mean fitness across all individuals in the population */
-        float minFitness; /**< Minimum fitness value in the current population */
-        int maxNetworkSize; 
+        int maxNetworkSize;
         std::vector<int> nFeatureValues; /**< stores the number of feature values */
         // Diagnostics of the LAST crossover() call; only type="semantic" fills them
         int crossoverPairsApplied = 0;   /**< Parent pairs that actually entered the exchange. Together with the
@@ -98,6 +95,51 @@ class Population {
                                              sub-graph produced by crossover(type="caseSpecialist") with a unique
                                              Node::transplantBlockID (0 is reserved / unused, -1 means "no block"). */
         /** @endcond */
+
+        /** @name Fitness statistics */
+        /** @{ */
+        /**
+         * @brief Highest fitness among the current individuals.
+         *
+         * @details Computed from Network::fitness on every call, so it always describes the
+         * individuals as they are now: after an evaluation the evaluated population, after a
+         * selection the selected one, after a validation run the validation result. Mutation
+         * and crossover do not touch fitness, so until the next evaluation the value still
+         * refers to the last one. Individuals never evaluated carry the lowest float.
+         *
+         * @return Maximum fitness, or NaN for an empty population.
+         */
+        float bestFit() const {
+            if(individuals.empty()) return std::numeric_limits<float>::quiet_NaN();
+            float best = individuals[0].fitness;
+            for(const Network& ind : individuals) best = std::max(best, ind.fitness);
+            return best;
+        }
+
+        /**
+         * @brief Mean fitness over all current individuals, elite included.
+         * @details Computed on every call, like bestFit().
+         * @return Mean fitness, or NaN for an empty population.
+         */
+        float meanFitness() const {
+            if(individuals.empty()) return std::numeric_limits<float>::quiet_NaN();
+            double sum = 0.0; // double: float loses precision over many large rewards
+            for(const Network& ind : individuals) sum += ind.fitness;
+            return static_cast<float>(sum / individuals.size());
+        }
+
+        /**
+         * @brief Lowest fitness among the current individuals.
+         * @details Computed on every call, like bestFit().
+         * @return Minimum fitness, or NaN for an empty population.
+         */
+        float minFitness() const {
+            if(individuals.empty()) return std::numeric_limits<float>::quiet_NaN();
+            float worst = individuals[0].fitness;
+            for(const Network& ind : individuals) worst = std::min(worst, ind.fitness);
+            return worst;
+        }
+        /** @} */
 
         /** @name Self-adaptive mutation strength (Rechenberg 1/5-success-rule) */
         /** @{ */
@@ -423,12 +465,9 @@ class Population {
          * 1. Identifies the E individuals with highest fitness
          * 2. Copies them unchanged to the new population
          * 3. Stores their indices in indicesElite for mutation protection
-         * 
-         * **Statistic calculations**:
-         * - bestFit: Maximum fitness in population (including elite)
-         * - meanFitness: Average fitness in population 
-         * - minFitness: Minimum fitness in population
-         * 
+         *
+         * Afterwards bestFit(), meanFitness() and minFitness() describe the selected population.
+         *
          * Tournament selection provides tunable selective pressure: larger N increases pressure
          * (stronger individuals more likely to be selected), while smaller N maintains diversity.
          * Elitism ensures best solutions are never lost, providing monotonic improvement guarantee.
@@ -441,9 +480,8 @@ class Population {
          *        outliers (e.g. a single very hard case in the current generation). Applies
          *        ONLY to individuals with `lineageN >= minLineageN` (bootstrap protection); all
          *        others (e.g. young lineages right after initialisation) fall back to the raw
-         *        `fitness` until enough observations exist. Reporting values
-         *        (bestFit/meanFitness/minFitness) always stay the raw fitness of the tournament
-         *        winner, for consistent logging/plotting.
+         *        `fitness` until enough observations exist. The fitness statistics
+         *        (bestFit() etc.) always read the raw fitness, for consistent logging/plotting.
          * @param minLineageN Minimum number of lineage observations from which `lineageMean` is
          *        used instead of the raw fitness (only relevant if `useLineageFitness == true`).
          *        Default 10.
@@ -472,9 +510,6 @@ class Population {
             std::unordered_set<int> tournament;
             tournament.reserve(N);
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
-            meanFitness = 0;
-            minFitness = individuals[0].fitness;
-            bestFit = individuals[0].fitness;
             maxNetworkSize = individuals[0].innerNodes.size();
 
             for(int i=0; i<individuals.size()-E; i++){
@@ -497,15 +532,6 @@ class Population {
                    } 
                 }
                 selection.push_back(individuals[indexBestIndTournament]);
-                // Reporting stays on raw fitness, whatever the criterion
-                float bestFitTournament = individuals[indexBestIndTournament].fitness;
-                meanFitness += bestFitTournament;
-                if (bestFitTournament < minFitness) {
-                    minFitness = bestFitTournament;
-                }
-                if (bestFitTournament > bestFit) {
-                    bestFit = bestFitTournament;
-                }
             }
             setElite(E, individuals, selection, useLineageFitness, minLineageN, lineageZ);
             individuals = std::move(selection);
@@ -514,7 +540,6 @@ class Population {
                 bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
                 individuals[i].frozenExperience = isElite;
             }
-            meanFitness /= individuals.size();
         }
 
         /**
@@ -609,8 +634,8 @@ class Population {
          * @pre For the "cases*" types: all individuals carry equally sized, non-empty caseScores.
          *
          * @note Population size remains constant at ni.
-         * @note Elite handling and bestFit/meanFitness/minFitness bookkeeping mirror
-         *       tournamentSelection() for compatibility with the rest of the pipeline.
+         * @note Elite handling mirrors tournamentSelection() for compatibility with the rest
+         *       of the pipeline.
          */
         void lexicaseSelection(int E, float epsilon = -1.0f, std::string type = "objectives"){
             if(type != "objectives" && type != "cases" && type != "objectivesPerCase"
@@ -645,9 +670,6 @@ class Population {
             std::vector<Network> selection;
             selection.reserve(individuals.size());
 
-            meanFitness = 0;
-            minFitness = individuals[0].fitness;
-            bestFit = individuals[0].fitness;
             maxNetworkSize = individuals[0].innerNodes.size();
 
             std::vector<int> allIndices(individuals.size());
@@ -839,11 +861,6 @@ class Population {
                 }
 
                 selection.push_back(individuals[winnerIdx]);
-
-                float winnerFitness = individuals[winnerIdx].fitness;
-                meanFitness += winnerFitness;
-                if(winnerFitness < minFitness) minFitness = winnerFitness;
-                if(winnerFitness > bestFit) bestFit = winnerFitness;
             }
 
             setElite(E, individuals, selection);
@@ -853,7 +870,6 @@ class Population {
                 bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
                 individuals[i].frozenExperience = isElite;
             }
-            meanFitness /= individuals.size();
         }
 
         /**
@@ -882,9 +898,6 @@ class Population {
          *        established champions through sampling noise (winner's curse).
          *
          * @note Elite indices are used to protect elite from mutation operations
-         * @note bestFit is always updated from the raw fitness of the chosen elite candidate,
-         *       whatever the ranking criterion, so reporting stays on raw fitness (see
-         *       tournamentSelection()).
          */
         void setElite(int E, const std::vector<Network>& individuals, std::vector<Network>& selection,
                       bool useLineageFitness = false, int minLineageN = 10, float lineageZ = 0.0f){
@@ -916,8 +929,6 @@ class Population {
 
                 indicesElite.push_back(selection.size()); // because of push_back of elite the index is the old size
                 selection.push_back(individuals[eliteIndex]);
-                float eliteFit = individuals[eliteIndex].fitness; // raw fitness for bestFit reporting
-                if(eliteFit > bestFit){bestFit = eliteFit;} // set bestFit, otherwise elite will be forgotten in bestFit calculation
             }
         }
 
@@ -2680,9 +2691,6 @@ class Population {
             std::vector<Network> selection;
             selection.reserve(individuals.size());
             std::uniform_int_distribution<int> distribution(0, individuals.size()-1);
-            meanFitness = 0;
-            minFitness = individuals[0].fitness;
-            bestFit = individuals[0].fitness;
             maxNetworkSize = 0;
 
             for(size_t i = 0; i < individuals.size() - E; i++){
@@ -2719,13 +2727,6 @@ class Population {
                 int winner = nonDominated[ndDist(*generator)];
 
                 selection.push_back(individuals[winner]);
-                meanFitness += individuals[winner].fitness;
-                if(individuals[winner].fitness < minFitness){
-                    minFitness = individuals[winner].fitness;
-                }
-                if(individuals[winner].fitness > bestFit){
-                    bestFit = individuals[winner].fitness;
-                }
             }
 
             // Utopia-point elitism
@@ -2735,7 +2736,6 @@ class Population {
                 bool isElite = std::find(indicesElite.begin(), indicesElite.end(), i) != indicesElite.end();
                 individuals[i].frozenExperience = isElite;
             }
-            meanFitness /= individuals.size();
         }
 
         /**
@@ -2805,7 +2805,6 @@ class Population {
                 selection.push_back(individuals[idx]);
                 individuals[idx].nBest++;
                 alreadySelected.insert(idx);
-                if(individuals[idx].fitness > bestFit) bestFit = individuals[idx].fitness;
                 added++;
             }
         }
