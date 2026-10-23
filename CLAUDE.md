@@ -34,7 +34,8 @@ repository under `../dissertation/paper/LunarLander - Interval Boundaries/` and 
 installed `fracnetics`. Everything LunarLander-specific (curriculum, survival/potential reward
 modes, the five lexicase objectives, landing thresholds, hold action 4) is in its
 `code/lander.py`. Library changes must keep its `code/lunarlander.py` bit-identical to
-`runs/run_20260915_025833` (first 60 generations, all 8 columns of `curves.csv`).
+`runs/run_20260915_025833` (first 60 generations, all 8 columns of `curves.csv`) with
+`seedCount = 10`, which the benchmark sets.
 
 Everything is header-only, so **any** header change forces a full recompile of
 `bindings.cpp`. There are no incremental partial builds.

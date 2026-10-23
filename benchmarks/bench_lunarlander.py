@@ -86,6 +86,8 @@ if nSub != 1 or LOOP_END not in src:
 if args.workers:
     src, nSub = re.subn(r"^nWorkers\s*=\s*\d+", f"nWorkers = {args.workers}", src,
                         count=1, flags=re.M)
+# The reference run trained on 10 seeds up to its first seed-schedule step (gen >= 150)
+src = re.sub(r"^seedCount\s*=\s*\d+", "seedCount = 10", src, count=1, flags=re.M)
 src = src[:src.index(LOOP_END)]
 src = src.replace("for g in range(generations):",
                   "__loopStart = time.perf_counter()\nfor g in range(generations):", 1)
