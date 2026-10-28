@@ -569,7 +569,8 @@ lexicaseObjectives of every individual.)doc"
              py::arg("lineagePriorCap")=5,
              py::arg("boundaryTolerance")=1.0f,   // type="semantic" only
              py::arg("matchOnlyUsed")=false,      // type="semantic" only
-             py::arg("nodeExchangeRate")=-1.0f)   // type="semantic" only; <0 = use probability
+             py::arg("nodeExchangeRate")=-1.0f,   // type="semantic" only; <0 = use probability
+             py::arg("bidirectional")=false)      // type="semantic" only; non-elite pairs swap
         .def(
             "callAddDelNodes",
             [](Population &p, py::list minF_py, py::list maxF_py, float junk, bool noElite, int currentGeneration, int crossoverProtection, int nodeGracePeriod)

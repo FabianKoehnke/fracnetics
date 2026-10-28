@@ -86,7 +86,8 @@ class Population {
         int crossoverPairsApplied = 0;   /**< Parent pairs that actually entered the exchange. Together with the
                                               counters below it tells "no effect" apart from "never fired". */
         int crossoverNodesMatched = 0;   /**< Node pairs the role matching found, summed over all pairs. */
-        int crossoverNodesExchanged = 0; /**< Nodes actually transferred donor -> recipient. */
+        int crossoverNodesExchanged = 0; /**< Nodes actually transferred donor -> recipient (with bidirectional
+                                              also recipient -> donor). */
         int crossoverNodesSkipped = 0;   /**< Nodes drawn for exchange but skipped: an edge was untranslatable.
                                               If this dominates crossoverNodesExchanged, boundaryTolerance is too
                                               tight for a gene to travel with its whole neighbourhood (see the
@@ -1539,7 +1540,8 @@ class Population {
          *    the same gene. Greedy instead of optimal (Hungarian) matching, since the groups are small and
          *    both almost always agree; (3) transfer each matched node with `nodeExchangeRate`; (4)
          *    translate its edges through the matching table. The elite only donates; otherwise the fitter
-         *    parent (mean over caseScores, else fitness) donates and stays unchanged.
+         *    parent (mean over caseScores, else fitness) donates and stays unchanged, or with
+         *    `bidirectional` both parents donate.
          *    The exchange is ALL-OR-NOTHING per node: boundaries and edges of a judgment node belong
          *    together (edge k = "feature in interval k, go there"), so mixing donor intervals with
          *    recipient targets would create a node NO parent has ever tested. A node is therefore only
@@ -1607,6 +1609,12 @@ class Population {
           *  @param matchOnlyUsed Only used by type="semantic": if true, nodes never entered
           *         during the last evaluation (Node::used == false) take no part in the
           *         matching, so dormant material is not exchanged.
+          *  @param bidirectional Only used by type="semantic": if true, in a pair without an elite
+          *         the fitter parent also receives: each drawn node pair is transferred both ways,
+          *         each direction by the all-or-nothing rule on its own, so the less fit parent
+          *         receives exactly what the one-way transfer gives it. The fitter one is chosen on
+          *         a few noisy cases. A pair with an elite stays one-way. Default false (one-way,
+          *         as before).
          * 
          * @note tournamentSelection() must have been called to set indicesElite
          * @note Only nodes up to min(size1, size2) can be exchanged for "uniform" and "onepoint" due to position-based matching
@@ -1623,7 +1631,8 @@ class Population {
                 int lineagePriorCap = 5,
                 float boundaryTolerance = 1.0f,
                 bool matchOnlyUsed = false,
-                float nodeExchangeRate = -1.0f
+                float nodeExchangeRate = -1.0f,
+                bool bidirectional = false
                 ){
 
             // "semantic": nodeExchangeRate < 0 couples both rates (see docstring)
@@ -1908,7 +1917,9 @@ class Population {
                         return sum / static_cast<float>(net.caseScores.size());
                     };
 
-                    // Elite only donates; otherwise the fitter parent donates and stays unchanged
+                    // Elite only donates; otherwise the fitter parent donates and stays unchanged,
+                    // or with bidirectional both donate
+                    const bool bothWays = bidirectional && !parent1IsElite && !parent2IsElite;
                     Network* recipient = nullptr;
                     Network* donorNet  = nullptr;
                     if(parent1IsElite){
@@ -1990,49 +2001,76 @@ class Population {
                     if(donorToRecipient.empty()) continue; // no shared role -> pair unchanged
                     crossoverNodesMatched += static_cast<int>(donorToRecipient.size());
 
-                    // All-or-nothing per node: taken only if EVERY edge translates (see docstring)
-                    bool changed = false;
+                    std::unordered_map<int, int> recipientToDonor;
+                    if(bothWays){
+                        for(auto const& [d, r] : donorToRecipient) recipientToDonor.emplace(r, d);
+                    }
+                    auto translate = [](const Node& node, const std::unordered_map<int, int>& table,
+                                        std::vector<int>& out) -> bool {
+                        out.clear();
+                        out.reserve(node.edges.size());
+                        for(int target : node.edges){
+                            auto mapped = table.find(target);
+                            if(mapped == table.end()) return false;
+                            out.push_back(mapped->second);
+                        }
+                        return true;
+                    };
+                    auto receive = [currentGeneration](Node& target, const Node& incoming, std::vector<int>&& edges){
+                        unsigned int keptPosition = target.id;
+                        target = incoming;
+                        target.id = keptPosition;              // position belongs to the receiving network
+                        target.edges = std::move(edges);
+                        target.generationReceived = currentGeneration;
+                        target.traverseCounter = 0;
+                        target.lastVisitStep = 0;
+                    };
+
+                    // All-or-nothing per node and direction: taken only if EVERY edge translates
+                    // (see docstring); translate first, a network stays untouched until the gene fits
+                    bool recipientChanged = false, donorChanged = false;
                     for(auto const& [donorIdx, recipientIdx] : donorToRecipient){
                         if(!distributionNodeExchange(*generator)) continue;
 
-                        const Node& donorNode = donorNet->innerNodes[donorIdx];
+                        std::vector<int> toRecipient, toDonor;
+                        const bool forward = translate(donorNet->innerNodes[donorIdx], donorToRecipient, toRecipient);
+                        const bool backward = bothWays &&
+                            translate(recipient->innerNodes[recipientIdx], recipientToDonor, toDonor);
+                        if(!forward) crossoverNodesSkipped++;
+                        if(bothWays && !backward) crossoverNodesSkipped++;
 
-                        // Translate first; the recipient is untouched until the whole gene fits
-                        std::vector<int> translatedEdges;
-                        translatedEdges.reserve(donorNode.edges.size());
-                        bool translatable = true;
-                        for(int donorTarget : donorNode.edges){
-                            auto mapped = donorToRecipient.find(donorTarget);
-                            if(mapped == donorToRecipient.end()){
-                                translatable = false;
-                                break;
-                            }
-                            translatedEdges.push_back(mapped->second);
+                        // Copy first: both nodes may be overwritten
+                        const Node fromDonor = donorNet->innerNodes[donorIdx];
+                        if(backward){
+                            receive(donorNet->innerNodes[donorIdx], recipient->innerNodes[recipientIdx], std::move(toDonor));
+                            crossoverNodesExchanged++;
+                            donorChanged = true;
                         }
-                        if(!translatable){
-                            crossoverNodesSkipped++;
-                            continue;
+                        if(forward){
+                            receive(recipient->innerNodes[recipientIdx], fromDonor, std::move(toRecipient));
+                            crossoverNodesExchanged++;
+                            recipientChanged = true;
                         }
-
-                        Node& targetNode = recipient->innerNodes[recipientIdx];
-                        unsigned int keptPosition = targetNode.id;
-                        targetNode = donorNode;
-                        targetNode.id = keptPosition;              // position belongs to the recipient
-                        targetNode.edges = std::move(translatedEdges);
-                        targetNode.generationReceived = currentGeneration;
-                        targetNode.traverseCounter = 0;
-                        targetNode.lastVisitStep = 0;
-                        crossoverNodesExchanged++;
-                        changed = true;
                     }
 
-                    if(!changed) continue;
+                    if(!recipientChanged && !donorChanged) continue;
                     crossoverPairsApplied++;
 
-                    recipient->changeFalseEdges();
-                    recipient->nCrossovers += 1;
-                    recipient->structureChangedThisGen = true;
-                    recipient->blendLineageWith(*donorNet, lineagePriorCap);
+                    // Each changed side counts the crossover and absorbs the other's lineage
+                    if(recipientChanged && donorChanged){
+                        blendLineageBidirectional(*donorNet, *recipient);
+                    } else if(recipientChanged){
+                        recipient->blendLineageWith(*donorNet, lineagePriorCap);
+                    } else {
+                        donorNet->blendLineageWith(*recipient, lineagePriorCap);
+                    }
+                    auto markChanged = [](Network* net){
+                        net->changeFalseEdges();
+                        net->nCrossovers += 1;
+                        net->structureChangedThisGen = true;
+                    };
+                    if(recipientChanged) markChanged(recipient);
+                    if(donorChanged) markChanged(donorNet);
                     continue;
 
                 } else if(type == "uniform"){

@@ -4,7 +4,8 @@ Nodes are matched by what they do -- (type, f, edges.size()) as the coarse role,
 inner boundaries as the fine adjustment -- rather than by array position or by origin.
 These tests pin down the three properties the operator is supposed to have: it never
 grows the network, it only exchanges nodes of an identical role, and it leaves every
-graph valid (edges translated through the matching table).
+graph valid (edges translated through the matching table). The invariants hold for the
+one-way transfer and for the swap (bidirectional=True) alike.
 """
 
 import gymnasium as gym
@@ -51,27 +52,33 @@ def evolved():
     return pop
 
 
-def test_never_grows_the_network(evolved):
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_never_grows_the_network(evolved, bidirectional):
     """Unmatched nodes stay put -- unlike "innovation", nothing is appended."""
     before = [n for n, _ in snapshot(evolved)]
-    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      bidirectional=bidirectional)
     after = [n for n, _ in snapshot(evolved)]
     assert after == before
 
 
-def test_role_multiset_is_preserved(evolved):
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_role_multiset_is_preserved(evolved, bidirectional):
     """A node is only ever replaced by one of an identical role, so the multiset of
     (type, f, arity) an individual carries cannot change."""
     before = [roles for _, roles in snapshot(evolved)]
-    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      bidirectional=bidirectional)
     after = [roles for _, roles in snapshot(evolved)]
     assert after == before
 
 
-def test_all_edges_stay_in_range(evolved):
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_all_edges_stay_in_range(evolved, bidirectional):
     """Edges of a transferred node are donor indices; after translation every edge must
     still address a node of the recipient."""
-    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      bidirectional=bidirectional)
     for ind in evolved.individuals:
         n = len(ind.innerNodes)
         for node in ind.innerNodes:
@@ -79,11 +86,13 @@ def test_all_edges_stay_in_range(evolved):
         assert all(0 <= e < n for e in ind.startNode.edges)
 
 
-def test_population_still_evaluates(evolved):
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_population_still_evaluates(evolved, bidirectional):
     """End to end: the recombined networks must still run."""
     env = gym.make("LunarLander-v3", continuous=False, gravity=-10.0, enable_wind=False,
                    wind_power=15.0, turbulence_power=0.5)
-    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      bidirectional=bidirectional)
     evolved.gymnasium(env, seeds=[7, 42], dMax=10, maxSteps=200, maxConsecutiveP=5)
     env.close()
     assert all(len(ind.caseScores) == 2 for ind in evolved.individuals)
@@ -115,13 +124,15 @@ def test_tolerance_zero_restricts_matching(evolved):
     assert counts[0.0] <= counts[1.0]
 
 
-def test_all_or_nothing_keeps_boundaries_and_edges_together(evolved):
+@pytest.mark.parametrize("bidirectional", [False, True])
+def test_all_or_nothing_keeps_boundaries_and_edges_together(evolved, bidirectional):
     """A node is transferred only if ALL its edges translate, so a transferred node
     carries the donor's boundaries together with the donor's (translated) wiring --
     never a mix of donor intervals and recipient targets."""
     donorSnapshot = [[(tuple(n.boundaries), tuple(n.edges)) for n in ind.innerNodes]
                      for ind in evolved.individuals]
-    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99)
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      bidirectional=bidirectional)
     # Every node still has one edge per interval -- the invariant a mixed splice breaks.
     for ind in evolved.individuals:
         for node in ind.innerNodes:
@@ -190,3 +201,45 @@ def test_negative_node_rate_reproduces_the_coupled_behaviour(evolved):
     # At propability = 1 both draws always succeed, so the two must agree in kind.
     assert coupled[0] > 0 and explicit[0] > 0
     assert coupled[1] > 0 and explicit[1] > 0
+
+
+def recombine(bidirectional):
+    """Node content per individual after one crossover; no elite, so every pair may swap."""
+    pop = buildPopulation(ni=40, seed=21)
+    pop.checkOrder = False
+    pop.callBoundaryMutationNormal(probability=0.5, sigma=0.4, justUsedNodes=False, k=0)
+    pop.indicesElite = []
+    before = [[(tuple(n.boundaries), tuple(n.edges)) for n in ind.innerNodes]
+              for ind in pop.individuals]
+    pop.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                  nodeExchangeRate=1.0, bidirectional=bidirectional)
+    after = [[(tuple(n.boundaries), tuple(n.edges)) for n in ind.innerNodes]
+             for ind in pop.individuals]
+    return before, after
+
+
+def test_bidirectional_adds_the_reverse_transfer():
+    """The less fit parent receives exactly what the one-way transfer gives it; in
+    addition the fitter parent receives, so more individuals change."""
+    before, oneWay = recombine(False)
+    _, bothWays = recombine(True)
+    recipients = [i for i, (b, a) in enumerate(zip(before, oneWay)) if b != a]
+    assert recipients
+    for i in recipients:
+        assert bothWays[i] == oneWay[i]
+    donorsChanged = [i for i in range(len(before))
+                     if i not in recipients and bothWays[i] != before[i]]
+    assert donorsChanged
+
+
+def test_elite_only_donates_with_bidirectional(evolved):
+    """A pair with an elite stays one-way: the elite is never changed."""
+    elite = list(evolved.indicesElite)
+    assert elite
+    before = {i: [(tuple(n.boundaries), tuple(n.edges)) for n in evolved.individuals[i].innerNodes]
+              for i in elite}
+    evolved.crossover(probability=1.0, type="semantic", currentGeneration=99,
+                      nodeExchangeRate=1.0, bidirectional=True)
+    for i in elite:
+        assert [(tuple(n.boundaries), tuple(n.edges))
+                for n in evolved.individuals[i].innerNodes] == before[i]
