@@ -106,4 +106,29 @@ for a step out of order until the next evaluation. `gymnasium()`, `callTraverseP
 your own call `pop.markEvaluated()`. To call single operators on purpose (e.g. in tests), set
 `pop.checkOrder = False`.
 
+
+## 🏆 Hall of Fame for Noisy Evaluations
+
+With stochastic episodes the training fitness on a few cases ranks the population poorly.
+`HallOfFame` re-scores the best candidates and the current champion on the same fresh cases
+every generation; the winner becomes the champion, and the round order fills the elite slots
+after the selection. With `memory=True` the champion accumulates its scores, and a round
+winner must confirm on further fresh cases before it takes over.
+
+```python
+from fracnetics.hall_of_fame import HallOfFame
+from fracnetics.parallel_eval import ParallelEvaluator
+
+evaluator = ParallelEvaluator(env, popKwargs)
+evaluate = lambda target, cases: evaluator.evaluate(target, seeds=cases, maxSteps=1000)
+hof = HallOfFame(popKwargs, evaluate, candidates=10, memory=True, retestCases=100)
+for g in range(generations):
+    evaluate(pop, trainingSeeds(g))
+    hof.update(pop, drawFreshSeeds(50), drawRetestCases=drawFreshSeeds)  # between evaluation and selection
+    pop.lexicaseSelection(E=2, type="casesStandardized", epsilon=0.1)
+    hof.placeElites(pop)                                                # right after the selection
+    ...                                                                 # crossover, growth, mutations
+champion, score = hof.champion, hof.score
+```
+
 ---

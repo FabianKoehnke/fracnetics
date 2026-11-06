@@ -17,7 +17,7 @@ alike. Chat with the maintainer stays German.
 |---|---|
 | `include/*.hpp` | **The entire core, header-only.** `Population.hpp` (selection, crossover, mutation), `Network.hpp` (graph, traversal, `act()`/`recordStep()` for episodes), `Node.hpp` (nodes, edges, boundaries), `Fractal.hpp` -- plain C++, no Python. `GymnasiumWrapper.hpp` is the only pybind11 part: the generic episode loop behind `Population.gymnasium()` |
 | `bindings/bindings.cpp` | pybind11 bindings — the **only** translation unit |
-| `fracnetics/` | Python package. `__init__.py`, `utilsModel.py` and `parallel_eval.py` (process-parallel evaluation) are versioned, `_core*.so` is built |
+| `fracnetics/` | Python package. `__init__.py`, `utilsModel.py`, `parallel_eval.py` (process-parallel evaluation) and `hall_of_fame.py` (elite re-evaluation on fresh cases, champion with optional memory) are versioned, `_core*.so` is built |
 | `tests/` | `*.cpp` GoogleTest, `test_*.py` pytest; `Data.hpp`/`PrintHelper.hpp` only serve the `iris.cpp` example |
 | `examples/` | Notebooks (CartPole, IRIS, MountainCar) |
 | `benchmarks/` | `bench_lunarlander.py`: times the first N generations of the LunarLander script and checks them bit for bit against the reference run |

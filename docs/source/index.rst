@@ -102,6 +102,16 @@ values of networks that no longer exist. Since version 4.0.0 the population ther
 count as evaluations; after an evaluation of your own call ``pop.markEvaluated()``. To call
 single operators on purpose (e.g. in tests), set ``pop.checkOrder = False``.
 
+Hall of fame for noisy evaluations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With stochastic episodes the training fitness on a few cases ranks the population poorly.
+``fracnetics.hall_of_fame.HallOfFame`` re-scores the best candidates and the current champion
+on the same fresh cases every generation; the winner becomes the champion, and the round order
+fills the elite slots after the selection (``update()`` between evaluation and selection,
+``placeElites()`` right after it). With ``memory=True`` the champion accumulates its scores,
+and a round winner must confirm on further fresh cases before it takes over.
+
 
 Applications
 ------------
