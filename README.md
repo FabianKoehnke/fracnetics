@@ -131,4 +131,20 @@ for g in range(generations):
 champion, score = hof.champion, hof.score
 ```
 
+
+## 🎯 Data-Guided Boundary Mutation
+
+A judgment node splits the declared range of its feature into intervals, but in practice it
+judges only a small part of that range, so most boundaries never separate two values that
+occur and most boundary mutations change nothing. Every evaluation therefore records, per
+judgment node, the range of the values it judged (`seenMin`, `seenMax`), and over the node's
+lifetime (`everSeenMin`, `everSeenMax`, inherited by offspring). With `dataGuided=True` the
+uniform mutation redraws a boundary only inside its gap ∩ that range, and the normal mutation
+scales its step with the range instead of the gap; `everSeen=True` uses the lifetime range.
+
+```python
+pop.callBoundaryMutationNormal(probability=0, sigma=0.2, justUsedNodes=True, k=1, dataGuided=True, everSeen=True)
+pop.callBoundaryMutationUniform(probability=0, justUsedNodes=True, k=1, dataGuided=True, everSeen=True)
+```
+
 ---

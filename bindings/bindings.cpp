@@ -86,6 +86,10 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("generationReceived", &Node::generationReceived)
     .def_readwrite("everUsed", &Node::everUsed)         // grace period (addDelNodes)
     .def_readwrite("unusedSince", &Node::unusedSince)   // grace period (addDelNodes)
+    .def_readwrite("seenMin", &Node::seenMin)           // observed value range (data-guided boundary mutation)
+    .def_readwrite("seenMax", &Node::seenMax)
+    .def_readwrite("everSeenMin", &Node::everSeenMin)   // lifetime range, never reset
+    .def_readwrite("everSeenMax", &Node::everSeenMax)
     .def_readwrite("transplantBlockID", &Node::transplantBlockID)   // Population::crossover(type="caseSpecialist")
     .def_readwrite("isBlockEntry", &Node::isBlockEntry)             // Population::crossover(type="caseSpecialist")
     .def_readwrite("edgeExperience", &Node::edgeExperience)
@@ -515,10 +519,12 @@ lexicaseObjectives of every individual.)doc"
              py::arg("probInnerNodes"), py::arg("probStartNode"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
+             py::arg("dataGuided")=false, py::arg("everSeen")=false)
         .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
+             py::arg("probability"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
+             py::arg("dataGuided")=false, py::arg("everSeen")=false)
         .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)

@@ -112,6 +112,15 @@ fills the elite slots after the selection (``update()`` between evaluation and s
 ``placeElites()`` right after it). With ``memory=True`` the champion accumulates its scores,
 and a round winner must confirm on further fresh cases before it takes over.
 
+Data-guided boundary mutation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every evaluation records, per judgment node, the range of the values it judged
+(``seenMin``/``seenMax``) and over the node's lifetime (``everSeenMin``/``everSeenMax``).
+With ``dataGuided=True`` the uniform boundary mutation redraws a boundary only inside its
+gap ∩ that range, and the normal mutation scales its step with the range instead of the gap;
+``everSeen=True`` uses the lifetime range.
+
 
 Applications
 ------------

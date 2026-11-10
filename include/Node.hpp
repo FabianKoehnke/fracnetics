@@ -1,6 +1,7 @@
 #ifndef NODE_HPP
 #define NODE_HPP
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 #include <string>
@@ -57,6 +58,17 @@ class Node {
                                              traverseCounter, which previously carried this timestamp and was
                                              therefore unusable as a frequency. */
         int generationReceived = -1;
+        float seenMin = std::numeric_limits<float>::infinity();   /**< Smallest value of feature f this judgment
+                                                                        node judged since the usage flags were last
+                                                                        cleared (Network::clearUsedNodes()), i.e. over
+                                                                        the cases of the last evaluation. +inf if none. */
+        float seenMax = -std::numeric_limits<float>::infinity();  /**< Largest such value; -inf if none. The pair is
+                                                                        the observed value range the data-guided
+                                                                        boundary mutations work in. */
+        float everSeenMin = std::numeric_limits<float>::infinity();   /**< Like seenMin, but never reset: the range
+                                                                            over every evaluation since the node was
+                                                                            created; copies (offspring) inherit it. */
+        float everSeenMax = -std::numeric_limits<float>::infinity();  /**< Upper end of that lifetime range. */
 
         // ─── Grace period for recently active nodes (Network::ageUnusedNodes) ───
         bool everUsed = false;      /**< true once the node has been traversed at least once */
@@ -217,6 +229,26 @@ class Node {
             }
             // type "E" or unknown → edges stays empty
         } 
+
+        /**
+         * @brief Widens the observed value range (seenMin, seenMax) by a judged value.
+         *
+         * @details Called by Network::decisionAndNextNode() for every judgment; reset with the usage
+         * flags (Network::clearUsedNodes()). The data-guided boundary mutations read the range.
+         *
+         * @param v Value of feature f the node is judging.
+         */
+        void observe(float v){
+            if(v < seenMin) seenMin = v;
+            if(v > seenMax) seenMax = v;
+            if(v < everSeenMin) everSeenMin = v;
+            if(v > everSeenMax) everSeenMax = v;
+        }
+
+        /** @brief Lower end of the observed range: of the last evaluation, or over the node's lifetime. */
+        float rangeMin(bool everSeen) const { return everSeen ? everSeenMin : seenMin; }
+        /** @brief Upper end of the observed range, see rangeMin(). */
+        float rangeMax(bool everSeen) const { return everSeen ? everSeenMax : seenMax; }
 
         /**
          * @brief Evaluates a feature value and determines which outgoing edge to follow.
@@ -469,9 +501,18 @@ class Node {
          * @param k If > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation()).
          * @param N Normalisation of the k/N rate; Population passes the number of edges of the
          * eligible nodes (see Population::applyBoundaryMutation()).
+         * @param dataGuided If true, the new value is drawn from the part of the gap that lies in the
+         * observed value range [seenMin, seenMax]; a gap outside that range stays unchanged. Most
+         * boundaries of a node spanning a wide feature range never meet a value, so a plain redraw
+         * mostly lands where it changes no decision. Without an observed range it falls back to the
+         * whole gap.
+         * @param everSeen With dataGuided: use the lifetime range (everSeenMin/Max) instead of the range
+         * of the last evaluation, so the range does not move with each generation's cases and keeps
+         * rare situations.
          *
          */
-        bool boundaryMutationUniform(float propability, float k=0.0f, int N=1){
+        bool boundaryMutationUniform(float propability, float k=0.0f, int N=1, bool dataGuided=false,
+                                     bool everSeen=false){
 
             if (frozen > 0) return false;
 
@@ -514,6 +555,18 @@ class Node {
 
                 std::bernoulli_distribution distributionBernoulli(p);
                 if(distributionBernoulli(*generator)){
+                    if(dataGuided && rangeMin(everSeen) <= rangeMax(everSeen)){
+                        // Redraw only where judged values lie
+                        float lo = std::max(static_cast<float>(boundaries[i-1]), rangeMin(everSeen));
+                        float hi = std::min(static_cast<float>(boundaries[i+1]), rangeMax(everSeen));
+                        if(!(lo < hi)) continue;
+                        std::uniform_real_distribution<float> distributionData(lo, hi);
+                        boundaries[i] = distributionData(*generator);
+                        changed = true;
+                        if(type == "JE") edgeExperience[i-1] = EdgeExperience{};
+                        if(type == "JE") edgeExperience[i] = EdgeExperience{};
+                        continue;
+                    }
                     std::uniform_real_distribution<float> distributionUniform(boundaries[i-1], boundaries[i+1]);
                     boundaries[i] = distributionUniform(*generator);
                     changed = true;
@@ -615,8 +668,14 @@ class Node {
          * @param k optional adaptive parameter: if > 0, replaces propability with min(1, k/N); N == 0 yields 0 (see edgeMutation())
          * @param N Normalisation of the k/N rate; Population passes the number of edges of the
          * eligible nodes (see Population::applyBoundaryMutation()).
+         * @param dataGuided If true (and the node judged at least two different values), sigma is
+         * relative to the observed value range seenMax - seenMin instead of the smaller gap: on a
+         * node spanning the whole declared feature range the gap is far wider than the values the
+         * node actually sees, so gap-relative steps are too coarse inside the data.
+         * @param everSeen With dataGuided: relative to the lifetime range (everSeenMax - everSeenMin).
          */
-        bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1){
+        bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1, bool dataGuided=false,
+                                    bool everSeen=false){
 
             if (frozen > 0) return false;
 
@@ -668,7 +727,12 @@ class Node {
                     if(type != "JE"){
                         float lowerGap = boundaries[i] - boundaries[i-1];
                         float upperGap = boundaries[i+1] - boundaries[i];
-                        adaptiveSigma = sigma * std::min(lowerGap, upperGap);
+                        if(dataGuided && rangeMin(everSeen) < rangeMax(everSeen)){
+                            // Step on the scale of the judged values, not of the (often far wider) gap
+                            adaptiveSigma = sigma * (rangeMax(everSeen) - rangeMin(everSeen));
+                        } else {
+                            adaptiveSigma = sigma * std::min(lowerGap, upperGap);
+                        }
                     }
                     std::normal_distribution<float> distributionNormal(mu, adaptiveSigma);
                     float newBoundary = distributionNormal(*generator);

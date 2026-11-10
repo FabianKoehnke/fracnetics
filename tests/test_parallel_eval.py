@@ -67,6 +67,7 @@ def _snapshot(pop):
             [pytest.approx(v) for v in n.lexicaseObjectives],
             [[pytest.approx(v) for v in o] for o in n.objectivesPerCase],
             [nd.used for nd in n.innerNodes],
+            [(nd.seenMin, nd.seenMax) for nd in n.innerNodes],
         ))
     return out
 

@@ -74,6 +74,9 @@ def _collect(net):
         "used": [n.used for n in net.innerNodes],
         "traverseCounter": [n.traverseCounter for n in net.innerNodes],
         "lastVisitStep": [n.lastVisitStep for n in net.innerNodes],
+        # Observed value range per judgment node, read by the data-guided boundary mutations
+        "seenMin": [n.seenMin for n in net.innerNodes],
+        "seenMax": [n.seenMax for n in net.innerNodes],
     }
 
 
@@ -100,7 +103,7 @@ def _mergeBlocks(blocks):
     visit counts add up, `used` is an OR, and lastVisitStep -- a timestamp of the
     network-wide step counter -- is shifted by the counter's advance in all earlier blocks.
     Every advance enters exactly one node, so a block's advance is the sum of its node
-    counters.
+    counters. The observed value range is the union of the blocks' ranges.
     fitness and lexicaseObjectives are recomputed by Network.aggregateCaseResults().
     """
     merged = dict(blocks[-1])  # state after the last episode: currentNodeID, invalid, ...
@@ -117,6 +120,8 @@ def _mergeBlocks(blocks):
                 visits[i] = offset + block["lastVisitStep"][i]
         offset += sum(block["traverseCounter"])
     merged["used"], merged["traverseCounter"], merged["lastVisitStep"] = used, counters, visits
+    merged["seenMin"] = [min(block["seenMin"][i] for block in blocks) for i in range(nNodes)]
+    merged["seenMax"] = [max(block["seenMax"][i] for block in blocks) for i in range(nNodes)]
     return merged
 
 
@@ -140,12 +145,18 @@ def applyResult(net, result):
     # innerNodes returns a copy (std::vector<Node> is not opaque), so the whole list
     # has to be written back after patching the traversal flags.
     nodes = net.innerNodes
-    for node, used, counter, visit in zip(nodes, result["used"],
-                                          result["traverseCounter"],
-                                          result["lastVisitStep"]):
+    for node, used, counter, visit, lo, hi in zip(nodes, result["used"],
+                                                  result["traverseCounter"],
+                                                  result["lastVisitStep"],
+                                                  result["seenMin"], result["seenMax"]):
         node.used = used
         node.traverseCounter = counter
         node.lastVisitStep = visit
+        node.seenMin = lo
+        node.seenMax = hi
+        # The lifetime range lives only in the parent (not pickled): widen it by this evaluation
+        node.everSeenMin = min(node.everSeenMin, lo)
+        node.everSeenMax = max(node.everSeenMax, hi)
     net.innerNodes = nodes
 
 

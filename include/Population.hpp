@@ -1338,11 +1338,16 @@ class Population {
          * 
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
+         * @param dataGuided If true, a mutated boundary is redrawn only within the part of its gap that the
+         *  node's judged values covered in the last evaluation (Node::seenMin/seenMax); see
+         *  Node::boundaryMutationUniform(). Off by default (the plain redraw over the whole gap).
+         * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
          * 
          */
-        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false, float k = 0.0f){
+        void callBoundaryMutationUniform(const float probability, bool justUsedNodes = false, float k = 0.0f,
+                                         bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){ 
-                return node.boundaryMutationUniform(probability, k, N);
+                return node.boundaryMutationUniform(probability, k, N, dataGuided, everSeen);
             }, justUsedNodes, k, 1, "callBoundaryMutationUniform()");
         }
       
@@ -1363,12 +1368,17 @@ class Population {
          *  boundaries (see Node::boundaryMutationNormal()).
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
          * @param k If > 0, replaces probability with min(1, k/N); see applyBoundaryMutation() for N.
+         * @param dataGuided If true, sigma is relative to the node's observed value range of the last
+         *  evaluation (Node::seenMax - Node::seenMin) instead of the smaller gap; see
+         *  Node::boundaryMutationNormal(). Off by default.
+         * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */
-        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+        void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f,
+                                        bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
-                return node.boundaryMutationNormal(probability, sigma, k, N);
+                return node.boundaryMutationNormal(probability, sigma, k, N, dataGuided, everSeen);
             }, justUsedNodes, k, 1, "callBoundaryMutationNormal()");
         }
 

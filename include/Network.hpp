@@ -243,6 +243,8 @@ class Network {
         void clearUsedNodes(){
             for(auto& node : innerNodes){
                 node.used = false;
+                node.seenMin = std::numeric_limits<float>::infinity();   // observed range of this evaluation
+                node.seenMax = -std::numeric_limits<float>::infinity();
             }
         }
         
@@ -389,6 +391,7 @@ class Network {
                    || innerNodes[currentNodeID].type == "JE") {
 
                     v = data[innerNodes[currentNodeID].f];
+                    innerNodes[currentNodeID].observe(static_cast<float>(v));
                     int judgeResult;
 
                     if (innerNodes[currentNodeID].type == "JE") {
