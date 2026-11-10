@@ -13,6 +13,7 @@ MINF = [-2.5, -2.5, -10, -10, -6.2831855, -10, 0, 0]
 MAXF = [2.5, 2.5, 10, 10, 6.2831855, 10, 1, 1]
 ROUND = [101, 102, 103, 104]
 RETEST = [201, 202, 203, 204, 205, 206]
+CONFIRM = [301, 302, 303, 304, 305, 306]
 
 
 def signature(net):
@@ -54,11 +55,11 @@ class Draws:
         return RETEST[:n]
 
 
-def setup(memory=False, retestCases=6, marginSE=1.0):
+def setup(memory=False, retestCases=6, marginSE=1.0, confirmCases=0):
     pop, ev = population(), FakeEvaluation()
     sig = [signature(ind) for ind in pop.individuals]
     hof = HallOfFame(POPKW, ev, candidates=10, memory=memory, retestCases=retestCases,
-                     marginSE=marginSE)
+                     marginSE=marginSE, confirmCases=confirmCases)
     return pop, ev, sig, hof
 
 
@@ -169,6 +170,31 @@ def test_memory_clearly_better_challenger_takes_over_and_memory_restarts():
     assert (r.winner, r.held, r.retested, r.takeover) == (2, False, True, True)
     assert (hof.scoreCases, hof.score) == (len(RETEST), 90.0)
     assert signature(hof.champion) == sig[2]
+
+
+def test_confirmation_starts_the_memory_of_a_new_champion_without_the_lucky_retest():
+    pop, ev, sig, hof = setup(memory=True, confirmCases=6)
+    ev.quality[sig[4]] = 50.0
+    hof.update(pop, ROUND, lambda n: RETEST[:n])     # first champion: no confirmation needed
+    assert hof.scoreCases == len(RETEST)
+    ev.quality[sig[2]] = 60.0
+    for c in RETEST:                                 # sig[2] is lucky on the deciding re-test
+        ev.offset[(sig[2], c)] = 40.0
+    draws = []
+    r = hof.update(pop, ROUND, lambda n: draws.append(n) or (RETEST if len(draws) == 1 else CONFIRM)[:n])
+    assert (r.winner, r.takeover) == (2, True) and draws == [6, 6]
+    assert (hof.scoreCases, hof.score) == (len(CONFIRM), 60.0)   # 100 with the re-test
+
+
+def test_without_confirmation_the_memory_keeps_the_retest():
+    pop, ev, sig, hof = setup(memory=True)
+    ev.quality[sig[4]] = 50.0
+    hof.update(pop, ROUND, lambda n: RETEST[:n])
+    ev.quality[sig[2]] = 60.0
+    for c in RETEST:
+        ev.offset[(sig[2], c)] = 40.0
+    hof.update(pop, ROUND, lambda n: RETEST[:n])
+    assert hof.score == 100.0
 
 
 # ── ChampionMemory ───────────────────────────────────────────────────────────

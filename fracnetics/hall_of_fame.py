@@ -8,9 +8,13 @@ after the selection (see HallOfFame.placeElites()).
 
 With `memory=True` the champion keeps all its round scores. A round winner is re-tested
 on further fresh cases and takes over only if its re-test mean beats the champion's
-accumulated mean by `marginSE` combined standard errors. A new champion's memory starts
-with its re-test, not with the round it won, because it was picked as the best of several
-on exactly those cases (winner's curse).
+accumulated mean by `marginSE` combined standard errors. The round it won never enters its
+memory: it was picked as the best of several on exactly those cases (winner's curse). The
+deciding re-test is biased as well -- a takeover happens only when it came out high; in
+LunarLander a new champion's memory then fell by 18 points on average over its reign, so
+better challengers were held off and a late champion was overrated. With `confirmCases`
+the memory of a new champion starts with an independent confirmation on further fresh
+cases instead; the re-test only decides.
 
 Problem-independent: the caller passes the evaluation and draws the fresh cases, so the
 order of its random draws stays under its control.
@@ -110,6 +114,9 @@ class HallOfFame:
         memory: Keep the champion's scores across rounds and re-test round winners.
         retestCases: Number of fresh cases a round winner is re-tested on (memory only).
         marginSE: Lead a re-tested challenger needs, in combined standard errors.
+        confirmCases: With memory: after a takeover over an existing champion, evaluate the
+            new champion on this many further fresh cases and start its memory with them
+            instead of with the deciding re-test. 0 keeps the re-test (earlier behaviour).
 
     Attributes:
         score: The champion's score: its round score, or its accumulated mean with memory.
@@ -118,10 +125,11 @@ class HallOfFame:
     """
 
     def __init__(self, popKwargs, evaluate, candidates=10, memory=False, retestCases=100,
-                 marginSE=1.0):
+                 marginSE=1.0, confirmCases=0):
         self.evaluate = evaluate
         self.candidates = candidates
         self.retestCases = retestCases
+        self.confirmCases = confirmCases
         self.memory = ChampionMemory(marginSE) if memory else None
         container = lambda: Population(**{**popKwargs, "ni": 1})
         self._score = container()       # the round's field, re-scored on the fresh cases
@@ -146,7 +154,8 @@ class HallOfFame:
             pop: The population, already evaluated on its training cases.
             cases: Fresh cases, the same for every member of the round.
             drawRetestCases: Callable n -> n further fresh cases; with memory it is called
-                only when a challenger wins the round, so unneeded draws never happen.
+                only when a challenger wins the round (and once more for the confirmation of
+                a takeover), so unneeded draws never happen.
 
         Returns:
             Round
@@ -177,6 +186,10 @@ class HallOfFame:
                 retested = True
                 if self.memory.challengerWins(retestScores):
                     winner = challenger
+                    if self.confirmCases > 0 and championIndex is not None:
+                        # The re-test was selected for coming out high; start unbiased
+                        self.evaluate(self._retest, drawRetestCases(self.confirmCases))
+                        retestScores = list(self._retest.individuals[0].caseScores)
                     self.memory.reset(retestScores)
             order = [winner] + [j for j in order if j != winner]
 
