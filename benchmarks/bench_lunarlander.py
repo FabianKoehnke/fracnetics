@@ -88,11 +88,12 @@ if args.workers:
                         count=1, flags=re.M)
 # The reference run's settings: population seed 10, population 100, 10 training seeds up to
 # its first seed-schedule step (gen 182), 8 sectors without subsectors, one-way crossover at
-# 0.05 x 0.05, hall of fame without memory
+# 0.05 x 0.05, hall of fame without memory, plain boundary mutations
 for name, value in [("seed", "10"), ("populationSize", "100"), ("seedStart", "10"),
                     ("seedSectors", "8"), ("seedSubsectors", "1"),
                     ("crossoverProbability", "0.05"), ("crossoverNodeRate", "0.05"),
-                    ("crossoverBidirectional", "False"), ("hallOfFameMemory", "False")]:
+                    ("crossoverBidirectional", "False"), ("hallOfFameMemory", "False"),
+                    ("boundaryMutationDataGuided", "False"), ("boundaryMutationEverSeen", "False")]:
     src = re.sub(rf"^{name}\s*=\s*[\w.]+", f"{name} = {value}", src, count=1, flags=re.M)
 src = src[:src.index(LOOP_END)]
 src = src.replace("for g in range(generations):",
