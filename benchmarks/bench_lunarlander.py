@@ -94,7 +94,8 @@ for name, value in [("seed", "10"), ("populationSize", "100"), ("seedStart", "10
                     ("crossoverProbability", "0.05"), ("crossoverNodeRate", "0.05"),
                     ("crossoverBidirectional", "False"), ("hallOfFameMemory", "False"),
                     ("boundaryMutationDataGuided", "False"), ("boundaryMutationEverSeen", "False"),
-                    ("boundaryMutationSigma", "0.2")]:
+                    ("boundaryMutationSigma", "0.2"), ("boundaryMutationUniformK", "1.0"),
+                    ("boundaryMutationStartInRange", "False")]:
     src = re.sub(rf"^{name}\s*=\s*[\w.]+", f"{name} = {value}", src, count=1, flags=re.M)
 src = src[:src.index(LOOP_END)]
 src = src.replace("for g in range(generations):",
