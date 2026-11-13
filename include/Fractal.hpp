@@ -1,5 +1,6 @@
 #ifndef FRACTAL_HPP
 #define FRACTAL_HPP
+#include <algorithm>
 #include <vector>
 #include <iostream>
 #include <random>
@@ -88,11 +89,12 @@ inline std::pair<int,int> random_k_d_combination(int N, std::shared_ptr<std::mt1
  * **Process**:
  * 1. Initializes vector with 0 (left boundary)
  * 2. Draws N random values from uniform distribution over (0, 1)
- * 3. Appends 1 (right boundary)
- * 4. Returns vector: [0, v₁, v₂, ..., vₙ, 1]
- * 
- * **Important**: The returned values are NOT sorted. Sorting and distance calculation
- * is performed separately by sortAndDistance() to obtain actual subdivision ratios.
+ * 3. Sorts the draws and appends 1 (right boundary)
+ * 4. Returns vector: [0, v₁, v₂, ..., vₙ, 1] with v₁ ≤ v₂ ≤ ... ≤ vₙ
+ *
+ * Sorted, so that neighbours in the vector are neighbouring cuts: the fractal mutation
+ * redraws a cut between its vector neighbours. The partition is the same either way
+ * (sortAndDistance() sorts again).
  * 
  * **Example** (N=2):
  * - Random draws: 0.3, 0.7
@@ -113,6 +115,7 @@ inline std::vector<float> randomParameterCuts(int N, std::shared_ptr<std::mt1993
         float v = distributionUniform(*generator);
         productionRuleParameter.push_back(v);
     }
+    std::sort(productionRuleParameter.begin() + 1, productionRuleParameter.end());
     productionRuleParameter.push_back(1);
     return productionRuleParameter;
 }

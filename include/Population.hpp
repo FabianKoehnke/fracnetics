@@ -1288,17 +1288,20 @@ class Population {
          *  per network (0.74 measured in a LunarLander experiment).
          * @param N Overwritten when k > 0.
          * @param stepName Name of the calling method for the order check (see checkStep()).
+         * @param countRatios If true, N is the number of mutable fractal ratios
+         *  (Network::countFractalRatios()) instead of edges; used by the fractal mutation.
          *
          * @note This is an internal template used by specialized boundary mutation methods
          */
         template <typename FuncMutation>
         void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false, float k = 0.0f, int N = 1,
-                                   const std::string& stepName = "applyBoundaryMutation()") {
+                                   const std::string& stepName = "applyBoundaryMutation()", bool countRatios = false) {
             checkStep(Step::Mutation, stepName);
             for (int i = 0; i < individuals.size(); ++i) {
 
                 if (k > 0.0f) {
-                    N = individuals[i].countEdges(justUsedNodes);
+                    N = countRatios ? individuals[i].countFractalRatios(justUsedNodes)
+                                    : individuals[i].countEdges(justUsedNodes);
                 } else {
                     N = 0;
                 }
@@ -1477,7 +1480,8 @@ class Population {
          * @param minF Vector of minimum values for all features (used for boundary recalculation)
          * @param maxF Vector of maximum values for all features (used for boundary recalculation)
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
-         * @param k Currently ignored: the rate is `probability` per production-rule parameter.
+         * @param k If > 0, replaces probability with min(1, k/N), N = mutable ratios of the eligible
+         *  nodes (Network::countFractalRatios()): about k ratio redraws per network.
          * @param dataGuided If true, the partition is laid over the node's observed value range
          *  (outermost boundaries stay at minF/maxF); see Node::boundaryMutationFractal(). Off by default.
          * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
@@ -1488,8 +1492,8 @@ class Population {
         void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes, float k = 0.0f,
                                          bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
-                return node.boundaryMutationFractal(probability, minF, maxF, dataGuided, everSeen);
-            }, justUsedNodes, k, 1, "callBoundaryMutationFractal()");
+                return node.boundaryMutationFractal(probability, minF, maxF, dataGuided, everSeen, k, N);
+            }, justUsedNodes, k, 1, "callBoundaryMutationFractal()", true);
         }
 
         /**

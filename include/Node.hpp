@@ -615,16 +615,26 @@ class Node {
          * declared range; the outermost boundaries stay at minf/maxf, so the first and last interval
          * cover everything outside the observed range. Off by default.
          * @param everSeen With dataGuided: use the lifetime range (everSeenMin/Max).
+         * @param k If > 0, replaces propability with min(1, k/N); N == 0 yields 0.
+         * @param N Normalisation of the k/N rate; Population passes the number of mutable ratios
+         * of the eligible nodes (Network::countFractalRatios()).
          *
          * @note productionRuleParameter must be initialized with values in [0, 1]
          */
         bool boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf,
-                                     bool dataGuided=false, bool everSeen=false){
+                                     bool dataGuided=false, bool everSeen=false, float k=0.0f, int N=1){
 
             if (frozen > 0) return false;
 
+            if(k > 0.0f){
+                // Guard N == 0 and k/N > 1: invalid p for bernoulli_distribution is UB.
+                propability = (N > 0) ? std::min(1.0f, k / static_cast<float>(N)) : 0.0f;
+            }
+
             bool changed = false;
             std::bernoulli_distribution distributionBernoulli(propability);
+            // Cuts from older versions may be unsorted; a redraw between vector neighbours needs sorted cuts
+            std::sort(productionRuleParameter.begin(), productionRuleParameter.end());
             if(productionRuleParameter.size() > 0){
                 for(int i=1; i<static_cast<int>(productionRuleParameter.size())-1; i++){
                     bool result = distributionBernoulli(*generator);

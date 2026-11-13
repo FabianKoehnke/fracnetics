@@ -556,7 +556,7 @@ lexicaseObjectives of every individual.)doc"
             py::arg("minF"),
             py::arg("maxF"),
             py::arg("justUsedNodes")=false,
-            py::arg("k")=1.0f,
+            py::arg("k")=0.0f,
             py::arg("dataGuided")=false,
             py::arg("everSeen")=false
         )

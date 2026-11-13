@@ -153,8 +153,11 @@ a boundary enters at the edge of the values.
 pop.callBoundaryMutationNormal(probability=0, sigma=0.2, justUsedNodes=True, k=1,
                                dataGuided=True, everSeen=True, startInRange=True)
 pop.callBoundaryMutationUniform(probability=0, justUsedNodes=True, k=1, dataGuided=True, everSeen=True)
-pop.callBoundaryMutationFractal(probability=0.05, minF=minF, maxF=maxF, justUsedNodes=True,
+pop.callBoundaryMutationFractal(probability=0, minF=minF, maxF=maxF, justUsedNodes=True, k=1,
                                 dataGuided=True, everSeen=True)   # with fractalJudgment=True
 ```
+
+The fractal mutation redraws production-rule ratios, so its `k` counts ratios: `k=1` redraws
+about one ratio per network (rate k/N, N = mutable ratios of the eligible nodes).
 
 ---

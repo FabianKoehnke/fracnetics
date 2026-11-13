@@ -1127,6 +1127,27 @@ class Network {
         }
 
         /**
+         * @brief Counts the mutable production-rule ratios of the fractal judgment nodes.
+         *
+         * @details
+         * The normalisation of the k/N rate of the fractal boundary mutation, which mutates
+         * ratios, not boundaries (see Population::callBoundaryMutationFractal()). A node with
+         * productionRuleParameter [0, v1, ..., vm, 1] has m mutable ratios.
+         *
+         * @param justUsedNodes If true, only nodes that are currently used are counted.
+         * @return The number of mutable ratios over all (used) judgment nodes.
+         */
+        int countFractalRatios(bool justUsedNodes = false){
+            int count = 0;
+            for(const auto& node : innerNodes){
+                if(justUsedNodes && node.used == false) continue;
+                if(node.type != "J" && node.type != "JE") continue;
+                if(node.productionRuleParameter.size() > 2) count += node.productionRuleParameter.size() - 2;
+            }
+            return count;
+        }
+
+        /**
          * @brief Calculates the ratio of processing nodes to total nodes in the network.
          * 
          * @details
