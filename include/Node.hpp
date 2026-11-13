@@ -1,5 +1,6 @@
 #ifndef NODE_HPP
 #define NODE_HPP
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -609,10 +610,16 @@ class Node {
          * @param propability Probability (in range [0.0, 1.0]) that each production rule parameter will be mutated
          * @param minf Vector of minimum values for all features (indexed by this->f)
          * @param maxf Vector of maximum values for all features (indexed by this->f)
-         * 
+         * @param dataGuided If true (and the node judged at least two different values), the fractal
+         * partition is laid over the observed value range (clipped to [minf, maxf]) instead of the
+         * declared range; the outermost boundaries stay at minf/maxf, so the first and last interval
+         * cover everything outside the observed range. Off by default.
+         * @param everSeen With dataGuided: use the lifetime range (everSeenMin/Max).
+         *
          * @note productionRuleParameter must be initialized with values in [0, 1]
          */
-        bool boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf){
+        bool boundaryMutationFractal(float propability, const std::vector<float>& minf, const std::vector<float>& maxf,
+                                     bool dataGuided=false, bool everSeen=false){
 
             if (frozen > 0) return false;
 
@@ -627,7 +634,16 @@ class Node {
                         changed = true;
                         boundaries.clear();
                         std::vector<float> fractals = fractalLengths(k_d.second, sortAndDistance(productionRuleParameter));
-                        setEdgesBoundaries(minf[f], maxf[f], fractals);
+                        float lo = dataGuided ? std::max(minf[f], rangeMin(everSeen)) : minf[f];
+                        float hi = dataGuided ? std::min(maxf[f], rangeMax(everSeen)) : maxf[f];
+                        if(dataGuided && lo < hi){
+                            setEdgesBoundaries(lo, hi, fractals);
+                            // Keep the declared ends, so values outside the observed range fall into the outer intervals
+                            boundaries.front() = minf[f];
+                            boundaries.back() = maxf[f];
+                        } else {
+                            setEdgesBoundaries(minf[f], maxf[f], fractals);
+                        }
                         if(type == "JE") edgeExperience.assign(edges.size(), EdgeExperience{});
                     }
                 }
@@ -673,9 +689,13 @@ class Node {
          * node spanning the whole declared feature range the gap is far wider than the values the
          * node actually sees, so gap-relative steps are too coarse inside the data.
          * @param everSeen With dataGuided: relative to the lifetime range (everSeenMax - everSeenMin).
+         * @param startInRange With dataGuided: the step starts from the nearest point of the observed
+         * range instead of the boundary itself. A boundary inside the range steps as before; one
+         * outside enters at the edge of the values (if its neighbours allow), where a symmetric step
+         * around its own position would only wander without direction. Off by default.
          */
         bool boundaryMutationNormal(float propability, float sigma, float k=0.0f, int N=1, bool dataGuided=false,
-                                    bool everSeen=false){
+                                    bool everSeen=false, bool startInRange=false){
 
             if (frozen > 0) return false;
 
@@ -730,6 +750,7 @@ class Node {
                         if(dataGuided && rangeMin(everSeen) < rangeMax(everSeen)){
                             // Step on the scale of the judged values, not of the (often far wider) gap
                             adaptiveSigma = sigma * (rangeMax(everSeen) - rangeMin(everSeen));
+                            if(startInRange) mu = std::clamp(mu, rangeMin(everSeen), rangeMax(everSeen));
                         } else {
                             adaptiveSigma = sigma * std::min(lowerGap, upperGap);
                         }

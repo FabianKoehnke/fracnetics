@@ -1372,13 +1372,15 @@ class Population {
          *  evaluation (Node::seenMax - Node::seenMin) instead of the smaller gap; see
          *  Node::boundaryMutationNormal(). Off by default.
          * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
+         * @param startInRange With dataGuided: a boundary outside the observed range steps from the
+         *  nearest end of that range; see Node::boundaryMutationNormal(). Off by default.
          * 
          * @note Smaller sigma → more conservative, larger sigma → more exploratory
          */
         void callBoundaryMutationNormal(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f,
-                                        bool dataGuided = false, bool everSeen = false){
+                                        bool dataGuided = false, bool everSeen = false, bool startInRange = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
-                return node.boundaryMutationNormal(probability, sigma, k, N, dataGuided, everSeen);
+                return node.boundaryMutationNormal(probability, sigma, k, N, dataGuided, everSeen, startInRange);
             }, justUsedNodes, k, 1, "callBoundaryMutationNormal()");
         }
 
@@ -1401,14 +1403,21 @@ class Population {
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Base standard deviation (will be scaled down based on network size)
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
-         * 
+         * @param k If > 0, replaces probability with min(1, k/N); see applyBoundaryMutation() for N.
+         * @param dataGuided If true, the scaled sigma is relative to the node's observed value range
+         *  instead of the smaller gap, as in callBoundaryMutationNormal(). Off by default.
+         * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
+         * @param startInRange With dataGuided: step from the nearest end of the observed range; see
+         *  callBoundaryMutationNormal().
+         *
          * @note Effective for problems where network size evolves during optimization
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+        void callBoundaryMutationNetworkSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f,
+                                                           bool dataGuided = false, bool everSeen = false, bool startInRange = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam& amp, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(amp.networkSize));
-                return node.boundaryMutationNormal(probability, sigmaNew, k, N);
+                return node.boundaryMutationNormal(probability, sigmaNew, k, N, dataGuided, everSeen, startInRange);
             }, justUsedNodes, k, 1, "callBoundaryMutationNetworkSizeDependingSigma()");
         }
 
@@ -1432,14 +1441,21 @@ class Population {
          * @param probability Probability (in [0.0, 1.0]) that each boundary will be mutated
          * @param sigma Standard deviation (will be scaled down based on edge count)
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
-         * 
+         * @param k If > 0, replaces probability with min(1, k/N); see applyBoundaryMutation() for N.
+         * @param dataGuided If true, the scaled sigma is relative to the node's observed value range
+         *  instead of the smaller gap, as in callBoundaryMutationNormal(). Off by default.
+         * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
+         * @param startInRange With dataGuided: step from the nearest end of the observed range; see
+         *  callBoundaryMutationNormal().
+         *
          * @note Particularly useful when networks have heterogeneous judgment node structures
          * @see Node::boundaryMutationNormal()
          */
-        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f){
+        void callBoundaryMutationEdgeSizeDependingSigma(const float probability, const float sigma, bool justUsedNodes, float k = 0.0f,
+                                                        bool dataGuided = false, bool everSeen = false, bool startInRange = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 float sigmaNew = sigma * (1/log(node.edges.size()));
-                return node.boundaryMutationNormal(probability, sigmaNew, k, N);
+                return node.boundaryMutationNormal(probability, sigmaNew, k, N, dataGuided, everSeen, startInRange);
             }, justUsedNodes, k, 1, "callBoundaryMutationEdgeSizeDependingSigma()");
         }
         
@@ -1461,13 +1477,18 @@ class Population {
          * @param minF Vector of minimum values for all features (used for boundary recalculation)
          * @param maxF Vector of maximum values for all features (used for boundary recalculation)
          * @param justUsedNodes If true, only applies mutation to judgment nodes that were used during traversal (node.used == true).
-         * 
+         * @param k Currently ignored: the rate is `probability` per production-rule parameter.
+         * @param dataGuided If true, the partition is laid over the node's observed value range
+         *  (outermost boundaries stay at minF/maxF); see Node::boundaryMutationFractal(). Off by default.
+         * @param everSeen With dataGuided: use the range over the node's lifetime (Node::everSeenMin/Max).
+         *
          * @warning Only applicable if fractalJudgment is enabled (fractalJudgment = True)
          * @see Node::boundaryMutationFractal()
          */
-        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes, float k = 0.0f){
+        void callBoundaryMutationFractal(const float probability, std::vector<float> minF, std::vector<float> maxF, bool justUsedNodes, float k = 0.0f,
+                                         bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
-                return node.boundaryMutationFractal(probability, minF, maxF);
+                return node.boundaryMutationFractal(probability, minF, maxF, dataGuided, everSeen);
             }, justUsedNodes, k, 1, "callBoundaryMutationFractal()");
         }
 

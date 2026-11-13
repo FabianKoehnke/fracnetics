@@ -520,20 +520,23 @@ lexicaseObjectives of every individual.)doc"
         .def("callBoundaryMutationNormal", &Population::callBoundaryMutationNormal,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
-             py::arg("dataGuided")=false, py::arg("everSeen")=false)
+             py::arg("dataGuided")=false, py::arg("everSeen")=false, py::arg("startInRange")=false)
         .def("callBoundaryMutationUniform", &Population::callBoundaryMutationUniform,
              py::call_guard<py::gil_scoped_release>(),
              py::arg("probability"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
              py::arg("dataGuided")=false, py::arg("everSeen")=false)
         .def("callBoundaryMutationNetworkSizeDependingSigma", &Population::callBoundaryMutationNetworkSizeDependingSigma,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
+             py::arg("dataGuided")=false, py::arg("everSeen")=false, py::arg("startInRange")=false)
         .def("callBoundaryMutationEdgeSizeDependingSigma", &Population::callBoundaryMutationEdgeSizeDependingSigma,
              py::call_guard<py::gil_scoped_release>(),
-             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f)
+             py::arg("probability"), py::arg("sigma"), py::arg("justUsedNodes")=false, py::arg("k")=0.0f,
+             py::arg("dataGuided")=false, py::arg("everSeen")=false, py::arg("startInRange")=false)
         .def(
             "callBoundaryMutationFractal",
-            [](Population &p, float probability, py::list minF_py, py::list maxF_py, bool justUsedNodes, float k)
+            [](Population &p, float probability, py::list minF_py, py::list maxF_py, bool justUsedNodes, float k,
+               bool dataGuided, bool everSeen)
             {
                 std::vector<float> minF;
                 std::vector<float> maxF;
@@ -546,14 +549,16 @@ lexicaseObjectives of every individual.)doc"
 
                 {
                     py::gil_scoped_release release;
-                    p.callBoundaryMutationFractal(probability, minF, maxF, justUsedNodes, k);
+                    p.callBoundaryMutationFractal(probability, minF, maxF, justUsedNodes, k, dataGuided, everSeen);
                 }
             },
             py::arg("probability"),
             py::arg("minF"),
             py::arg("maxF"),
             py::arg("justUsedNodes")=false,
-            py::arg("k")=1.0f
+            py::arg("k")=1.0f,
+            py::arg("dataGuided")=false,
+            py::arg("everSeen")=false
         )
 
         .def("callGammaMutation", &Population::callGammaMutation,

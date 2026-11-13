@@ -119,7 +119,11 @@ Every evaluation records, per judgment node, the range of the values it judged
 (``seenMin``/``seenMax``) and over the node's lifetime (``everSeenMin``/``everSeenMax``).
 With ``dataGuided=True`` the uniform boundary mutation redraws a boundary only inside its
 gap ∩ that range, and the normal mutation scales its step with the range instead of the gap;
-``everSeen=True`` uses the lifetime range.
+``everSeen=True`` uses the lifetime range. The size-adaptive normal mutations take the same
+options, and the fractal mutation lays its partition over the range (outermost boundaries
+stay at the feature's min/max). With ``startInRange=True`` a normal step starts from the
+nearest point of the range, so a boundary outside the judged values enters at their edge
+instead of wandering without direction.
 
 
 Applications

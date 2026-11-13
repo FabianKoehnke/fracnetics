@@ -125,6 +125,38 @@ def test_data_guided_normal_steps_scale_with_the_observed_range(dataGuided):
         assert sum(s > hi for s in steps) > 0.9 * len(steps)
 
 
+SIZE_SIGMA = ["callBoundaryMutationNetworkSizeDependingSigma", "callBoundaryMutationEdgeSizeDependingSigma"]
+
+
+@pytest.mark.parametrize("call", SIZE_SIGMA)
+@pytest.mark.parametrize("dataGuided", [False, True])
+def test_size_adaptive_normal_steps_scale_with_the_observed_range(call, dataGuided):
+    pop = fn.Population(ni=20, **POPKW)
+    pop.setAllNodeBoundaries(MINF, MAXF)
+    pop.checkOrder = False
+    lo, hi = 0.0, 1e-3
+    withRange(pop, lo, hi)
+    before = [list(n.boundaries) for n in judgmentNodes(pop)]
+    getattr(pop, call)(probability=1.0, sigma=0.2, justUsedNodes=False, dataGuided=dataGuided)
+    steps = [abs(b - a) for node, old in zip(judgmentNodes(pop), before)
+             for a, b in zip(old[1:-1], list(node.boundaries)[1:-1]) if a != b]
+    assert steps
+    if dataGuided:                              # 1/ln scales sigma by at most 1.443 (two edges)
+        assert max(steps) < 6 * 1.443 * 0.2 * (hi - lo)
+    else:
+        assert sum(s > hi for s in steps) > 0.9 * len(steps)
+
+
+@pytest.mark.parametrize("call", SIZE_SIGMA)
+def test_size_adaptive_default_is_the_plain_mutation(call):
+    def mutate(**extra):
+        pop, _ = evaluated()
+        pop.checkOrder = False
+        getattr(pop, call)(probability=0.5, sigma=0.2, justUsedNodes=True, **extra)
+        return [list(n.boundaries) for n in judgmentNodes(pop)]
+    assert mutate() == mutate(dataGuided=False, everSeen=False)
+
+
 @pytest.mark.parametrize("call", ["normal", "uniform"])
 def test_default_is_the_plain_mutation(call):
     def mutate(**extra):
@@ -181,3 +213,87 @@ def test_lifetime_range_is_used_with_ever_seen():
              for a, b in zip(old[1:-1], list(node.boundaries)[1:-1]) if a != b]
     assert moved and all(-1.0 <= b <= 1.0 for b in moved)
     assert sum(b > 1e-3 or b < 0.0 for b in moved) > 0.5 * len(moved)   # beyond the last evaluation's range
+
+
+# ── Fractal partition over the observed range ────────────────────────────────
+
+def fractalPopulation(lo, hi):
+    pop = fn.Population(ni=20, **{**POPKW, "fractalJudgment": True})
+    pop.setAllNodeBoundaries(MINF, MAXF)
+    pop.checkOrder = False
+    individuals = list(pop.individuals)
+    for net in individuals:
+        nodes = net.innerNodes
+        for node in nodes:
+            node.everSeenMin, node.everSeenMax = lo, hi
+        net.innerNodes = nodes
+    pop.individuals = individuals
+    return pop
+
+
+def test_data_guided_fractal_lays_the_partition_over_the_observed_range():
+    lo, hi = -0.5, 0.5
+    pop = fractalPopulation(lo, hi)
+    before = [list(n.boundaries) for n in judgmentNodes(pop)]
+    pop.callBoundaryMutationFractal(probability=1.0, minF=MINF, maxF=MAXF, justUsedNodes=False,
+                                    dataGuided=True, everSeen=True)
+    changed = 0
+    for node, old in zip(judgmentNodes(pop), before):
+        new = list(node.boundaries)
+        if new == old:
+            continue
+        changed += 1
+        assert len(new) == len(old) and new == sorted(new)
+        assert new[0] == pytest.approx(MINF[node.f]) and new[-1] == pytest.approx(MAXF[node.f])
+        inner = new[1:-1]
+        assert all(max(lo, MINF[node.f]) - 1e-6 <= b <= min(hi, MAXF[node.f]) + 1e-6 for b in inner)
+    assert changed > 0
+
+
+def test_fractal_default_is_the_plain_mutation():
+    def mutate(**extra):
+        pop = fractalPopulation(-0.5, 0.5)
+        pop.callBoundaryMutationFractal(probability=0.5, minF=MINF, maxF=MAXF, justUsedNodes=False, **extra)
+        return [list(n.boundaries) for n in judgmentNodes(pop)]
+    assert mutate() == mutate(dataGuided=False, everSeen=False)
+
+
+# ── Normal steps from the observed range (startInRange) ─────────────────────
+
+NORMAL_CALLS = ["callBoundaryMutationNormal"] + SIZE_SIGMA
+
+
+@pytest.mark.parametrize("call", NORMAL_CALLS)
+def test_start_in_range_moves_outside_boundaries_to_the_edge_of_the_values(call):
+    pop = fn.Population(ni=20, **POPKW)
+    pop.setAllNodeBoundaries(MINF, MAXF)
+    pop.checkOrder = False
+    lo, hi = 0.3, 0.301                        # off-centre, so equal-width boundaries lie outside
+    withRange(pop, lo, hi)
+    before = [list(n.boundaries) for n in judgmentNodes(pop)]
+    getattr(pop, call)(probability=1.0, sigma=0.2, justUsedNodes=False, dataGuided=True, startInRange=True)
+    moved = [(a, b) for node, old in zip(judgmentNodes(pop), before)
+             for a, b in zip(old[1:-1], list(node.boundaries)[1:-1]) if a != b]
+    assert moved
+    reach = 6 * 1.443 * 0.2 * (hi - lo)
+    assert all(lo - reach <= b <= hi + reach for _, b in moved)           # every step lands at the values
+    assert sum(not (lo <= a <= hi) for a, _ in moved) > 0.5 * len(moved)   # mostly from outside
+
+
+@pytest.mark.parametrize("call", NORMAL_CALLS)
+def test_start_in_range_off_is_the_data_guided_mutation(call):
+    def mutate(**extra):
+        pop, _ = evaluated()
+        pop.checkOrder = False
+        getattr(pop, call)(probability=0.5, sigma=0.2, justUsedNodes=True, dataGuided=True, **extra)
+        return [list(n.boundaries) for n in judgmentNodes(pop)]
+    assert mutate() == mutate(startInRange=False)
+
+
+def test_start_in_range_needs_data_guidance():
+    def mutate(**extra):
+        pop, _ = evaluated()
+        pop.checkOrder = False
+        pop.callBoundaryMutationNormal(probability=0.5, sigma=0.2, justUsedNodes=True, **extra)
+        return [list(n.boundaries) for n in judgmentNodes(pop)]
+    assert mutate() == mutate(startInRange=True)

@@ -141,10 +141,20 @@ judgment node, the range of the values it judged (`seenMin`, `seenMax`), and ove
 lifetime (`everSeenMin`, `everSeenMax`, inherited by offspring). With `dataGuided=True` the
 uniform mutation redraws a boundary only inside its gap ∩ that range, and the normal mutation
 scales its step with the range instead of the gap; `everSeen=True` uses the lifetime range.
+The size-adaptive normal mutations (`callBoundaryMutationNetworkSizeDependingSigma`,
+`callBoundaryMutationEdgeSizeDependingSigma`) take the same options, and the fractal
+mutation lays its partition over the range (the outermost boundaries stay at the feature's
+min/max). A boundary mutation acts on every boundary of a used node, also on boundaries far
+outside the judged values, where a symmetric normal step only wanders without direction:
+`startInRange=True` lets the normal step start from the nearest point of the range, so such
+a boundary enters at the edge of the values.
 
 ```python
-pop.callBoundaryMutationNormal(probability=0, sigma=0.2, justUsedNodes=True, k=1, dataGuided=True, everSeen=True)
+pop.callBoundaryMutationNormal(probability=0, sigma=0.2, justUsedNodes=True, k=1,
+                               dataGuided=True, everSeen=True, startInRange=True)
 pop.callBoundaryMutationUniform(probability=0, justUsedNodes=True, k=1, dataGuided=True, everSeen=True)
+pop.callBoundaryMutationFractal(probability=0.05, minF=minF, maxF=maxF, justUsedNodes=True,
+                                dataGuided=True, everSeen=True)   # with fractalJudgment=True
 ```
 
 ---
