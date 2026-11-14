@@ -126,6 +126,14 @@ nearest point of the range, so a boundary outside the judged values enters at th
 instead of wandering without direction. The fractal mutation's ``k`` counts production-rule
 ratios: ``k=1`` redraws about one ratio per network.
 
+Variation record
+~~~~~~~~~~~~~~~~
+
+Every network carries the operators that made it: the first change in a new evaluation round
+gives it a new ``uid`` and starts a record (``lastVariedBy``, bits of ``fracnetics.Variation``;
+``lastVariedRound``, the population's ``evaluationRound``); copies keep both. This traces which
+operator produced a new champion.
+
 
 Applications
 ------------

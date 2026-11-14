@@ -183,6 +183,9 @@ PYBIND11_MODULE(_core, m) {
     .def_readwrite("lineageSuccessRate", &Network::lineageSuccessRate)
     .def_readwrite("lineageSuccessN", &Network::lineageSuccessN)
     .def_readwrite("structureChangedThisGen", &Network::structureChangedThisGen)
+    .def_readonly("uid", &Network::uid)
+    .def_readonly("lastVariedBy", &Network::lastVariedBy)
+    .def_readonly("lastVariedRound", &Network::lastVariedRound)
     .def("lineageVariance", &Network::lineageVariance)
     .def("lineageLCB", &Network::lineageLCB, py::arg("z"))
     .def("updateLineageStats", &Network::updateLineageStats, py::arg("rawFitness"), py::arg("success"))
@@ -212,18 +215,20 @@ PYBIND11_MODULE(_core, m) {
         py::arg("X"), py::arg("dMax"))
     .def("clearUsedNodes", &Network::clearUsedNodes)
     .def("updateExperienceFromEpisode", &Network::updateExperienceFromEpisode)
-    // pickle support (11-element tuple)
+    // pickle support (14-element tuple)
     .def(py::pickle(
         [](const Network &n) { // __getstate__
             return py::make_tuple(
                 n.jn, n.jnf, n.pn, n.pnf, n.fractalJudgment,
                 n.innerNodes, n.startNode, n.fitness, n.decisions,
-                n.caseScores, n.objectives
+                n.caseScores, n.objectives,
+                n.uid, n.lastVariedBy, n.lastVariedRound
             );
         },
         [](py::tuple t) { // __setstate__
-            // 12 = pickles before 3.0.0 (trailing lastStepRewards, ignored), kept loadable for archived runs
-            if (t.size() != 11 && t.size() != 12)
+            // 11 = pickles before 5.6.0 (no variation record); 12 = before 3.0.0 (trailing
+            // lastStepRewards, ignored); both kept loadable for archived runs
+            if (t.size() != 11 && t.size() != 12 && t.size() != 14)
                 throw std::runtime_error("Invalid state for Network!");
 
             Network net(
@@ -241,6 +246,11 @@ PYBIND11_MODULE(_core, m) {
             net.decisions = t[8].cast<std::vector<int>>();
             net.caseScores = t[9].cast<std::vector<float>>();
             net.objectives = t[10].cast<std::vector<float>>();
+            if (t.size() == 14) {
+                net.uid = t[11].cast<uint64_t>();
+                net.lastVariedBy = t[12].cast<unsigned int>();
+                net.lastVariedRound = t[13].cast<int>();
+            }
 
             return net;
         }
@@ -280,6 +290,17 @@ PYBIND11_MODULE(_core, m) {
             return "<EpisodeResult seed=" + std::to_string(e.seed) + " steps=" + std::to_string(e.steps) +
                    " return=" + std::to_string(e.episodeReturn) + ">";
         });
+
+    // Operators as bits of Network.lastVariedBy
+    py::enum_<Population::Variation>(m, "Variation", py::arithmetic())
+        .value("AddDelNodes", Population::AddDelNodes)
+        .value("Crossover", Population::Crossover)
+        .value("EdgeMutation", Population::EdgeMutation)
+        .value("BoundaryNormal", Population::BoundaryNormal)
+        .value("BoundaryUniform", Population::BoundaryUniform)
+        .value("BoundaryFractal", Population::BoundaryFractal)
+        .value("GammaMutation", Population::GammaMutation)
+        .value("AlphaMutation", Population::AlphaMutation);
 
     // Population
     py::class_<Population>(m, "Population")
@@ -469,6 +490,8 @@ lexicaseObjectives of every individual.)doc"
              "evaluation, callAgeUnusedNodes, selection, updateAdaptiveK, crossover caseSpecialist*, "
              "callAddDelNodes, crossover, mutations, capLineageAfterMutation. Set to False to call "
              "single operators on purpose.")
+        .def_readonly("evaluationRound", &Population::evaluationRound,
+             "Number of evaluations so far; Network.lastVariedRound refers to it.")
         .def("markEvaluated", &Population::markEvaluated,
              "Mark the population as freshly evaluated, so the order check starts a new generation. "
              "gymnasium(), callTraversePath() and accuracy() do this themselves; call it after an "
@@ -644,6 +667,7 @@ lexicaseObjectives of every individual.)doc"
             py::list ind_list = t[legacy ? 10 : 7].cast<py::list>();
             for (auto item : ind_list)
                 p.individuals.push_back(item.cast<Network>());
+            p.restoreVariationCounters();
 
             return p;
         }

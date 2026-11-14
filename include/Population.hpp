@@ -57,6 +57,7 @@ class Population {
         /** @endcond */
         int lastStep_ = -1;         // highest Step since the last evaluation; -1 = never evaluated (see checkStep())
         std::string lastStepName_;  // method that reached lastStep_, for the error message
+        uint64_t nextUid_ = 0;      // last Network::uid handed out
 
     public:
         /** Diagnostic: serialised state of the shared RNG, for comparing two runs. */
@@ -200,6 +201,43 @@ class Population {
         void markEvaluated(){
             lastStep_ = static_cast<int>(Step::Evaluation);
             lastStepName_ = "the evaluation";
+            evaluationRound += 1;
+        }
+
+        /** Number of evaluations so far (markEvaluated() calls); the round of Network::lastVariedRound. */
+        int evaluationRound = 0;
+
+        /**
+         * @brief Operators that change a network, as bits of Network::lastVariedBy.
+         */
+        enum Variation : unsigned int {
+            AddDelNodes = 1, Crossover = 2, EdgeMutation = 4, BoundaryNormal = 8,
+            BoundaryUniform = 16, BoundaryFractal = 32, GammaMutation = 64, AlphaMutation = 128
+        };
+
+        /**
+         * @brief Records that an operator changed a network.
+         *
+         * @details The first change in a new evaluation round starts a new record and gives the
+         * network a new uid; further changes in the same round add their bit. Copies (selection,
+         * elites) keep uid and record, so a network's record names the operators that made it.
+         */
+        void markVaried(Network& net, unsigned int bit){
+            if(net.lastVariedRound != evaluationRound){
+                net.lastVariedRound = evaluationRound;
+                net.lastVariedBy = 0;
+                net.uid = ++nextUid_;
+            }
+            net.lastVariedBy |= bit;
+        }
+
+        /** Continues uid counter and round after the individuals' records (e.g. after unpickling),
+         *  so the next change still starts a new record with a new uid. */
+        void restoreVariationCounters(){
+            for(const auto& net : individuals){
+                nextUid_ = std::max(nextUid_, net.uid);
+                evaluationRound = std::max(evaluationRound, net.lastVariedRound);
+            }
         }
 
         /**
@@ -299,6 +337,7 @@ class Population {
                     useExperience,
                     nFeatureValues
                 ));
+                individuals.back().uid = ++nextUid_;
             }
         }
         /** @} */
@@ -1254,7 +1293,10 @@ class Population {
                         }
                     }
                     if(individuals[i].startNode.edgeMutation(probStartNode, individuals[i].innerNodes.size(), k, N, &individuals[i].innerNodes)) changed = true;
-                    if(changed) individuals[i].structureChangedThisGen = true;
+                    if(changed){
+                        individuals[i].structureChangedThisGen = true;
+                        markVaried(individuals[i], EdgeMutation);
+                    }
                  }
              }
         }
@@ -1295,7 +1337,8 @@ class Population {
          */
         template <typename FuncMutation>
         void applyBoundaryMutation(FuncMutation&& func, bool justUsedNodes = false, float k = 0.0f, int N = 1,
-                                   const std::string& stepName = "applyBoundaryMutation()", bool countRatios = false) {
+                                   const std::string& stepName = "applyBoundaryMutation()", bool countRatios = false,
+                                   unsigned int variationBit = BoundaryNormal) {
             checkStep(Step::Mutation, stepName);
             for (int i = 0; i < individuals.size(); ++i) {
 
@@ -1324,7 +1367,10 @@ class Population {
                             }
                         }
                     }
-                    if (changed) individuals[i].structureChangedThisGen = true;
+                    if (changed){
+                        individuals[i].structureChangedThisGen = true;
+                        markVaried(individuals[i], variationBit);
+                    }
                 }
             }
         }
@@ -1351,7 +1397,7 @@ class Population {
                                          bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){ 
                 return node.boundaryMutationUniform(probability, k, N, dataGuided, everSeen);
-            }, justUsedNodes, k, 1, "callBoundaryMutationUniform()");
+            }, justUsedNodes, k, 1, "callBoundaryMutationUniform()", false, BoundaryUniform);
         }
       
         /**
@@ -1493,7 +1539,7 @@ class Population {
                                          bool dataGuided = false, bool everSeen = false){
             applyBoundaryMutation([=](Node& node, const additionalMutationParam&, bool justUsedNodes, float k, int N){
                 return node.boundaryMutationFractal(probability, minF, maxF, dataGuided, everSeen, k, N);
-            }, justUsedNodes, k, 1, "callBoundaryMutationFractal()", true);
+            }, justUsedNodes, k, 1, "callBoundaryMutationFractal()", true, BoundaryFractal);
         }
 
         /**
@@ -1819,6 +1865,7 @@ class Population {
 
                         host.nCrossovers += 1;
                         host.structureChangedThisGen = true;
+                        markVaried(host, Crossover);
                         host.blendLineageWith(donor, lineagePriorCap); // host only, donor unchanged
                         continue;
                     }
@@ -1879,6 +1926,7 @@ class Population {
 
                     host.nCrossovers += 1;
                     host.structureChangedThisGen = true;
+                    markVaried(host, Crossover);
                     host.blendLineageWith(donor, lineagePriorCap); // only host absorbs donor's lineage stats (donor unaffected)
                 }
                 return;
@@ -2099,10 +2147,11 @@ class Population {
                     } else {
                         donorNet->blendLineageWith(*recipient, lineagePriorCap);
                     }
-                    auto markChanged = [](Network* net){
+                    auto markChanged = [this](Network* net){
                         net->changeFalseEdges();
                         net->nCrossovers += 1;
                         net->structureChangedThisGen = true;
+                        markVaried(*net, Crossover);
                     };
                     if(recipientChanged) markChanged(recipient);
                     if(donorChanged) markChanged(donorNet);
@@ -2191,6 +2240,7 @@ class Population {
                         // parent1 is elite → only parent2 receives genes
                         parent2.nCrossovers += 1;
                         parent2.structureChangedThisGen = true;
+                        markVaried(parent2, Crossover);
                         // Elite stays unchanged; only the recipient blends lineage stats
                         parent2.blendLineageWith(parent1, lineagePriorCap);
 
@@ -2226,6 +2276,7 @@ class Population {
                         // parent2 is elite → only parent1 receives genes
                         parent1.nCrossovers += 1;
                         parent1.structureChangedThisGen = true;
+                        markVaried(parent1, Crossover);
                         // Elite stays unchanged; only the recipient blends lineage stats
                         parent1.blendLineageWith(parent2, lineagePriorCap);
 
@@ -2268,6 +2319,8 @@ class Population {
                         parent2.nCrossovers += 1;
                         parent1.structureChangedThisGen = true;
                         parent2.structureChangedThisGen = true;
+                        markVaried(parent1, Crossover);
+                        markVaried(parent2, Crossover);
                         blendLineageBidirectional(parent1, parent2);
 
                         // exchange all nodes until same subnetwork size is reached 
@@ -2673,6 +2726,7 @@ class Population {
 
                 if(individuals[i].addDelNodes(minF, maxF, junk, nFeatureValues, currentGeneration, crossoverProtection, nodeGracePeriod)){
                     individuals[i].structureChangedThisGen = true;
+                    markVaried(individuals[i], AddDelNodes);
                 }
 
             }
@@ -2897,7 +2951,10 @@ class Population {
                     if (justUsedNodes && !node.used) continue;
                     if (node.gammaMutation(probability)) changed = true;
                 }
-                if (changed) individuals[i].structureChangedThisGen = true;
+                if (changed){
+                    individuals[i].structureChangedThisGen = true;
+                    markVaried(individuals[i], GammaMutation);
+                }
             }
         }
 
@@ -2916,7 +2973,10 @@ class Population {
                     if (justUsedNodes && !node.used) continue;
                     if (node.alphaMutation(probability)) changed = true;
                 }
-                if (changed) individuals[i].structureChangedThisGen = true;
+                if (changed){
+                    individuals[i].structureChangedThisGen = true;
+                    markVaried(individuals[i], AlphaMutation);
+                }
             }
         }
 

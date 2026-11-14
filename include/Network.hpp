@@ -107,6 +107,14 @@ class Network {
          *  reads it to cap the lineageMean/lineageSuccessRate history only of lineages changed this
          *  generation -- unchanged individuals keep theirs -- and then resets it to false. */
         bool structureChangedThisGen = false;
+        /** Id of this genotype: the first change in a new evaluation round gives a new id, copies
+         *  keep it (see Population::markVaried()). 0 = not created by a Population. */
+        uint64_t uid = 0;
+        /** Population::Variation bits of the operators that changed this network in round
+         *  lastVariedRound, e.g. to trace which operator produced a new champion. */
+        unsigned int lastVariedBy = 0;
+        /** Population::evaluationRound of that change; -1 = unchanged since creation. */
+        int lastVariedRound = -1;
         std::vector<float> objectives = {}; /**< Pareto objectives, filled by Population::calculateParetoObjectives(). */
 
         // --- Epsilon-lexicase objectives (see Population::lexicaseSelection()) ---

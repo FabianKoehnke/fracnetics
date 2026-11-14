@@ -160,4 +160,16 @@ pop.callBoundaryMutationFractal(probability=0, minF=minF, maxF=maxF, justUsedNod
 The fractal mutation redraws production-rule ratios, so its `k` counts ratios: `k=1` redraws
 about one ratio per network (rate k/N, N = mutable ratios of the eligible nodes).
 
+## 🧬 Variation Record
+
+Every network carries the operators that made it: the first change in a new evaluation round
+gives it a new `uid` and starts a record (`lastVariedBy`, bits of `fracnetics.Variation`;
+`lastVariedRound`, the population's `evaluationRound`), further changes in the same round add
+their bit, and copies keep both. This traces which operator produced a new champion:
+
+```python
+champ = hallOfFame.champion
+ops = [name for name, v in fn.Variation.__members__.items() if champ.lastVariedBy & int(v)]
+```
+
 ---
