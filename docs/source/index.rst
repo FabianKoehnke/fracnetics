@@ -134,6 +134,13 @@ gives it a new ``uid`` and starts a record (``lastVariedBy``, bits of ``fracneti
 ``lastVariedRound``, the population's ``evaluationRound``); copies keep both. This traces which
 operator produced a new champion.
 
+Exploration noise
+~~~~~~~~~~~~~~~~~
+
+``gymnasium(..., actionNoise=eps)`` replaces the network's action by a random one with
+probability ``eps`` per step (exploration during training). The random stream depends on the
+seed only, so every network meets the same disturbances on the same seed.
+
 
 Applications
 ------------

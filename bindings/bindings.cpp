@@ -451,9 +451,11 @@ PYBIND11_MODULE(_core, m) {
                     py::object resetOptions,
                     py::object episodeObjectives,
                     bool trackLineage,
-                    float successThreshold
+                    float successThreshold,
+                    float actionNoise
                     ) {
                         EpisodeSettings settings{dMax, maxSteps, maxConsecutiveP, fallbackAction, holdAction};
+                        settings.actionNoise = actionNoise;
                         evaluateEpisodes(self.individuals, env, seeds, resetOptions, settings,
                                          episodeObjectives, trackLineage, successThreshold);
                         self.markEvaluated();
@@ -464,6 +466,7 @@ PYBIND11_MODULE(_core, m) {
                 py::arg("resetOptions")=py::none(), py::arg("episodeObjectives")=py::none(),
                 py::arg("trackLineage")=false,
                 py::arg("successThreshold")=std::numeric_limits<float>::infinity(),
+                py::arg("actionNoise")=0.0f,
                 R"doc(Evaluate every individual on one episode per seed (one case per seed).
 
 Args:
@@ -480,6 +483,9 @@ Args:
         stored per case in objectivesPerCase and averaged into lexicaseObjectives.
     trackLineage: Update the lineage statistics with every case.
     successThreshold: A case above this score counts as a success for lineageSuccessRate.
+    actionNoise: Probability per step that the network's action is replaced by a random one
+        of env.action_space.n (exploration during training; 0 = off). The random stream
+        depends on the seed only, so every network meets the same disturbances per seed.
 
 Writes fitness (mean return), caseScores, visitedNodesPerCase, objectivesPerCase and
 lexicaseObjectives of every individual.)doc"

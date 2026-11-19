@@ -172,4 +172,13 @@ champ = hallOfFame.champion
 ops = [name for name, v in fn.Variation.__members__.items() if champ.lastVariedBy & int(v)]
 ```
 
+## 🎲 Exploration Noise
+
+`gymnasium(..., actionNoise=eps)` replaces the network's action by a random one of
+`env.action_space.n` with probability `eps` per step, as exploration during training (test
+without it). The random stream depends on the seed only, so every network meets the same
+disturbances on the same seed and the per-case comparison of lexicase stays fair; a strategy
+that only works on the undisturbed trajectory loses where it has no margin. `ParallelEvaluator`
+passes it on; `actionNoise=0` (default) draws nothing.
+
 ---

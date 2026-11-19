@@ -4,7 +4,9 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
+#include <algorithm>
 #include <limits>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -60,6 +62,8 @@ struct EpisodeSettings {
     int maxConsecutiveP = 5;          /**< Maximum consecutive processing nodes before fallbackAction is used. */
     int fallbackAction = 0;           /**< Action executed for an invalid network (see Network::act()). */
     int holdAction = -1;              /**< Processing function that repeats the previous decision; -1 = off. */
+    float actionNoise = 0.0f;         /**< Probability per step that the chosen action is replaced by a random one; 0 = off. */
+    int numActions = 0;               /**< Number of discrete actions the random one is drawn from (env.action_space.n). */
 };
 
 /**
@@ -99,8 +103,9 @@ inline void readObservation(const py::handle& src, std::vector<double>& out) {
  * 1. env.reset(seed=seed[, options=options]); seed < 0 resets without a seed.
  * 2. Network::initPathTraversal(0, newRun): with newRun = false the node usage flags and
  *    counters keep accumulating (several cases of one generation).
- * 3. Until terminated, truncated or maxSteps: Network::act() picks the action,
- *    env.step(action), Network::recordStep() adds the reward to fitness.
+ * 3. Until terminated, truncated or maxSteps: Network::act() picks the action (with
+ *    probability actionNoise replaced by a random one), env.step(action),
+ *    Network::recordStep() adds the reward to fitness.
  * 4. Network::updateExperienceFromEpisode() (JE nodes).
  * 5. If objectivesHook is set, it is called with the EpisodeResult and its return value
  *    (a sequence of floats, larger = better) is returned.
@@ -146,9 +151,25 @@ inline std::vector<float> runEpisode(Network& net, const py::object& env, int se
     int steps = 0;
     py::object step = env.attr("step"); // bound once instead of an attribute lookup per step
 
+    // Exploration noise: its stream depends on the seed only and is drawn every step, so every
+    // network meets the same disturbances on the same seed (a fair comparison per case)
+    const bool noisy = settings.actionNoise > 0.0f;
+    std::mt19937 noiseRng;
+    if (noisy) {
+        std::seed_seq noiseSeed{seed, 0x6E6F6973};
+        noiseRng.seed(noiseSeed);
+    }
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    std::uniform_int_distribution<int> anyAction(0, std::max(0, settings.numActions - 1));
+
     while (true) {
         int action = net.act(obs, settings.dMax, settings.maxConsecutiveP,
                              settings.fallbackAction, settings.holdAction);
+        if (noisy) {
+            const float u = unit(noiseRng);
+            const int randomAction = anyAction(noiseRng);
+            if (u < settings.actionNoise) action = randomAction;
+        }
         py::tuple result = step(py::int_(action));
         readObservation(result[0], obs);
         const float reward = result[1].cast<float>();
@@ -197,7 +218,8 @@ inline std::vector<float> runEpisode(Network& net, const py::object& env, int se
  * @param env Gymnasium environment.
  * @param seeds Seeds, one case each. Must not be empty.
  * @param resetOptions None, or a sequence with one env.reset(options=...) entry per seed.
- * @param settings Traversal limits and fallback/hold actions, see EpisodeSettings.
+ * @param settings Traversal limits, fallback/hold actions and action noise, see EpisodeSettings;
+ *        with actionNoise > 0 the number of actions is read from env.action_space.n.
  * @param objectivesHook None, or callable(EpisodeResult) -> sequence of floats.
  * @param trackLineage If true, every case updates the lineage statistics
  *        (Network::updateLineageStats()).
@@ -206,11 +228,17 @@ inline std::vector<float> runEpisode(Network& net, const py::object& env, int se
  */
 inline void evaluateEpisodes(std::vector<Network>& individuals, const py::object& env,
                              const std::vector<int>& seeds, const py::object& resetOptions,
-                             const EpisodeSettings& settings, const py::object& objectivesHook,
+                             EpisodeSettings settings, const py::object& objectivesHook,
                              bool trackLineage = false,
                              float successThreshold = std::numeric_limits<float>::infinity()) {
     if (seeds.empty()) {
         throw std::invalid_argument("gymnasium(): seeds must not be empty");
+    }
+    if (!(settings.actionNoise >= 0.0f && settings.actionNoise <= 1.0f)) {
+        throw std::invalid_argument("gymnasium(): actionNoise must lie in [0, 1]");
+    }
+    if (settings.actionNoise > 0.0f && settings.numActions <= 0) {
+        settings.numActions = env.attr("action_space").attr("n").cast<int>();
     }
     std::vector<py::object> options(seeds.size(), py::none());
     if (!resetOptions.is_none()) {
