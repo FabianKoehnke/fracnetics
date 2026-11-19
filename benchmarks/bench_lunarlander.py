@@ -90,7 +90,7 @@ if args.workers:
 # its first seed-schedule step (gen 182), 8 sectors without subsectors, one-way crossover at
 # 0.05 x 0.05, hall of fame without memory, plain boundary mutations
 for name, value in [("seed", "10"), ("populationSize", "100"), ("seedStart", "10"),
-                    ("seedSectors", "8"), ("seedSubsectors", "1"), ("seedProportional", "False"), ("seedDifficulty", "False"),
+                    ("seedSectors", "8"), ("seedSubsectors", "1"), ("seedProportional", "False"), ("seedDifficulty", "False"), ("eliteRiskAversion", "0.0"), ("touchdownCases", "False"),
                     ("crossoverProbability", "0.05"), ("crossoverNodeRate", "0.05"),
                     ("crossoverBidirectional", "False"), ("hallOfFameMemory", "False"),
                     ("boundaryMutationDataGuided", "False"), ("boundaryMutationEverSeen", "False"),
